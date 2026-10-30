@@ -34,6 +34,26 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX projects_user ON projects(user_id, updated_at DESC);
   `,
+  // 2: sharing
+  `
+  ALTER TABLE projects ADD COLUMN link_access TEXT NOT NULL DEFAULT 'none' CHECK (link_access IN ('none', 'view', 'edit'));
+  ALTER TABLE projects ADD COLUMN updated_by TEXT;
+  CREATE TABLE project_shares (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    permission TEXT NOT NULL CHECK (permission IN ('view', 'edit')),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (project_id, user_id)
+  );
+  CREATE INDEX project_shares_user ON project_shares(user_id);
+  -- Databases a user opened through an "anyone with the link" share, so they appear in Shared with me.
+  CREATE TABLE project_opens (
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    opened_at  TEXT NOT NULL,
+    PRIMARY KEY (user_id, project_id)
+  );
+  `,
 ];
 
 export function openDatabase(file: string): DB {

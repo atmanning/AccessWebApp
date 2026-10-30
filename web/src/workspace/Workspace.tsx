@@ -26,13 +26,23 @@ import {
 } from "./context";
 import { findObject, KIND_LABEL, newId, newTable, uniqueObjectName, validateObjectName } from "./docOps";
 import { ImportCsvDialog } from "./ImportCsvDialog";
+import { ShareDialog } from "./ShareDialog";
 import { NavPane, type Selection } from "./NavPane";
 import { Ribbon } from "./Ribbon";
 
 type SaveState = "saved" | "pending" | "saving" | "error" | "conflict";
 const MAX_UNDO = 100;
 
-export function Workspace(props: { project: ProjectRecord; user: UserInfo; onClose: () => void; onSignOut: () => void }) {
+export function Workspace(props: {
+  project: ProjectRecord;
+  user: UserInfo;
+  onClose: () => void;
+  onSignOut: () => void;
+  /** Opens another database (used by Save a copy). */
+  onOpenProject: (p: ProjectRecord) => void;
+}) {
+  const role = props.project.role;
+  const readOnly = role === "view";
   const dialogs = useDialogs();
   const [doc, setDoc] = useState<ProjectDoc>(props.project.doc);
   const [name, setName] = useState(props.project.name);
@@ -107,6 +117,10 @@ export function Workspace(props: { project: ProjectRecord; user: UserInfo; onClo
 
   // ---- Document updates and undo -----------------------------------------------------------
   const update = useCallback((recipe: (d: ProjectDoc) => void) => {
+    if (readOnly) {
+      setStatus("You have view-only access to this database. Use Save a copy to make your own editable version.", "error");
+      return;
+    }
     const prev = docRef.current;
     const next = produce(prev, recipe);
     if (next === prev) return;
@@ -115,7 +129,7 @@ export function Workspace(props: { project: ProjectRecord; user: UserInfo; onClo
     history.current.future = [];
     docRef.current = next;
     setDoc(next);
-  }, []);
+  }, [readOnly, setStatus]);
 
   const undo = useCallback(() => {
     const prev = history.current.past.pop();
@@ -195,8 +209,9 @@ export function Workspace(props: { project: ProjectRecord; user: UserInfo; onClo
       activeKey,
       setStatus,
       registerCommands,
+      readOnly,
     }),
-    [props.project.id, name, doc, update, openObject, closeTab, setTabView, activeKey, setStatus, registerCommands],
+    [props.project.id, name, doc, update, openObject, closeTab, setTabView, activeKey, setStatus, registerCommands, readOnly],
   );
 
   // ---- Commands ----------------------------------------------------------------------------
@@ -311,7 +326,7 @@ export function Workspace(props: { project: ProjectRecord; user: UserInfo; onClo
     }
   };
 
-  const reloadFromServer = async () => {
+  const reloadFromServer = async (message = "Reloaded the latest version.") => {
     const { project } = await api.getProject(props.project.id);
     revision.current = project.revision;
     savedDoc.current = project.doc;
@@ -320,7 +335,47 @@ export function Workspace(props: { project: ProjectRecord; user: UserInfo; onClo
     setDoc(project.doc);
     setName(project.name);
     setSaveState("saved");
-    setStatus("Reloaded the latest version.");
+    setStatus(message);
+  };
+
+  // Shared databases: pick up other people's saves. With no unsaved local changes we reload
+  // quietly; otherwise the next save reports the conflict and offers a reload.
+  useEffect(() => {
+    let stopped = false;
+    const check = async () => {
+      if (document.hidden || saving.current) return;
+      try {
+        const r = await api.getRevision(props.project.id);
+        if (stopped || r.revision <= revision.current) return;
+        if (docRef.current === savedDoc.current) {
+          await reloadFromServer(r.updatedByName ? `Updated with changes from ${r.updatedByName}.` : "Updated with the latest changes.");
+        }
+      } catch {
+        /* offline or access removed: the next save will say so */
+      }
+    };
+    const timer = setInterval(check, 8000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [props.project.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [sharing, setSharing] = useState(false);
+
+  const saveCopy = async () => {
+    const copyName = await dialogs.prompt("Save a copy", "Name for your copy:", `${name} (copy)`.slice(0, 64), (v) =>
+      validateObjectName({ version: 1, tables: [], queries: [], forms: [], reports: [], relationships: [] }, "table", v),
+    );
+    if (!copyName) return;
+    try {
+      await save();
+      const { project } = await api.copyProject(props.project.id, copyName);
+      props.onOpenProject(project);
+      setStatus(`This is your own copy, "${copyName}". You can edit it.`);
+    } catch (e) {
+      dialogs.alert("Save a copy", (e as Error).message);
+    }
   };
 
   // ---- Keyboard shortcuts --------------------------------------------------------------------
@@ -374,7 +429,18 @@ export function Workspace(props: { project: ProjectRecord; user: UserInfo; onClo
             <button className="icon-btn light" title="Undo (Ctrl+Z)" onClick={undo} aria-label="Undo"><UndoIcon size={14} /></button>
             <button className="icon-btn light" title="Redo (Ctrl+Y)" onClick={redo} aria-label="Redo"><RedoIcon size={14} /></button>
           </div>
-          <div className="title-text">{name} : Database - Access Web</div>
+          <div className="title-text">
+            {name} : Database{readOnly ? " (Read-Only)" : ""} - Access Web
+          </div>
+          {role === "owner" ? (
+            <button className="title-share" onClick={() => setSharing(true)} title="Share this database with other people">
+              Share
+            </button>
+          ) : (
+            <button className="title-share" onClick={saveCopy} title="Make your own copy of this database">
+              Save a copy
+            </button>
+          )}
           <div className="title-user" title={props.user.email}>{props.user.name}</div>
         </header>
 
@@ -399,8 +465,15 @@ export function Workspace(props: { project: ProjectRecord; user: UserInfo; onClo
 
         {saveState === "conflict" && (
           <div className="message-bar">
-            <strong>Changed elsewhere.</strong> This database was edited in another window, so your latest changes weren't saved.
-            <button onClick={reloadFromServer}>Reload latest</button>
+            <strong>Changed elsewhere.</strong> {status.kind === "error" ? status.message : "This database was changed elsewhere."} Your
+            latest changes weren't saved.
+            <button onClick={() => reloadFromServer()}>Reload latest</button>
+          </div>
+        )}
+        {readOnly && (
+          <div className="message-bar readonly-bar">
+            <strong>Read-only.</strong> {props.project.ownerName} shared this database with you to view. You can run queries and export it.
+            <button onClick={saveCopy}>Save a copy</button>
           </div>
         )}
 
@@ -455,7 +528,14 @@ export function Workspace(props: { project: ProjectRecord; user: UserInfo; onClo
             doc={doc}
             user={props.user}
             onBack={() => setBackstage(false)}
-            onRename={renameDatabase}
+            onRename={role === "owner" ? renameDatabase : undefined}
+            onShare={role === "owner" ? () => { setBackstage(false); setSharing(true); } : undefined}
+            onCopy={saveCopy}
+            roleText={
+              role === "owner"
+                ? "You own this database."
+                : `${props.project.ownerName} shared this database with you. You can ${role === "edit" ? "view and edit" : "view"} it.`
+            }
             onExport={exportAccess}
             onClose={async () => {
               await save();
@@ -469,6 +549,7 @@ export function Workspace(props: { project: ProjectRecord; user: UserInfo; onClo
           />
         )}
         {importing && <ImportCsvDialog onClose={() => setImporting(false)} />}
+        {sharing && <ShareDialog projectId={props.project.id} projectName={name} owner={props.user} onClose={() => setSharing(false)} />}
         <input
           ref={accessInput}
           type="file"
@@ -584,7 +665,10 @@ function Backstage(props: {
   doc: ProjectDoc;
   user: UserInfo;
   onBack: () => void;
-  onRename: () => void;
+  onRename?: () => void;
+  onShare?: () => void;
+  onCopy: () => void;
+  roleText: string;
   onExport: () => void;
   onClose: () => void;
   onSignOut: () => void;
@@ -602,6 +686,8 @@ function Backstage(props: {
           <BackIcon size={28} />
         </button>
         <button className="active">Info</button>
+        {props.onShare && <button onClick={props.onShare}>Share</button>}
+        <button onClick={props.onCopy}>Save a copy</button>
         <button onClick={props.onExport}>Export to Access</button>
         <button onClick={props.onClose}>Close</button>
         <div className="spacer" />
@@ -617,7 +703,12 @@ function Backstage(props: {
               {props.doc.tables.length} table(s), {props.doc.queries.length} queries, {props.doc.forms.length} form(s),{" "}
               {props.doc.reports.length} report(s), {records.toLocaleString()} record(s).
             </p>
-            <button onClick={props.onRename}>Rename database…</button>
+            <p>{props.roleText}</p>
+            <div className="button-row">
+              {props.onRename && <button onClick={props.onRename}>Rename database…</button>}
+              {props.onShare && <button onClick={props.onShare}>Share…</button>}
+              <button onClick={props.onCopy}>Save a copy…</button>
+            </div>
           </div>
           <div className="info-card">
             <h3>Export to Microsoft Access</h3>

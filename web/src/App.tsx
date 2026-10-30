@@ -19,6 +19,7 @@ export default function App() {
 function Root() {
   const [user, setUser] = useState<UserInfo | null | undefined>(undefined);
   const [project, setProject] = useState<ProjectRecord | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
 
   useEffect(() => {
     api.me().then((r) => setUser(r.user), () => setUser(null));
@@ -28,7 +29,19 @@ function Root() {
   useEffect(() => {
     if (!user) return;
     const id = new URLSearchParams(location.search).get("db");
-    if (id && !project) api.getProject(id).then((r) => setProject(r.project), () => history.replaceState(null, "", "/"));
+    if (id && !project) {
+      api.getProject(id).then(
+        (r) => open(r.project),
+        (e) => {
+          history.replaceState(null, "", "/");
+          setLinkError(
+            e.status === 404
+              ? "That database doesn't exist or hasn't been shared with you. Ask its owner to share it with the email you signed in with."
+              : e.message,
+          );
+        },
+      );
+    }
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const open = (p: ProjectRecord | null) => {
@@ -45,8 +58,8 @@ function Root() {
 
   if (user === undefined) return <div className="splash"><AccessIcon size={48} /></div>;
   if (!user) return <AuthScreen onSignedIn={setUser} />;
-  if (project) return <Workspace key={project.id} project={project} user={user} onClose={() => open(null)} onSignOut={signOut} />;
-  return <Home user={user} onOpen={open} onSignOut={signOut} />;
+  if (project) return <Workspace key={project.id} project={project} user={user} onClose={() => open(null)} onSignOut={signOut} onOpenProject={open} />;
+  return <Home user={user} onOpen={open} onSignOut={signOut} notice={linkError} onDismissNotice={() => setLinkError(null)} />;
 }
 
 function AuthScreen({ onSignedIn }: { onSignedIn: (u: UserInfo) => void }) {
@@ -118,12 +131,32 @@ function AuthScreen({ onSignedIn }: { onSignedIn: (u: UserInfo) => void }) {
   );
 }
 
-function Home({ user, onOpen, onSignOut }: { user: UserInfo; onOpen: (p: ProjectRecord) => void; onSignOut: () => void }) {
+function Home({
+  user,
+  onOpen,
+  onSignOut,
+  notice,
+  onDismissNotice,
+}: {
+  user: UserInfo;
+  onOpen: (p: ProjectRecord) => void;
+  onSignOut: () => void;
+  notice?: string | null;
+  onDismissNotice?: () => void;
+}) {
   const dialogs = useDialogs();
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
+  const [shared, setShared] = useState<ProjectSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const load = () => api.listProjects().then((r) => setProjects(r.projects), (e) => setError(e.message));
+  const load = () =>
+    api.listProjects().then(
+      (r) => {
+        setProjects(r.projects);
+        setShared(r.shared);
+      },
+      (e) => setError(e.message),
+    );
   useEffect(() => {
     load();
   }, []);
@@ -175,7 +208,11 @@ function Home({ user, onOpen, onSignOut }: { user: UserInfo; onOpen: (p: Project
   };
 
   const remove = async (p: ProjectSummary) => {
-    if (!(await dialogs.confirm("Delete database", `Permanently delete '${p.name}' and all its data? This can't be undone.`, { okLabel: "Delete", danger: true }))) return;
+    const ok =
+      p.role === "owner"
+        ? await dialogs.confirm("Delete database", `Permanently delete '${p.name}' and all its data? This can't be undone.`, { okLabel: "Delete", danger: true })
+        : await dialogs.confirm("Remove from list", `Remove '${p.name}' from Shared with me? ${p.ownerName} can share it with you again.`, { okLabel: "Remove" });
+    if (!ok) return;
     await api.deleteProject(p.id).catch((e) => dialogs.alert("Access Web", e.message));
     load();
   };
@@ -204,6 +241,12 @@ function Home({ user, onOpen, onSignOut }: { user: UserInfo; onOpen: (p: Project
       </nav>
       <main className="home-main">
         <h1>Good {greeting()}, {user.name.split(" ")[0]}</h1>
+        {notice && (
+          <div className="message-bar home-notice" role="alert">
+            {notice}
+            <button onClick={onDismissNotice}>OK</button>
+          </div>
+        )}
         <div className="template-row">
           <button className="template-tile" onClick={() => fileInput.current?.click()} disabled={importing}>
             <div className="template-art access-file">
@@ -233,40 +276,65 @@ function Home({ user, onOpen, onSignOut }: { user: UserInfo; onOpen: (p: Project
             </button>
           ))}
         </div>
-        <h2>Recent</h2>
+        <h2>My databases</h2>
         {error && <div className="field-error">{error}</div>}
         {projects && !projects.length && <p className="muted">You don't have any databases yet. Create one above.</p>}
-        {projects && projects.length > 0 && (
-          <table className="recent-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Tables</th>
-                <th>Date modified</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {projects.map((p) => (
-                <tr key={p.id} onDoubleClick={() => open(p.id)}>
-                  <td>
-                    <button className="link recent-name" onClick={() => open(p.id)}>
-                      <AccessIcon size={18} /> {p.name}
-                    </button>
-                  </td>
-                  <td>{p.tableCount}</td>
-                  <td>{new Date(p.updatedAt).toLocaleString()}</td>
-                  <td className="recent-actions">
-                    <button onClick={() => rename(p)}>Rename</button>
-                    <button onClick={() => remove(p)}>Delete</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {projects && projects.length > 0 && <ProjectTable projects={projects} onOpen={open} onRename={rename} onRemove={remove} />}
+        {shared.length > 0 && (
+          <>
+            <h2>Shared with me</h2>
+            <ProjectTable projects={shared} onOpen={open} onRemove={remove} shared />
+          </>
         )}
       </main>
     </div>
+  );
+}
+
+const ROLE_LABEL = { owner: "Owner", edit: "Can edit", view: "Can view" } as const;
+
+function ProjectTable(props: {
+  projects: ProjectSummary[];
+  shared?: boolean;
+  onOpen: (id: string) => void;
+  onRename?: (p: ProjectSummary) => void;
+  onRemove: (p: ProjectSummary) => void;
+}) {
+  return (
+    <table className="recent-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          {props.shared && <th>Owner</th>}
+          {props.shared && <th>Access</th>}
+          <th>Tables</th>
+          <th>Date modified</th>
+          <th />
+        </tr>
+      </thead>
+      <tbody>
+        {props.projects.map((p) => (
+          <tr key={p.id} onDoubleClick={() => props.onOpen(p.id)}>
+            <td>
+              <button className="link recent-name" onClick={() => props.onOpen(p.id)}>
+                <AccessIcon size={18} /> {p.name}
+              </button>
+            </td>
+            {props.shared && <td>{p.ownerName}</td>}
+            {props.shared && <td><span className={`role-badge ${p.role}`}>{ROLE_LABEL[p.role]}</span></td>}
+            <td>{p.tableCount}</td>
+            <td>
+              {new Date(p.updatedAt).toLocaleString()}
+              {p.updatedByName && <span className="muted small"> by {p.updatedByName}</span>}
+            </td>
+            <td className="recent-actions">
+              {props.onRename && <button onClick={() => props.onRename!(p)}>Rename</button>}
+              <button onClick={() => props.onRemove(p)}>{p.role === "owner" ? "Delete" : "Remove"}</button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 

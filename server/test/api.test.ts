@@ -194,3 +194,89 @@ describe("projects", () => {
     expect((await alice.get("/api/projects")).body.projects).toHaveLength(0);
   });
 });
+
+describe("sharing", () => {
+  const app = makeApp();
+  const json = (agent: Awaited<ReturnType<typeof signUp>>) => ({
+    put: (url: string, body: unknown) => agent.put(url).send(body as object),
+    del: (url: string) => agent.delete(url).set("X-Requested-With", "fetch"),
+  });
+  let owner: Awaited<ReturnType<typeof signUp>>;
+  let editor: Awaited<ReturnType<typeof signUp>>;
+  let viewer: Awaited<ReturnType<typeof signUp>>;
+  let stranger: Awaited<ReturnType<typeof signUp>>;
+  let id = "";
+
+  beforeAll(async () => {
+    owner = await signUp(app, "owner@example.com");
+    editor = await signUp(app, "editor@example.com");
+    viewer = await signUp(app, "viewer@example.com");
+    stranger = await signUp(app, "stranger@example.com");
+    id = (await owner.post("/api/projects").send({ name: "Team DB", template: "contacts" })).body.project.id;
+  });
+
+  it("shares with registered users by email and lists them under Shared with me", async () => {
+    expect((await json(owner).put(`/api/projects/${id}/shares`, { email: "Editor@Example.com", permission: "edit" })).status).toBe(200);
+    const res = await json(owner).put(`/api/projects/${id}/shares`, { email: "viewer@example.com", permission: "view" });
+    expect(res.body.shares.map((s: { email: string; permission: string }) => `${s.email}:${s.permission}`).sort()).toEqual([
+      "editor@example.com:edit",
+      "viewer@example.com:view",
+    ]);
+    const missing = await json(owner).put(`/api/projects/${id}/shares`, { email: "nobody@example.com", permission: "view" });
+    expect(missing.status).toBe(404);
+    expect(missing.body.error).toMatch(/registered/);
+
+    const list = (await editor.get("/api/projects")).body;
+    expect(list.projects).toHaveLength(0);
+    expect(list.shared[0]).toMatchObject({ id, role: "edit", ownerName: "Test User" });
+    expect((await viewer.get(`/api/projects/${id}`)).body.project.role).toBe("view");
+  });
+
+  it("enforces roles: editors save, viewers and strangers can't, only owners manage", async () => {
+    const { body } = await editor.get(`/api/projects/${id}`);
+    const doc = body.project.doc;
+    doc.tables[0].rows[0].c_city = "Edited";
+    const saved = await editor.put(`/api/projects/${id}`).send({ doc, baseRevision: body.project.revision });
+    expect(saved.status).toBe(200);
+
+    const v = await viewer.get(`/api/projects/${id}`);
+    expect((await viewer.put(`/api/projects/${id}`).send({ doc, baseRevision: v.body.project.revision })).status).toBe(403);
+    expect((await editor.put(`/api/projects/${id}`).send({ name: "Renamed", baseRevision: saved.body.project.revision })).status).toBe(403);
+    expect((await json(editor).put(`/api/projects/${id}/shares`, { email: "stranger@example.com", permission: "edit" })).status).toBe(403);
+    expect((await stranger.get(`/api/projects/${id}`)).status).toBe(404);
+
+    // The owner's next save without reloading names who changed it.
+    const stale = await owner.put(`/api/projects/${id}`).send({ doc, baseRevision: 1 });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error).toMatch(/Test User saved changes/);
+    expect((await owner.get(`/api/projects/${id}/revision`)).body.revision).toBe(2);
+  });
+
+  it("supports anyone-with-the-link access", async () => {
+    expect((await json(owner).put(`/api/projects/${id}/link-access`, { linkAccess: "view" })).body.linkAccess).toBe("view");
+    expect((await stranger.get("/api/projects")).body.shared).toHaveLength(0);
+    expect((await stranger.get(`/api/projects/${id}`)).body.project.role).toBe("view");
+    expect((await stranger.get("/api/projects")).body.shared).toHaveLength(1); // remembered once opened
+    // A link share never lowers a specific share.
+    await json(owner).put(`/api/projects/${id}/link-access`, { linkAccess: "edit" });
+    expect((await stranger.get(`/api/projects/${id}`)).body.project.role).toBe("edit");
+    await json(owner).put(`/api/projects/${id}/link-access`, { linkAccess: "none" });
+    expect((await stranger.get(`/api/projects/${id}`)).status).toBe(404);
+    expect((await stranger.get("/api/projects")).body.shared).toHaveLength(0);
+  });
+
+  it("lets anyone with access save a copy, and non-owners only remove it from their list", async () => {
+    const copy = await viewer.post(`/api/projects/${id}/copy`).send({ name: "My Copy" });
+    expect(copy.status).toBe(201);
+    expect(copy.body.project.role).toBe("owner");
+    expect(copy.body.project.doc.tables[0].rows[0].c_city).toBe("Edited");
+
+    const removed = await json(viewer).del(`/api/projects/${id}`);
+    expect(removed.body.removedOnly).toBe(true);
+    expect((await viewer.get(`/api/projects/${id}`)).status).toBe(404);
+    expect((await owner.get(`/api/projects/${id}`)).status).toBe(200);
+
+    await json(owner).del(`/api/projects/${id}/shares/${(await editor.get("/api/auth/me")).body.user.id}`);
+    expect((await editor.get(`/api/projects/${id}`)).status).toBe(404);
+  });
+});

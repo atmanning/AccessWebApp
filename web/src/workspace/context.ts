@@ -43,6 +43,8 @@ export interface WorkspaceApi {
   activeKey: string | null;
   setStatus: (message: string, kind?: StatusKind) => void;
   registerCommands: (tabKey: string, commands: ViewCommands | null) => void;
+  /** View-only access: edits are refused (update() reports it). */
+  readOnly: boolean;
 }
 
 export const WorkspaceContext = createContext<WorkspaceApi | null>(null);

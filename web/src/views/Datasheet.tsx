@@ -26,6 +26,10 @@ export interface DatasheetProps {
   onDeleteRows?: (rows: number[]) => void;
   /** Value shown in the new-record row before anything is typed. */
   newRowPlaceholder?: (col: number) => string;
+  /** Column widths saved with the table or query, by column key. */
+  savedWidths?: Record<string, number>;
+  /** Called after the user resizes a column (drag, or double-click to best fit). */
+  onWidthsChange?: (widths: Record<string, number>) => void;
   /** Highlight cells that need attention (e.g. required but empty). */
   cellWarning?: (row: number, col: number) => boolean;
   emptyMessage?: string;
@@ -56,7 +60,9 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
   const [selRows, setSelRows] = useState<Set<number>>(new Set()); // display indexes
   const [editing, setEditing] = useState<{ text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [widths, setWidths] = useState<Record<string, number>>({});
+  const [widths, setWidths] = useState<Record<string, number>>(() => ({ ...(p.savedWidths ?? {}) }));
+  const widthsRef = useRef(widths);
+  widthsRef.current = widths;
   const [scrollTop, setScrollTop] = useState(0);
   const [viewH, setViewH] = useState(400);
   const scroller = useRef<HTMLDivElement>(null);
@@ -147,7 +153,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
   const startEdit = (initial?: string) => {
     if (!canEdit(cell.c)) {
       const col = p.columns[cell.c];
-      if (col?.readOnly && col.readOnlyReason) p.onStatus?.(col.readOnlyReason, "error");
+      if (col?.readOnlyReason) p.onStatus?.(col.readOnlyReason, "error");
       else if (col?.field?.type === "AutoNumber" && p.editable) p.onStatus?.("This field is an AutoNumber; Access fills it in for you.");
       return;
     }
@@ -299,20 +305,38 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
     if (editing) editorRef.current?.focus();
   }, [editing !== null]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Column resizing.
+  // Column resizing: drag a header edge; double-click it to fit the contents (like Access).
   const startResize = (e: React.MouseEvent, key: string) => {
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
     const th = (e.target as HTMLElement).parentElement!;
     const startW = th.getBoundingClientRect().width;
-    const move = (ev: MouseEvent) => setWidths((w) => ({ ...w, [key]: Math.max(40, startW + ev.clientX - startX) }));
+    let moved = false;
+    const move = (ev: MouseEvent) => {
+      moved = true;
+      setWidths((w) => ({ ...w, [key]: Math.round(Math.max(40, Math.min(2000, startW + ev.clientX - startX))) }));
+    };
     const up = () => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
+      // Read after React has applied the last move.
+      if (moved) setTimeout(() => p.onWidthsChange?.(widthsRef.current), 0);
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
+  };
+
+  const bestFit = (c: number) => {
+    const col = p.columns[c];
+    const canvas = document.createElement("canvas").getContext("2d")!;
+    canvas.font = getComputedStyle(scroller.current ?? document.body).font || "12px Segoe UI";
+    let max = canvas.measureText(col.label).width + 24;
+    const sample = Math.min(order.length, 1000);
+    for (let i = 0; i < sample; i++) max = Math.max(max, canvas.measureText(formatValue(col.field, p.getValue(order[i], c))).width + 16);
+    const next = { ...widthsRef.current, [col.key]: Math.round(Math.max(40, Math.min(600, max))) };
+    setWidths(next);
+    p.onWidthsChange?.(next);
   };
 
   const first = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
@@ -359,7 +383,16 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
                 >
                   <span className="th-label">{col.label}</span>
                   {sort?.col === c && <span className="sort-arrow">{sort.dir === "ASC" ? "▲" : "▼"}</span>}
-                  <span className="col-resizer" onMouseDown={(e) => startResize(e, col.key)} />
+                  <span
+                    className="col-resizer"
+                    title="Drag to resize; double-click to fit"
+                    onMouseDown={(e) => startResize(e, col.key)}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      bestFit(c);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
                 </th>
               ))}
             </tr>

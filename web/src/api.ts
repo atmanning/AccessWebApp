@@ -1,4 +1,12 @@
-import type { ProjectDoc, ProjectRecord, ProjectSummary, UserInfo } from "../../shared/model";
+import type {
+  LinkAccess,
+  ProjectDoc,
+  ProjectRecord,
+  ProjectSummary,
+  SharePermission,
+  ShareSettings,
+  UserInfo,
+} from "../../shared/model";
 import type { TemplateId } from "../../shared/templates";
 
 export class ApiError extends Error {
@@ -42,13 +50,22 @@ export const api = {
     call<{ user: UserInfo }>("POST", "/api/auth/register", { name, email, password }),
   logout: () => call<{ ok: true }>("POST", "/api/auth/logout", {}),
 
-  listProjects: () => call<{ projects: ProjectSummary[] }>("GET", "/api/projects"),
+  listProjects: () => call<{ projects: ProjectSummary[]; shared: ProjectSummary[] }>("GET", "/api/projects"),
   createProject: (name: string, template: TemplateId) =>
     call<{ project: ProjectRecord }>("POST", "/api/projects", { name, template }),
   getProject: (id: string) => call<{ project: ProjectRecord }>("GET", `/api/projects/${id}`),
   saveProject: (id: string, baseRevision: number, changes: { name?: string; doc?: ProjectDoc }) =>
     call<{ project: ProjectSummary }>("PUT", `/api/projects/${id}`, { ...changes, baseRevision }),
-  deleteProject: (id: string) => call<{ ok: true }>("DELETE", `/api/projects/${id}`),
+  deleteProject: (id: string) => call<{ ok: true; removedOnly: boolean }>("DELETE", `/api/projects/${id}`),
+  getRevision: (id: string) =>
+    call<{ revision: number; updatedByName: string | null; updatedAt: string }>("GET", `/api/projects/${id}/revision`),
+  copyProject: (id: string, name: string) => call<{ project: ProjectRecord }>("POST", `/api/projects/${id}/copy`, { name }),
+
+  getShares: (id: string) => call<ShareSettings>("GET", `/api/projects/${id}/shares`),
+  share: (id: string, email: string, permission: SharePermission) =>
+    call<ShareSettings>("PUT", `/api/projects/${id}/shares`, { email, permission }),
+  unshare: (id: string, userId: string) => call<ShareSettings>("DELETE", `/api/projects/${id}/shares/${userId}`),
+  setLinkAccess: (id: string, linkAccess: LinkAccess) => call<ShareSettings>("PUT", `/api/projects/${id}/link-access`, { linkAccess }),
 
   /** Creates a new database from an Access file. */
   importAccessProject: (file: File, name: string) =>

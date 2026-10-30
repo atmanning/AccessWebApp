@@ -39,7 +39,8 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
     };
   }, [query.sql, query.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const edit = result?.edit?.ok ? result.edit : null;
+  // View-only users see results read-only.
+  const edit = result?.edit?.ok && !ws.readOnly ? result.edit : null;
   const columns = useMemo(
     () =>
       (result?.columns ?? []).map((c, i) => {
@@ -59,6 +60,10 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
     [result, edit],
   );
   const getValue = useCallback((r: number, c: number) => result?.rows[r]?.[c] ?? null, [result]);
+  const savedWidths = useMemo(
+    () => Object.fromEntries(columns.flatMap((c) => (query.columnWidths?.[c.label] ? [[c.key, query.columnWidths[c.label]]] : []))),
+    [columns], // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   /** Writes one cell back to its table, then updates every result cell showing that same value. */
   const onCommit = (row: number | "new", col: number, input: string | boolean): string | null => {
@@ -144,6 +149,16 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
       onDeleteRows={(rows) => void onDeleteRows(rows)}
       emptyMessage="The query returned no records."
       onStatus={ws.setStatus}
+      savedWidths={savedWidths}
+      onWidthsChange={(w) => {
+        if (ws.readOnly) return;
+        // Stored by column name so they survive changes to the query's SQL.
+        const byName = Object.fromEntries(columns.filter((c) => w[c.key]).map((c) => [c.label, w[c.key]]));
+        ws.update((d) => {
+          const q = d.queries.find((x) => x.id === query.id);
+          if (q) q.columnWidths = byName;
+        });
+      }}
     />
   );
 }
@@ -278,6 +293,50 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
       if (!dz.columns[i].field) dz.columns.splice(i, 1);
     });
 
+  // ---- Selecting, moving and resizing grid columns (the grey bar above each column) ----
+  const [selectedCol, setSelectedCol] = useState<number | null>(null);
+  const [dropAt, setDropAt] = useState<number | null>(null);
+  const [liveWidths, setLiveWidths] = useState<Record<number, number>>({});
+  const dragFrom = useRef<number | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const used = design.columns.length;
+  const widthOf = (i: number) => liveWidths[i] ?? cols[i]?.width ?? 130;
+
+  const moveColumn = (from: number, to: number) => {
+    const target = Math.max(0, Math.min(used - 1, to > from ? to - 1 : to));
+    if (from >= used || target === from) return;
+    setDesign((dz) => {
+      const [c] = dz.columns.splice(from, 1);
+      dz.columns.splice(target, 0, c);
+    });
+    setSelectedCol(target);
+  };
+
+  const startColResize = (e: React.MouseEvent, i: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = widthOf(i);
+    let w = startW;
+    const move = (ev: MouseEvent) => {
+      w = Math.round(Math.max(60, Math.min(600, startW + ev.clientX - startX)));
+      setLiveWidths((lw) => ({ ...lw, [i]: w }));
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      setLiveWidths((lw) => {
+        const { [i]: _, ...rest } = lw;
+        return i < used ? rest : lw; // empty columns keep the width for this session only
+      });
+      if (i < used && w !== startW) setCol(i, { width: w });
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  };
+
+  const colClass = (i: number) => (i === selectedCol ? "qd-col-selected" : "");
+
   return (
     <div className="query-design">
       <div className="qd-tables">
@@ -320,13 +379,85 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
           </div>
         )}
       </div>
-      <div className="qd-grid-wrap">
-        <table className="qd-grid">
+      <div
+        className="qd-grid-wrap"
+        ref={gridRef}
+        tabIndex={-1}
+        onKeyDown={(e) => {
+          if (selectedCol === null || selectedCol >= used || (e.target as HTMLElement) !== gridRef.current) return;
+          if (e.key === "Delete") {
+            e.preventDefault();
+            setCol(selectedCol, { field: "", table: "" });
+            setSelectedCol(null);
+          } else if (e.key === "ArrowLeft" && e.ctrlKey) {
+            e.preventDefault();
+            moveColumn(selectedCol, selectedCol - 1);
+          } else if (e.key === "ArrowRight" && e.ctrlKey) {
+            e.preventDefault();
+            moveColumn(selectedCol, selectedCol + 2);
+          } else if (e.key === "Escape") setSelectedCol(null);
+        }}
+        onMouseDown={(e) => {
+          if (!(e.target as HTMLElement).closest(".qd-sel")) setSelectedCol(null);
+        }}
+      >
+        <table className="qd-grid" style={{ width: "max-content" }}>
+          <colgroup>
+            <col />
+            {cols.map((_, i) => (
+              <col key={i} style={{ width: widthOf(i) }} />
+            ))}
+          </colgroup>
           <tbody>
+            <tr className="qd-selectors">
+              <th aria-hidden="true" />
+              {cols.map((c, i) => (
+                <td
+                  key={i}
+                  className={`qd-sel ${colClass(i)} ${dropAt === i ? "drop-before" : ""} ${dropAt === cols.length && i === used - 1 ? "drop-after" : ""}`}
+                  title={c.field ? "Click to select; drag to move; drag the right edge to resize; Delete removes it" : undefined}
+                  draggable={!!c.field}
+                  onMouseDown={() => {
+                    if (!c.field) return;
+                    setSelectedCol(i);
+                    gridRef.current?.focus();
+                  }}
+                  onDragStart={(e) => {
+                    dragFrom.current = i;
+                    setSelectedCol(i);
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", String(i));
+                  }}
+                  onDragOver={(e) => {
+                    if (dragFrom.current === null) return;
+                    e.preventDefault();
+                    const r = e.currentTarget.getBoundingClientRect();
+                    const after = e.clientX > r.left + r.width / 2;
+                    // Beyond the last used column, dropping means "move to the end".
+                    setDropAt(i >= used ? cols.length : after ? i + 1 : i);
+                  }}
+                  onDragLeave={() => setDropAt(null)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const from = dragFrom.current;
+                    const to = dropAt ?? i;
+                    dragFrom.current = null;
+                    setDropAt(null);
+                    if (from !== null) moveColumn(from, to >= cols.length ? used : to);
+                  }}
+                  onDragEnd={() => {
+                    dragFrom.current = null;
+                    setDropAt(null);
+                  }}
+                >
+                  <span className="qd-resizer" onMouseDown={(e) => startColResize(e, i)} title="Drag to resize" />
+                </td>
+              ))}
+            </tr>
             <tr>
               <th>Field:</th>
               {cols.map((c, i) => (
-                <td key={i}>
+                <td key={i} className={colClass(i)}>
                   <ComboBox
                     value={c.field ? `${c.table}\u0000${c.field}` : ""}
                     ariaLabel={`Field ${i + 1}`}
@@ -348,13 +479,13 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
             <tr>
               <th>Table:</th>
               {cols.map((c, i) => (
-                <td key={i} className="qd-static">{c.table}</td>
+                <td key={i} className={`qd-static ${colClass(i)}`}>{c.table}</td>
               ))}
             </tr>
             <tr>
               <th>Sort:</th>
               {cols.map((c, i) => (
-                <td key={i}>
+                <td key={i} className={colClass(i)}>
                   <ComboBox
                     value={c.sort}
                     ariaLabel={`Sort ${i + 1}`}
@@ -368,7 +499,7 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
             <tr>
               <th>Show:</th>
               {cols.map((c, i) => (
-                <td key={i} className="center">
+                <td key={i} className={`center ${colClass(i)}`}>
                   <input type="checkbox" checked={c.show} disabled={!c.field} onChange={(e) => setCol(i, { show: e.target.checked })} />
                 </td>
               ))}
@@ -376,7 +507,7 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
             <tr>
               <th>Criteria:</th>
               {cols.map((c, i) => (
-                <td key={i}>
+                <td key={i} className={colClass(i)}>
                   <input
                     defaultValue={c.criteria}
                     key={`${i}:${c.field}:${c.criteria}`}

@@ -11,7 +11,16 @@ export function TableDatasheet({ table, tabKey }: { table: TableDef; tabKey: str
   const editing = useTableEditing(table);
   const fields = table.fields;
 
-  const columns = useMemo(() => fields.map((f) => ({ key: f.id, label: f.name, field: f })), [fields]);
+  const columns = useMemo(
+    () =>
+      fields.map((f) => ({
+        key: f.id,
+        label: f.name,
+        field: f,
+        readOnlyReason: ws.readOnly ? "You have view-only access to this database." : undefined,
+      })),
+    [fields, ws.readOnly],
+  );
   const getValue = useCallback((r: number, c: number) => table.rows[r]?.[fields[c].id] ?? null, [table.rows, fields]);
 
   useCommands(tabKey, {
@@ -41,12 +50,21 @@ export function TableDatasheet({ table, tabKey }: { table: TableDef; tabKey: str
       rowCount={table.rows.length}
       getValue={getValue}
       rowKey={(r) => String(table.rows[r]._id ?? r)}
-      editable
+      editable={!ws.readOnly}
       onCommit={(row, col, input) => editing.commit(row, fields[col].id, input)}
       onDeleteRows={(rows) => void editing.deleteRows(rows)}
       newRowPlaceholder={(c) => (fields[c].type === "AutoNumber" ? "(New)" : "")}
       cellWarning={(r, c) => !!fields[c].required && (table.rows[r][fields[c].id] ?? "") === ""}
       onStatus={ws.setStatus}
+      savedWidths={table.columnWidths}
+      onWidthsChange={(w) => {
+        // Saved with the table, like Access's datasheet layout. Viewers just get it for this session.
+        if (ws.readOnly) return;
+        ws.update((d) => {
+          const t = d.tables.find((x) => x.id === table.id);
+          if (t) t.columnWidths = Object.fromEntries(Object.entries(w).filter(([id]) => t.fields.some((f) => f.id === id)));
+        });
+      }}
     />
   );
 }

@@ -114,7 +114,7 @@ export function FormView({ form, tabKey }: { form: FormDef; tabKey: string }) {
             }
             const field = data.fields[i];
             const value: CellValue = row ? row[i] : null;
-            const readOnly = !table || !field || field.type === "AutoNumber";
+            const readOnly = ws.readOnly || !table || !field || field.type === "AutoNumber";
             const id = `fc-${form.id}-${i}`;
             const err = fieldError?.col === name ? fieldError.msg : null;
             return (

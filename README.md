@@ -10,14 +10,15 @@ downloaded as a real Microsoft Access **.accdb** file.
 
 | Access feature | Here |
 | --- | --- |
-| Backstage / start screen | Templates (Blank, Contacts & Orders), recent databases, rename, delete |
+| Backstage / start screen | Templates (Blank, Contacts & Orders), My databases and Shared with me, rename, delete |
+| Sharing | Share with registered users by email as **Can view** or **Can edit**, or let anyone with an account who has the link view or edit. Viewers can run queries, export, and **Save a copy**; other people's saves appear automatically within seconds |
 | Ribbon | File, Home, Create, External Data, Database Tools, plus contextual *Table Design* / *Query Design* tabs |
 | Navigation Pane | All Access Objects grouped by type, search, double-click to open, right-click Open / Design View / Rename / Delete, F11 to collapse |
-| Tables — Datasheet View | Inline editing, keyboard navigation (arrows, Tab, Enter, F2, Esc), new-record row with `*`, record navigator, search filter, sort, column resize, multi-row delete |
+| Tables — Datasheet View | Inline editing, keyboard navigation (arrows, Tab, Enter, F2, Esc), new-record row with `*`, record navigator, search filter, sort, multi-row delete, column widths (drag an edge, double-click to fit) saved with the table or query |
 | Tables — Design View | Field Name / Data Type / Description grid, Field Properties pane (Field Size, Default Value, Required, Indexed), Primary Key, Insert/Delete Rows, safe type conversion |
 | Data types | AutoNumber, Short Text, Long Text, Number (Byte/Integer/Long/Single/Double), Currency, Date/Time, Yes/No |
 | Validation | Types, field sizes, primary keys, *No Duplicates* indexes, required-field reminders, referential integrity |
-| Queries | Design grid (Show Table, Field/Table/Sort/Show/Criteria, automatic joins from relationships), SQL View, Datasheet results, queries can use other queries. Results are **editable** when Access would allow it (tables only, no totals/DISTINCT/UNION); calculated columns stay read-only and say why |
+| Queries | Design grid (Show Table, Field/Table/Sort/Show/Criteria, automatic joins from relationships; select a column by its grey bar to drag it, resize it, Ctrl+←/→ to move it or Delete to remove it), SQL View, Datasheet results, queries can use other queries. Results are **editable** when Access would allow it (tables only, no totals/DISTINCT/UNION); calculated columns stay read-only and say why |
 | Forms | Single-record form with record navigator; edits write back to the table |
 | Reports | Grouped, sorted print layout with group and grand totals; Print |
 | Relationships | Draggable table boxes, drag a field onto another to relate, Enforce Referential Integrity, 1–∞ lines |
@@ -129,11 +130,25 @@ tables, and Attachment, OLE Object, multi-value and calculated fields. Password-
 password removed first (Access: File → Info → Decrypt Database). Uploads are limited to 100 MB and about
 200,000 records.
 
+## Sharing
+
+The owner clicks **Share** (title bar, or File → Share) to add people by the email they registered with, as **Can view**
+or **Can edit**, and to set general access: *Restricted*, or *Anyone with an account who has the link* can view or edit.
+Shared databases appear under **Shared with me**. Only the owner can share, rename or delete; editors can change
+everything inside the database; viewers see it read-only and can run queries, export it, or **Save a copy** of their own.
+Removing a shared database from your list doesn't affect anyone else.
+
+Several people can have a database open at once. Each workspace checks every few seconds for other people's saves and
+loads them automatically when it has no unsaved changes of its own. If two people change it at the same moment, the
+second save is refused with the other person's name and a **Reload latest** button — there's no live merging of
+simultaneous edits yet.
+
 ## Security notes
 
 - Passwords are hashed with scrypt (Node's built-in `crypto`); sessions are random 256-bit tokens stored as SHA-256
   hashes, in an `HttpOnly`, `SameSite=Lax` cookie that lasts 30 days.
-- Every project query is scoped to the signed-in user; other users' databases return 404.
+- Every request checks the signed-in user's role on that database (owner, editor, viewer); databases you can't see
+  return 404, so ids can't be probed. Only owners can share, rename or delete.
 - CSRF: state-changing requests must be JSON or carry `X-Requested-With`, which cross-site forms can't send.
 - Login and registration are rate-limited per IP; Helmet sets a strict Content Security Policy.
 - Saves use optimistic concurrency (`revision`), so two open windows can't silently overwrite each other — the

@@ -65,6 +65,8 @@ export const tableSchema = z.object({
   fields: z.array(fieldSchema).max(255),
   rows: z.array(rowSchema),
   nextAutoNumber: z.number().int().min(1),
+  /** Saved datasheet column widths in pixels, by field id. */
+  columnWidths: z.record(z.string(), z.number().int().min(20).max(2000)).optional(),
 });
 export type TableDef = z.infer<typeof tableSchema>;
 
@@ -74,6 +76,8 @@ export const queryColumnSchema = z.object({
   show: z.boolean(),
   sort: z.enum(["", "ASC", "DESC"]),
   criteria: z.string().max(1000),
+  /** Column width in the design grid, in pixels. */
+  width: z.number().int().min(40).max(1000).optional(),
 });
 export type QueryColumn = z.infer<typeof queryColumnSchema>;
 
@@ -89,6 +93,8 @@ export const querySchema = z.object({
       columns: z.array(queryColumnSchema).max(255),
     })
     .optional(),
+  /** Saved datasheet column widths in pixels, by result column name. */
+  columnWidths: z.record(z.string(), z.number().int().min(20).max(2000)).optional(),
 });
 export type QueryDef = z.infer<typeof querySchema>;
 
@@ -153,6 +159,11 @@ export function defaultFieldProps(type: FieldType): Partial<Field> {
   }
 }
 
+/** What the signed-in user may do with a database. */
+export type ProjectRole = "owner" | "edit" | "view";
+export type SharePermission = "view" | "edit";
+export type LinkAccess = "none" | SharePermission;
+
 /** Project summary as listed on the home screen. */
 export interface ProjectSummary {
   id: string;
@@ -161,6 +172,22 @@ export interface ProjectSummary {
   updatedAt: string;
   revision: number;
   tableCount: number;
+  role: ProjectRole;
+  ownerName: string;
+  /** Name of whoever saved last, when it wasn't the owner. */
+  updatedByName?: string;
+}
+
+export interface ShareEntry {
+  userId: string;
+  email: string;
+  name: string;
+  permission: SharePermission;
+}
+
+export interface ShareSettings {
+  linkAccess: LinkAccess;
+  shares: ShareEntry[];
 }
 
 export interface ProjectRecord extends ProjectSummary {
