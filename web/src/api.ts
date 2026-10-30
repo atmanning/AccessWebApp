@@ -1,4 +1,9 @@
 import type {
+  ConnectionInfo,
+  ConnectionInput,
+  RemoteRows,
+  RemoteTableInfo,
+  SqlRunResult,
   LinkAccess,
   ProjectDoc,
   ProjectRecord,
@@ -72,6 +77,25 @@ export const api = {
     upload<{ project: ProjectRecord; warnings: string[] }>(`/api/projects/import-access?name=${encodeURIComponent(name)}`, file),
   /** Reads an Access file's objects without saving them, to merge into the open database. */
   convertAccess: (file: File) => upload<{ doc: ProjectDoc; warnings: string[] }>("/api/projects/convert-access", file),
+
+  // ---- External MySQL connections (per database) ----
+  listConnections: (pid: string) => call<{ connections: ConnectionInfo[] }>("GET", `/api/projects/${pid}/connections`),
+  createConnection: (pid: string, input: ConnectionInput) =>
+    call<{ connection: ConnectionInfo }>("POST", `/api/projects/${pid}/connections`, input),
+  updateConnection: (pid: string, cid: string, input: ConnectionInput) =>
+    call<{ connection: ConnectionInfo }>("PUT", `/api/projects/${pid}/connections/${cid}`, input),
+  deleteConnection: (pid: string, cid: string) => call<{ ok: true }>("DELETE", `/api/projects/${pid}/connections/${cid}`),
+  testConnection: (pid: string, settings: ConnectionInput, connectionId?: string) =>
+    call<
+      | { ok: true; version: string; database: string | null; ms: number }
+      | { ok: false; error: { errno: number | null; sqlState: string | null; message: string } }
+    >("POST", `/api/projects/${pid}/connections/test`, { settings, connectionId }),
+  remoteTables: (pid: string, cid: string) => call<{ tables: RemoteTableInfo[] }>("GET", `/api/projects/${pid}/connections/${cid}/tables`),
+  remoteRows: (pid: string, cid: string, table: string, offset: number, limit: number) =>
+    call<RemoteRows>("GET", `/api/projects/${pid}/connections/${cid}/tables/${encodeURIComponent(table)}/rows?offset=${offset}&limit=${limit}`),
+  runRemoteSql: (pid: string, cid: string, sql: string) => call<SqlRunResult>("POST", `/api/projects/${pid}/connections/${cid}/sql`, { sql }),
+  importRemoteTables: (pid: string, cid: string, tables: string[]) =>
+    call<{ doc: ProjectDoc; warnings: string[] }>("POST", `/api/projects/${pid}/connections/${cid}/import`, { tables }),
 
   /** Downloads the .accdb via fetch so server errors can be shown instead of a broken file. */
   async downloadAccdb(id: string, fallbackName: string) {

@@ -13,7 +13,8 @@ downloaded as a real Microsoft Access **.accdb** file.
 | Backstage / start screen | Templates (Blank, Contacts & Orders), My databases and Shared with me, rename, delete |
 | Sharing | Share with registered users by email as **Can view** or **Can edit**, or let anyone with an account who has the link view or edit. Viewers can run queries, export, and **Save a copy**; other people's saves appear automatically within seconds |
 | Ribbon | File, Home, Create, External Data, Database Tools, plus contextual *Table Design* / *Query Design* tabs |
-| Navigation Pane | All Access Objects grouped by type, search, double-click to open, right-click Open / Design View / Rename / Delete, F11 to collapse |
+| Navigation Pane | All Access Objects grouped by type, search, double-click to open, right-click Open / Design View / Copy / Paste / Rename / Delete, **F2 renames in place**, F11 to collapse |
+| Copy & paste | **Ctrl+C / Ctrl+V** (or Home → Paste) copies tables, queries, forms and reports, within a database or into another one you open. Tables paste as *Structure Only*, *Structure and Data* or *Append Data to Existing Table*; pasted forms and reports reconnect to their record source by name |
 | Tables — Datasheet View | Inline editing, keyboard navigation (arrows, Tab, Enter, F2, Esc), new-record row with `*`, record navigator, search filter, sort, multi-row delete, column widths (drag an edge, double-click to fit) saved with the table or query |
 | Tables — Design View | Field Name / Data Type / Description grid, Field Properties pane (Field Size, Default Value, Required, Indexed), Primary Key, Insert/Delete Rows, safe type conversion |
 | Data types | AutoNumber, Short Text, Long Text, Number (Byte/Integer/Long/Single/Double), Currency, Date/Time, Yes/No |
@@ -22,6 +23,7 @@ downloaded as a real Microsoft Access **.accdb** file.
 | Forms | Single-record form with record navigator; edits write back to the table |
 | Reports | Grouped, sorted print layout with group and grand totals; Print |
 | Relationships | Draggable table boxes, drag a field onto another to relate, Enforce Referential Integrity, 1–∞ lines |
+| MySQL / MariaDB | External Data → **Connections**: server address (or a `mysql://` URL), port, database, user name, password and SSL, with **Test Connection**. **Link Tables** to browse remote tables (read-only, 500 records a page) and use them in local queries alongside your own tables; **Import Tables** copies tables, keys, indexes and foreign-key relationships with their data; **SQL Console** runs one statement at a time and shows `mysql`-client output (`Query OK…`, `ERROR 1146 (42S02)…`) plus a datasheet for SELECT results |
 | External Data | **Import Access databases** (.accdb/.mdb), import CSV/text into a new table (type detection), export a table/query to CSV, **export the database to .accdb** |
 | Keyboard | Ctrl+; enters today's date and Ctrl+Shift+; the time (in Date/Time and text fields), double-click a combo box to cycle its choices, Ctrl+Z / Ctrl+Y undo and redo, Ctrl+S saves (it also autosaves) |
 
@@ -97,6 +99,8 @@ NODE_ENV=production SECURE_COOKIES=false PORT=3000 npm start
 | `EXPORT_CONCURRENCY` | `2` | Exports that may run at once |
 | `EXPORT_MAX_HEAP` | `512m` | Java heap per export; use `256m` on a 512 MB machine |
 | `STATIC_DIR` | `web/dist` | Built web app to serve |
+| `CONNECTION_SECRET` | key file in `DATA_DIR` | Key that encrypts saved MySQL passwords (AES-256-GCM). If unset, a random key is created in `DATA_DIR/connection.key`. Changing it makes saved passwords unreadable (re-enter them) |
+| `ALLOW_PRIVATE_DB_HOSTS` | `false` | Allow MySQL connections to private/internal addresses (localhost, 10.x, 192.168.x, cloud metadata). Leave off on a public server |
 
 ## Exporting to Access
 
@@ -154,6 +158,12 @@ simultaneous edits yet.
 - Saves use optimistic concurrency (`revision`), so two open windows can't silently overwrite each other — the
   second one is told to reload.
 - Users' SQL runs only in their own browser, against their own data.
+- MySQL connections belong to a database. Passwords are encrypted at rest and never sent back to the browser; editors
+  can use a connection (link, import, SQL Console), viewers can only browse linked tables. The SQL Console runs with
+  the privileges of the MySQL account you saved, so give that account only the rights people should have.
+- The server refuses MySQL connections to private and internal addresses unless `ALLOW_PRIVATE_DB_HOSTS=true`, so a
+  public deployment can't be used to probe its own network. Your MySQL server must accept connections from the
+  internet (ideally with SSL set to *Required* or *Verify*).
 
 ## Project layout
 
@@ -194,6 +204,8 @@ npm run typecheck
   picks table fields; calculated fields and expressions are typed in SQL View. New records can't be added through a
   select query's results, and records can be deleted through one only when it uses a single table. Delete queries
   don't cascade to related records.
+- Linked MySQL tables are read-only, don't appear in the Show Table list of the query designer (use SQL View), aren't
+  included in .accdb exports, and local queries read at most 10,000 rows from each. Use Import Tables for more.
 - Forms and reports are generated layouts (choose fields, order, grouping) rather than free-form drag-and-drop designers.
 - No macros, VBA, attachments, lookup fields, or multi-value fields.
 - Each database is stored as one JSON document; this is comfortable up to tens of thousands of records per database.

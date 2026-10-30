@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect } from "react";
-import type { ObjectKind, ProjectDoc, QueryType } from "../../../shared/model";
+import type { ConnectionInfo, ObjectKind, ProjectDoc, QueryType } from "../../../shared/model";
 
-export type TabKind = ObjectKind | "relationships";
-export type ViewName = "datasheet" | "design" | "sql" | "form" | "report" | "relationships";
+/** "console" tabs are the MySQL SQL console; their id is the connection id. */
+export type TabKind = ObjectKind | "relationships" | "console";
+export type ViewName = "datasheet" | "design" | "sql" | "form" | "report" | "relationships" | "console";
 
 export interface Tab {
   key: string;
@@ -50,6 +51,9 @@ export interface WorkspaceApi {
   registerCommands: (tabKey: string, commands: ViewCommands | null) => void;
   /** View-only access: edits are refused (update() reports it). */
   readOnly: boolean;
+  /** Saved MySQL connections for this database (null while loading). */
+  connections: ConnectionInfo[] | null;
+  refreshConnections: () => Promise<void>;
 }
 
 export const WorkspaceContext = createContext<WorkspaceApi | null>(null);
@@ -68,7 +72,7 @@ export function useCommands(tabKey: string, commands: ViewCommands) {
 export const tabKey = (kind: TabKind, id: string) => `${kind}:${id}`;
 
 export function defaultView(kind: TabKind): ViewName {
-  return { table: "datasheet", query: "datasheet", form: "form", report: "report", relationships: "relationships" }[kind] as ViewName;
+  return { table: "datasheet", query: "datasheet", form: "form", report: "report", relationships: "relationships", linked: "datasheet", console: "console" }[kind] as ViewName;
 }
 
 export function viewsFor(kind: TabKind): { view: ViewName; label: string }[] {
@@ -85,6 +89,10 @@ export function viewsFor(kind: TabKind): { view: ViewName; label: string }[] {
       return [{ view: "form", label: "Form View" }, { view: "design", label: "Design View" }];
     case "report":
       return [{ view: "report", label: "Report View" }, { view: "design", label: "Design View" }];
+    case "linked":
+      return [{ view: "datasheet", label: "Datasheet View" }];
+    case "console":
+      return [{ view: "console", label: "SQL Console" }];
     default:
       return [{ view: "relationships", label: "Relationships" }];
   }

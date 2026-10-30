@@ -144,9 +144,9 @@ const fieldIn = (table: TableDef, name: string) => {
 };
 
 /** Datasheet View of an action query: the records it would change, as Access shows them. */
-export async function previewAction(doc: ProjectDoc, sql: string, excludeQueryId?: string): Promise<ResultSet> {
+export async function previewAction(doc: ProjectDoc, sql: string, excludeQueryId?: string, extraTables?: TableDef[]): Promise<ResultSet> {
   const st = parseStatement(sql);
-  const db = await openEngine(doc, { excludeQueryId });
+  const db = await openEngine(doc, { excludeQueryId, extraTables });
   try {
     let preview: string;
     if (st.kind === "update") {
@@ -170,10 +170,10 @@ export async function previewAction(doc: ProjectDoc, sql: string, excludeQueryId
 }
 
 /** Works out exactly what an action query will do, without changing anything yet. */
-export async function planAction(doc: ProjectDoc, sql: string, excludeQueryId?: string): Promise<ActionPlan> {
+export async function planAction(doc: ProjectDoc, sql: string, excludeQueryId?: string, extraTables?: TableDef[]): Promise<ActionPlan> {
   const st = parseStatement(sql);
   if (st.kind === "select" || st.kind === "crosstab") throw new SqlSyntaxError("This is a select query; it doesn't change data.");
-  const db = await openEngine(doc, { excludeQueryId });
+  const db = await openEngine(doc, { excludeQueryId, extraTables });
   try {
     switch (st.kind) {
       case "update":
@@ -295,6 +295,15 @@ function planAppend(doc: ProjectDoc, db: Db, st: Extract<Statement, { kind: "app
   if (targetFields.length !== columns.length) {
     throw new SqlSyntaxError(`The query appends ${columns.length} column(s) but names ${targetFields.length} field(s) to append to.`);
   }
+  return appendRowsPlan(doc, table, targetFields, rows);
+}
+
+/**
+ * Adds rows (values in the order of `targetFields`) to a table with the same rules as an
+ * append query: defaults, AutoNumbers, and skipping records that break keys or relationships.
+ * Also used by Paste > Append Data to Existing Table.
+ */
+export function appendRowsPlan(doc: ProjectDoc, table: TableDef, targetFields: Field[], rows: CellValue[][]): ActionPlan {
   const auto = table.fields.find((f) => f.type === "AutoNumber");
   let next = table.nextAutoNumber;
   let conversion = 0;

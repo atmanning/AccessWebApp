@@ -159,6 +159,15 @@ export const relationshipSchema = z.object({
 });
 export type Relationship = z.infer<typeof relationshipSchema>;
 
+/** A table in an external MySQL database, shown in the Tables group and browsed through its connection. */
+export const linkedTableSchema = z.object({
+  id,
+  name: nameSchema,
+  connectionId: id,
+  remoteTable: z.string().min(1).max(64),
+});
+export type LinkedTable = z.infer<typeof linkedTableSchema>;
+
 export const projectDocSchema = z.object({
   version: z.literal(1),
   tables: z.array(tableSchema).max(500),
@@ -166,10 +175,11 @@ export const projectDocSchema = z.object({
   forms: z.array(formSchema).max(500),
   reports: z.array(reportSchema).max(500),
   relationships: z.array(relationshipSchema).max(1000),
+  linkedTables: z.array(linkedTableSchema).max(500).optional(),
 });
 export type ProjectDoc = z.infer<typeof projectDocSchema>;
 
-export type ObjectKind = "table" | "query" | "form" | "report";
+export type ObjectKind = "table" | "query" | "form" | "report" | "linked";
 
 export function emptyProject(): ProjectDoc {
   return { version: 1, tables: [], queries: [], forms: [], reports: [], relationships: [] };
@@ -237,6 +247,7 @@ export function checkProjectIntegrity(doc: ProjectDoc): string[] {
   const seen = new Set<string>();
   const allObjects: { name: string; kind: string }[] = [
     ...doc.tables.map((t) => ({ name: t.name, kind: "table" })),
+    ...(doc.linkedTables ?? []).map((t) => ({ name: t.name, kind: "linked table" })),
     ...doc.queries.map((q) => ({ name: q.name, kind: "query" })),
   ];
   for (const o of allObjects) {
@@ -263,4 +274,60 @@ export function checkProjectIntegrity(doc: ProjectDoc): string[] {
     }
   }
   return problems;
+}
+
+// ---- External MySQL connections ---------------------------------------------------------
+
+export const SSL_MODES = ["off", "required", "verify"] as const;
+export type SslMode = (typeof SSL_MODES)[number];
+export const SSL_LABELS: Record<SslMode, string> = {
+  off: "Off",
+  required: "Required (encrypt, don't check certificate)",
+  verify: "Required, verify certificate",
+};
+
+export const connectionInputSchema = z.object({
+  name: z.string().trim().min(1, "Give the connection a name").max(64),
+  host: z.string().trim().min(1, "Enter the server address").max(255),
+  port: z.number().int().min(1).max(65535),
+  database: z.string().trim().max(64),
+  user: z.string().trim().min(1, "Enter the user name").max(80),
+  /** Omitted when editing means "keep the saved password". */
+  password: z.string().max(500).optional(),
+  ssl: z.enum(SSL_MODES),
+});
+export type ConnectionInput = z.infer<typeof connectionInputSchema>;
+
+/** A saved connection as the browser sees it: never includes the password. */
+export interface ConnectionInfo {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  ssl: SslMode;
+  hasPassword: boolean;
+}
+
+export interface RemoteTableInfo {
+  name: string;
+  type: "table" | "view";
+  rows: number | null;
+}
+
+/** Result of running SQL on a MySQL connection, shaped like the mysql command-line client's output. */
+export type SqlRunResult =
+  | { kind: "rows"; columns: string[]; fields: (Field | null)[]; rows: CellValue[][]; truncated: boolean; elapsedMs: number }
+  | { kind: "ok"; affectedRows: number; changedRows?: number; insertId?: number; info: string; warnings: number; elapsedMs: number }
+  | { kind: "error"; errno: number | null; sqlState: string | null; code: string | null; message: string; elapsedMs: number };
+
+/** Rows of a linked table, for browsing. */
+export interface RemoteRows {
+  columns: string[];
+  fields: (Field | null)[];
+  rows: CellValue[][];
+  total: number | null;
+  offset: number;
+  skipped: string[];
 }

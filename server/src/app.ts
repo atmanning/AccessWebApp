@@ -7,12 +7,14 @@ import { ZodError } from "zod";
 import type { DB } from "./db.js";
 import { authRouter, loadUser } from "./auth.js";
 import { projectsRouter, type ImportAccess } from "./projects.js";
+import { connectionsRouter, type ConnectionsOptions } from "./connections.js";
 import type { ProjectDoc } from "../../shared/model.js";
 
 export interface AppOptions {
   db: DB;
   exportAccdb: (doc: ProjectDoc) => Promise<Buffer>;
   importAccess: ImportAccess;
+  connections: ConnectionsOptions;
   secureCookies: boolean;
   /** Built web app to serve (web/dist). Omit in development; Vite serves it. */
   staticDir?: string;
@@ -54,6 +56,7 @@ export function createApp(opts: AppOptions) {
 
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
   app.use("/api/auth", authRouter(opts.db, { secureCookies: opts.secureCookies }));
+  app.use("/api/projects/:id/connections", connectionsRouter(opts.db, opts.connections));
   app.use("/api/projects", projectsRouter(opts.db, opts.exportAccdb, opts.importAccess));
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
 

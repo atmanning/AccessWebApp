@@ -1,11 +1,11 @@
 import { produce } from "immer";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ObjectKind, ProjectDoc, ProjectRecord, UserInfo } from "../../../shared/model";
+import type { ConnectionInfo, ObjectKind, ProjectDoc, ProjectRecord, RemoteTableInfo, UserInfo } from "../../../shared/model";
 import { api, ApiError } from "../api";
 import { Modal, showImportWarnings, useDialogs } from "../ui/dialogs";
 import { dateShortcut, insertAtCaret, isTextBox, nowText } from "../ui/dateKeys";
 import { mergeProjects } from "../../../shared/exchange";
-import { AccessIcon, BackIcon, CloseIcon, OBJECT_ICONS, RedoIcon, RelationshipsIcon, SaveIcon, UndoIcon } from "../ui/icons";
+import { AccessIcon, BackIcon, CloseIcon, OBJECT_ICONS, RedoIcon, RelationshipsIcon, SaveIcon, UndoIcon, ConsoleIcon } from "../ui/icons";
 import { FormReportDesign, FormView, ReportView } from "../views/FormReportViews";
 import { QueryDatasheet, QueryDesignView, QuerySqlView } from "../views/QueryViews";
 import { RelationshipsView } from "../views/RelationshipsView";
@@ -27,6 +27,10 @@ import {
 import { findObject, KIND_LABEL, newId, newTable, uniqueObjectName, validateObjectName } from "./docOps";
 import { ImportCsvDialog } from "./ImportCsvDialog";
 import { ShareDialog } from "./ShareDialog";
+import { ConnectionDialog, ConnectionsManager, RemoteTablesDialog } from "./ConnectionDialogs";
+import { copyObject, PasteDialog, readClipboard, type ClipItem } from "./clipboard";
+import { LinkedTableView, SqlConsoleView } from "../views/RemoteViews";
+import { cleanName } from "../../../shared/exchange";
 import { QUERY_TYPE_ICONS, typeOfQuery } from "./queryKinds";
 import { NavPane, type Selection } from "./NavPane";
 import { Ribbon } from "./Ribbon";
@@ -57,6 +61,19 @@ export function Workspace(props: {
   const [importing, setImporting] = useState(false);
   const [sourcePicker, setSourcePicker] = useState<"form" | "report" | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Saved MySQL connections for this database (loaded once, refreshed after changes).
+  const [connections, setConnections] = useState<ConnectionInfo[] | null>(null);
+  const [mysqlDialog, setMysqlDialog] = useState<"manage" | "link" | "import" | "new" | null>(null);
+  const refreshConnections = useCallback(async () => {
+    try {
+      setConnections((await api.listConnections(props.project.id)).connections);
+    } catch {
+      setConnections([]);
+    }
+  }, [props.project.id]);
+  useEffect(() => {
+    void refreshConnections();
+  }, [refreshConnections]);
   const [, forceRibbon] = useState(0);
 
   const revision = useRef(props.project.revision);
@@ -160,7 +177,7 @@ export function Workspace(props: {
     });
     setActiveKey(key);
     setBackstage(false);
-    if (kind !== "relationships") setSelection({ kind, id });
+    if (kind !== "relationships" && kind !== "console") setSelection({ kind, id });
   }, []);
 
   const closeTab = useCallback((key: string) => {
@@ -189,7 +206,7 @@ export function Workspace(props: {
   // Close tabs whose objects were deleted (e.g. by undo of a create).
   useEffect(() => {
     setTabs((ts) => {
-      const alive = ts.filter((t) => t.kind === "relationships" || findObject(doc, t.kind, t.id));
+      const alive = ts.filter((t) => t.kind === "relationships" || t.kind === "console" || findObject(doc, t.kind, t.id));
       return alive.length === ts.length ? ts : alive;
     });
   }, [doc]);
@@ -212,8 +229,10 @@ export function Workspace(props: {
       setStatus,
       registerCommands,
       readOnly,
+      connections,
+      refreshConnections,
     }),
-    [props.project.id, name, doc, update, openObject, closeTab, setTabView, activeKey, setStatus, registerCommands, readOnly],
+    [props.project.id, name, doc, update, openObject, closeTab, setTabView, activeKey, setStatus, registerCommands, readOnly, connections, refreshConnections],
   );
 
   // ---- Commands ----------------------------------------------------------------------------
@@ -365,6 +384,66 @@ export function Workspace(props: {
 
   const [sharing, setSharing] = useState(false);
 
+  // ---- MySQL connections ----
+
+  const openConsole = (c?: ConnectionInfo) => {
+    const target = c ?? connections?.[0];
+    if (!target) {
+      setMysqlDialog("new");
+      return;
+    }
+    setMysqlDialog(null);
+    openObject("console", target.id);
+  };
+
+  const linkTables = (c: ConnectionInfo, tables: RemoteTableInfo[]) => {
+    const ids: string[] = [];
+    update((d) => {
+      d.linkedTables ??= [];
+      for (const t of tables) {
+        const id = newId("lt");
+        ids.push(id);
+        d.linkedTables.push({ id, name: uniqueObjectName(d, "linked", cleanName(t.name, "Linked")), connectionId: c.id, remoteTable: t.name });
+      }
+    });
+    setMysqlDialog(null);
+    setStatus(`Linked ${tables.length} table(s) from ${c.name}. They're in the Tables group with a link icon.`);
+    if (ids.length === 1) openObject("linked", ids[0]);
+  };
+
+  const importTables = async (c: ConnectionInfo, tables: RemoteTableInfo[]) => {
+    try {
+      const { doc: incoming, warnings } = await api.importRemoteTables(props.project.id, c.id, tables.map((t) => t.name));
+      const { doc: merged, renamed } = mergeProjects(docRef.current, incoming);
+      update((d) => {
+        d.tables = merged.tables;
+        d.relationships = merged.relationships;
+      });
+      setMysqlDialog(null);
+      const records = incoming.tables.reduce((n, t) => n + t.rows.length, 0);
+      setStatus(`Imported ${incoming.tables.length} table(s) with ${records.toLocaleString()} record(s) from ${c.name}.`);
+      const notes = [...renamed.map((r) => `Renamed to avoid a clash: ${r}.`), ...warnings];
+      if (notes.length) showImportWarnings(dialogs, notes, "Imported, with these notes:");
+    } catch (e) {
+      dialogs.alert("Import from MySQL", (e as Error).message);
+    }
+  };
+
+  // ---- Copy / paste ----
+  const [pasting, setPasting] = useState<ClipItem | null>(null);
+  const copySelected = (kind?: ObjectKind, id?: string) => {
+    const target = kind && id ? { kind, id } : selection;
+    if (!target) return setStatus("Select a table, query, form or report in the Navigation Pane to copy it.", "error");
+    const item = copyObject(docRef.current, props.project.id, target.kind, target.id);
+    if (item) setStatus(`Copied ${KIND_LABEL[target.kind].toLowerCase()} '${item.object.name}'. Press Ctrl+V or Paste to paste it, here or in another database.`);
+  };
+  const paste = () => {
+    if (readOnly) return setStatus("You have view-only access to this database.", "error");
+    const item = readClipboard();
+    if (!item) return setStatus("Nothing to paste. Copy a table, query, form or report first (Ctrl+C).", "error");
+    setPasting(item);
+  };
+
   const saveCopy = async () => {
     const copyName = await dialogs.prompt("Save a copy", "Name for your copy:", `${name} (copy)`.slice(0, 64), (v) =>
       validateObjectName({ version: 1, tables: [], queries: [], forms: [], reports: [], relationships: [] }, "table", v),
@@ -460,6 +539,12 @@ export function Workspace(props: {
             createReport: () => createFormOrReport("report"),
             importText: () => setImporting(true),
             importAccess: () => accessInput.current?.click(),
+            copy: selection ? () => copySelected() : undefined,
+            paste: readOnly ? undefined : paste,
+            mysqlConnections: () => setMysqlDialog("manage"),
+            mysqlLink: readOnly ? undefined : () => setMysqlDialog(connections?.length ? "link" : "new"),
+            mysqlImport: readOnly ? undefined : () => setMysqlDialog(connections?.length ? "import" : "new"),
+            mysqlConsole: readOnly ? undefined : () => openConsole(),
             exportAccess,
             openRelationships: () => openObject("relationships", "main"),
             refresh: () => setRefreshKey((k) => k + 1),
@@ -481,14 +566,27 @@ export function Workspace(props: {
         )}
 
         <div className="main-area">
-          <NavPane selection={selection} onSelect={setSelection} collapsed={navCollapsed} onToggle={() => setNavCollapsed((c) => !c)} />
+          <NavPane
+            selection={selection}
+            onSelect={setSelection}
+            collapsed={navCollapsed}
+            onToggle={() => setNavCollapsed((c) => !c)}
+            onCopy={copySelected}
+            onPaste={paste}
+          />
           <section className="document-area">
             {tabs.length > 0 && (
               <div className="doc-tabs" role="tablist">
                 {tabs.map((t) => {
-                  const obj = t.kind === "relationships" ? { name: "Relationships" } : findObject(doc, t.kind, t.id);
+                  const obj =
+                    t.kind === "relationships"
+                      ? { name: "Relationships" }
+                      : t.kind === "console"
+                        ? { name: `SQL: ${connections?.find((c) => c.id === t.id)?.name ?? "MySQL"}` }
+                        : findObject(doc, t.kind, t.id);
                   const q = t.kind === "query" ? doc.queries.find((x) => x.id === t.id) : undefined;
-                  const Icon = t.kind === "relationships" ? RelationshipsIcon : q ? QUERY_TYPE_ICONS[typeOfQuery(q)] : OBJECT_ICONS[t.kind];
+                  const Icon =
+                    t.kind === "relationships" ? RelationshipsIcon : t.kind === "console" ? ConsoleIcon : q ? QUERY_TYPE_ICONS[typeOfQuery(q)] : OBJECT_ICONS[t.kind];
                   return (
                     <div key={t.key} role="tab" aria-selected={t.key === activeKey} className={`doc-tab ${t.key === activeKey ? "active" : ""}`} onMouseDown={() => setActiveKey(t.key)} onAuxClick={(e) => e.button === 1 && closeTab(t.key)}>
                       <Icon size={14} />
@@ -553,6 +651,26 @@ export function Workspace(props: {
           />
         )}
         {importing && <ImportCsvDialog onClose={() => setImporting(false)} />}
+        {pasting && <PasteDialog item={pasting} onClose={() => setPasting(null)} />}
+        {mysqlDialog === "manage" && <ConnectionsManager onClose={() => setMysqlDialog(null)} onOpenConsole={openConsole} />}
+        {mysqlDialog === "new" && (
+          <ConnectionDialog
+            onClose={() => setMysqlDialog(null)}
+            onSaved={async (c) => {
+              setMysqlDialog(null);
+              await refreshConnections();
+              setStatus(`Saved connection ${c.name}.`);
+            }}
+          />
+        )}
+        {(mysqlDialog === "link" || mysqlDialog === "import") && (
+          <RemoteTablesDialog
+            mode={mysqlDialog}
+            onClose={() => setMysqlDialog(null)}
+            onNewConnection={() => setMysqlDialog("new")}
+            onDone={(c, tables) => (mysqlDialog === "link" ? linkTables(c, tables) : importTables(c, tables))}
+          />
+        )}
         {sharing && <ShareDialog projectId={props.project.id} projectName={name} owner={props.user} onClose={() => setSharing(false)} />}
         <input
           ref={accessInput}
@@ -605,10 +723,13 @@ function liveCommands(all: Map<string, ViewCommands>, key: string | null): ViewC
 function TabContent({ tab, refreshKey }: { tab: Tab; refreshKey: number }) {
   const ws = useWorkspaceDoc();
   if (tab.kind === "relationships") return <RelationshipsView tabKey={tab.key} />;
+  if (tab.kind === "console") return <SqlConsoleView connectionId={tab.id} tabKey={tab.key} />;
   const obj = findObject(ws.doc, tab.kind, tab.id);
   if (!obj) return null;
   const key = `${tab.view}:${refreshKey}`;
   switch (tab.kind) {
+    case "linked":
+      return <LinkedTableView key={key} link={ws.doc.linkedTables!.find((x) => x.id === tab.id)!} tabKey={tab.key} />;
     case "table": {
       const t = ws.doc.tables.find((x) => x.id === tab.id)!;
       return tab.view === "design" ? <TableDesign key={key} table={t} tabKey={tab.key} /> : <TableDatasheet key={key} table={t} tabKey={tab.key} />;

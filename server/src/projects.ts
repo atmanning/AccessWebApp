@@ -55,7 +55,7 @@ const shareSchema = z.object({
 const linkSchema = z.object({ linkAccess: z.enum(["none", "view", "edit"]) });
 const copySchema = z.object({ name: nameSchema });
 
-const httpError = (status: number, message: string) => Object.assign(new Error(message), { status });
+export const httpError = (status: number, message: string) => Object.assign(new Error(message), { status });
 
 function summarize(row: ProjectListRow, role: ProjectRole, doc?: ProjectDoc): ProjectSummary {
   return {
@@ -86,6 +86,30 @@ const SELECT_PROJECT = `
   JOIN users o ON o.id = p.user_id
   LEFT JOIN users u ON u.id = p.updated_by`;
 
+/**
+ * Loads a project and the caller's role on it. Unknown projects and ones the caller can't see
+ * both return 404, so project ids can't be probed.
+ */
+export function projectLoader(db: DB) {
+  return (id: string, userId: string, need: "view" | "edit" | "owner" = "view") => {
+    const row = db.prepare(`${SELECT_PROJECT} WHERE p.id = ?`).get(id) as ProjectListRow | undefined;
+    if (!row) throw httpError(404, "Database not found.");
+    let role: ProjectRole | null = null;
+    if (row.user_id === userId) role = "owner";
+    else {
+      const share = db.prepare("SELECT permission FROM project_shares WHERE project_id = ? AND user_id = ?").get(id, userId) as
+        | { permission: "view" | "edit" }
+        | undefined;
+      const perms = [share?.permission, row.link_access === "none" ? undefined : row.link_access];
+      role = perms.includes("edit") ? "edit" : perms.includes("view") ? "view" : null;
+    }
+    if (!role) throw httpError(404, "Database not found.");
+    if (need === "owner" && role !== "owner") throw httpError(403, "Only the owner can do that.");
+    if (need === "edit" && role === "view") throw httpError(403, "You have view-only access to this database.");
+    return { row, role };
+  };
+}
+
 export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise<Buffer>, importAccess: ImportAccess) {
   const router = Router();
   router.use(requireUser);
@@ -109,27 +133,7 @@ export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise
     return { ...summarize(row, "owner", doc), doc };
   };
 
-  /**
-   * Loads a project and the caller's role on it. Unknown projects and ones the caller can't see
-   * both return 404, so project ids can't be probed.
-   */
-  const load = (id: string, userId: string, need: "view" | "edit" | "owner" = "view") => {
-    const row = db.prepare(`${SELECT_PROJECT} WHERE p.id = ?`).get(id) as ProjectListRow | undefined;
-    if (!row) throw httpError(404, "Database not found.");
-    let role: ProjectRole | null = null;
-    if (row.user_id === userId) role = "owner";
-    else {
-      const share = db.prepare("SELECT permission FROM project_shares WHERE project_id = ? AND user_id = ?").get(id, userId) as
-        | { permission: "view" | "edit" }
-        | undefined;
-      const perms = [share?.permission, row.link_access === "none" ? undefined : row.link_access];
-      role = perms.includes("edit") ? "edit" : perms.includes("view") ? "view" : null;
-    }
-    if (!role) throw httpError(404, "Database not found.");
-    if (need === "owner" && role !== "owner") throw httpError(403, "Only the owner can do that.");
-    if (need === "edit" && role === "view") throw httpError(403, "You have view-only access to this database.");
-    return { row, role };
-  };
+  const load = projectLoader(db);
 
   const uploadedFile = (body: unknown) => {
     if (!Buffer.isBuffer(body) || body.length === 0) throw httpError(400, "Choose an Access file to upload.");

@@ -1,5 +1,6 @@
 import type { QueryDef } from "../../../shared/model";
 import { planAction } from "../engine/actions";
+import { loadLinkedTables } from "../engine/linked";
 import { isActionType } from "../engine/statements";
 import { useDialogs } from "../ui/dialogs";
 import { useWorkspace } from "./context";
@@ -23,7 +24,8 @@ export function useRunAction() {
     ws.setStatus(`Running ${query.name}…`);
     let plan;
     try {
-      plan = await planAction(ws.doc, sql, query.id);
+      const { tables } = await loadLinkedTables(ws.doc, ws.projectId, sql);
+      plan = await planAction(ws.doc, sql, query.id, tables);
     } catch (e) {
       ws.setStatus("");
       await dialogs.alert("Microsoft Access Web", (e as Error).message);

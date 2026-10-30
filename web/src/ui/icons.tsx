@@ -224,4 +224,39 @@ export const CrosstabQueryIcon = svg(
 );
 export const TotalsIcon = svg(<text x="8" y="13" textAnchor="middle" fontSize="14" fontWeight="700" fill="#333" fontFamily="Segoe UI, Arial">Σ</text>);
 
-export const OBJECT_ICONS = { table: TableIcon, query: QueryIcon, form: FormIcon, report: ReportIcon } as const;
+export const LinkedTableIcon = svg(
+  <>
+    <rect x="3.5" y="2.5" width="11" height="10" rx="1" fill="#fff" stroke="#3b6ea5" />
+    <rect x="3.5" y="2.5" width="11" height="3" fill="#3b6ea5" />
+    <path d="M3.5 8.5h11M8 5.5v7" stroke="#3b6ea5" />
+    <path d="M1 15l4.5-4.5M2.5 10.5h3v3" stroke="#2e7d4f" strokeWidth="1.6" fill="none" />
+  </>,
+);
+export const DatabaseServerIcon = svg(
+  <>
+    <ellipse cx="8" cy="3.5" rx="5.5" ry="2" fill="#e5f1fb" stroke="#0b5cad" />
+    <path d="M2.5 3.5v9c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2v-9" fill="#e5f1fb" stroke="#0b5cad" />
+    <path d="M2.5 8c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2" fill="none" stroke="#0b5cad" />
+  </>,
+);
+export const ConsoleIcon = svg(
+  <>
+    <rect x="1.5" y="2.5" width="13" height="11" rx="1" fill="#1f2d3d" />
+    <path d="M4 6l2 2-2 2M7.5 10.5h4" stroke="#7fd47f" strokeWidth="1.3" fill="none" />
+  </>,
+);
+export const CopyIcon = svg(
+  <>
+    <rect x="5.5" y="1.5" width="9" height="10" fill="#fff" stroke="#555" />
+    <rect x="1.5" y="4.5" width="9" height="10" fill="#fff" stroke="#555" />
+  </>,
+);
+export const PasteIcon = svg(
+  <>
+    <rect x="2.5" y="2.5" width="11" height="12" rx="1" fill="#d9c49a" stroke="#7a5d00" />
+    <rect x="5.5" y="1" width="5" height="3" rx="1" fill="#fff" stroke="#555" />
+    <rect x="6.5" y="6.5" width="8" height="8.5" fill="#fff" stroke="#555" />
+  </>,
+);
+
+export const OBJECT_ICONS = { table: TableIcon, query: QueryIcon, form: FormIcon, report: ReportIcon, linked: LinkedTableIcon } as const;

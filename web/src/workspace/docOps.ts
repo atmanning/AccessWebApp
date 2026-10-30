@@ -12,11 +12,11 @@ import { convertValue } from "../engine/values";
 
 export const newId = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
 
-export const KIND_LABEL: Record<ObjectKind, string> = { table: "Table", query: "Query", form: "Form", report: "Report" };
-export const KIND_PLURAL: Record<ObjectKind, string> = { table: "Tables", query: "Queries", form: "Forms", report: "Reports" };
+export const KIND_LABEL: Record<ObjectKind, string> = { table: "Table", query: "Query", form: "Form", report: "Report", linked: "Linked Table" };
+export const KIND_PLURAL: Record<ObjectKind, string> = { table: "Tables", query: "Queries", form: "Forms", report: "Reports", linked: "Linked Tables" };
 
 export function objectsOf(doc: ProjectDoc, kind: ObjectKind): { id: string; name: string }[] {
-  return { table: doc.tables, query: doc.queries, form: doc.forms, report: doc.reports }[kind];
+  return { table: doc.tables, query: doc.queries, form: doc.forms, report: doc.reports, linked: doc.linkedTables ?? [] }[kind];
 }
 
 export function findObject(doc: ProjectDoc, kind: ObjectKind, id: string) {
@@ -26,7 +26,8 @@ export function findObject(doc: ProjectDoc, kind: ObjectKind, id: string) {
 /** Tables and queries share one namespace in Access; forms and reports each have their own. */
 function nameTaken(doc: ProjectDoc, kind: ObjectKind, name: string, exceptId?: string) {
   const lower = name.toLowerCase();
-  const pool = kind === "table" || kind === "query" ? [...doc.tables, ...doc.queries] : objectsOf(doc, kind);
+  // Tables, linked tables and queries share one namespace in Access; forms and reports each have their own.
+  const pool = kind === "table" || kind === "query" || kind === "linked" ? [...doc.tables, ...doc.queries, ...(doc.linkedTables ?? [])] : objectsOf(doc, kind);
   return pool.some((o) => o.id !== exceptId && o.name.toLowerCase() === lower);
 }
 
@@ -102,6 +103,7 @@ export function deleteObject(doc: ProjectDoc, kind: ObjectKind, id: string) {
     doc.tables = doc.tables.filter((t) => t.id !== id);
     doc.relationships = doc.relationships.filter((r) => r.fromTable !== id && r.toTable !== id);
   } else if (kind === "query") doc.queries = doc.queries.filter((q) => q.id !== id);
+  else if (kind === "linked") doc.linkedTables = (doc.linkedTables ?? []).filter((t) => t.id !== id);
   else if (kind === "form") doc.forms = doc.forms.filter((f) => f.id !== id);
   else doc.reports = doc.reports.filter((r) => r.id !== id);
 }

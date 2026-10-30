@@ -436,3 +436,63 @@ select.grid-input { padding: 0 2px; }
 .qd-info .link { font-size: 11px; }
 .qd-info.warn .qd-problem { color: #8a5a00; background: #fff4ce; padding: 1px 8px; border-radius: 2px; }
 .plan-problems { margin: 4px 0 8px; padding-left: 18px; }
+
+/* ---------- MySQL connections ---------- */
+.conn-form { display: grid; grid-template-columns: 1fr 1fr 90px; gap: 10px 12px; }
+.conn-form label { display: flex; flex-direction: column; gap: 3px; grid-column: span 3; }
+.conn-form label.wide { grid-column: span 2; }
+.conn-form label.narrow { grid-column: span 1; }
+.conn-form label:nth-of-type(5), .conn-form label:nth-of-type(6) { grid-column: span 1; }
+.conn-form label:nth-of-type(6) { grid-column: span 2; }
+.password-row { display: flex; gap: 4px; }
+.password-row .text-input { flex: 1; min-width: 0; }
+.modal .show-pw { min-width: 0; padding: 2px 8px; }
+.modal-footer .spacer { flex: 1; }
+.test-result { margin: 12px 0 4px; padding: 8px 10px; border-radius: 2px; white-space: pre-wrap; font-size: 12px; }
+.test-result.ok { background: #dff3e4; color: #1e5c33; border: 1px solid #b5dfc1; }
+.test-result.error { background: #fdecea; color: #8a1c13; border: 1px solid #f3c1bb; font-family: Consolas, "Cascadia Mono", Menlo, monospace; }
+.conn-manager { display: flex; gap: 12px; }
+.conn-list { flex: 1; height: 240px; }
+.conn-list .list-item { align-items: flex-start; padding: 6px 8px; }
+.conn-actions { display: flex; flex-direction: column; gap: 6px; }
+.conn-actions button { min-width: 110px; }
+.conn-pick { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+.conn-pick.inline { flex-direction: row; align-items: center; gap: 8px; margin: 0; flex: 1; max-width: 560px; }
+.conn-pick.inline .combo { flex: 1; }
+.remote-tables { height: 260px; }
+.check-item { cursor: default; }
+.check-item .muted { margin-left: auto; }
+
+/* Linked tables */
+.linked-view { display: flex; flex-direction: column; height: 100%; }
+.linked-bar { display: flex; align-items: center; gap: 6px; padding: 4px 10px; background: #eef5fb; border-bottom: 1px solid #c9dcef; flex-shrink: 0; flex-wrap: wrap; }
+.linked-bar button { background: #fff; border: 1px solid var(--border-strong); padding: 2px 10px; }
+.linked-bar button:hover:not(:disabled) { background: #e5f1fb; border-color: #0078d4; }
+.linked-view .datasheet-wrap { flex: 1; min-height: 0; }
+
+/* SQL console */
+.console-view { display: flex; flex-direction: column; height: 100%; }
+.console-top { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--chrome); flex-shrink: 0; flex-wrap: wrap; }
+.console-top button { padding: 4px 14px; border: 1px solid var(--border-strong); background: #fff; }
+.console-top button.primary { background: var(--accent); color: #fff; border-color: var(--accent-dark); }
+.console-editor { flex: 0 0 120px; border-bottom: 1px solid var(--border); }
+.console-split { flex: 1; display: grid; grid-template-columns: minmax(280px, 45%) 1fr; min-height: 0; }
+.console-output { background: #1f2d3d; color: #d8e1ea; font-family: Consolas, "Cascadia Mono", Menlo, monospace; font-size: 12px; padding: 8px 10px; overflow: auto; }
+.console-output .muted { color: #8899aa; }
+.console-entry { margin-bottom: 10px; }
+.console-prompt { color: #7fd47f; white-space: pre-wrap; word-break: break-word; }
+.console-entry pre { margin: 2px 0 0; white-space: pre; }
+.console-entry.error pre { color: #ff8a80; white-space: pre-wrap; }
+.console-grid { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--border); }
+@media (max-width: 760px) { .console-split { grid-template-columns: 1fr; grid-template-rows: 40% 60%; } }
+
+/* Navigation pane: rename in place, menu shortcuts */
+.nav-rename { flex: 1; min-width: 0; border: 1px solid #0078d4; padding: 0 3px; font: inherit; height: 20px; }
+.context-menu button { display: flex; justify-content: space-between; gap: 24px; }
+.menu-shortcut { color: var(--muted); font-size: 11px; }
+
+/* Paste As */
+.paste-name { display: flex; flex-direction: column; gap: 4px; }
+.paste-options { margin: 12px 0 0; border: 1px solid var(--border); padding: 6px 12px; }
+.paste-options legend { padding: 0 4px; }
+.paste-options .check-label { margin: 4px 0; }

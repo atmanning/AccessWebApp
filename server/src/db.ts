@@ -54,6 +54,24 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (user_id, project_id)
   );
   `,
+  // 3: external MySQL connections (passwords encrypted with the server's connection key)
+  `
+  CREATE TABLE connections (
+    id           TEXT PRIMARY KEY,
+    project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL,
+    host         TEXT NOT NULL,
+    port         INTEGER NOT NULL,
+    database     TEXT NOT NULL,
+    username     TEXT NOT NULL,
+    password_enc TEXT NOT NULL,
+    ssl          TEXT NOT NULL CHECK (ssl IN ('off', 'required', 'verify')),
+    created_by   TEXT REFERENCES users(id) ON DELETE SET NULL,
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+  );
+  CREATE INDEX connections_project ON connections(project_id);
+  `,
 ];
 
 export function openDatabase(file: string): DB {

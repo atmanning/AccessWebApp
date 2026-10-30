@@ -7,6 +7,8 @@ import { createApp } from "../src/app.js";
 import { openDatabase } from "../src/db.js";
 import { createExporter } from "../src/export.js";
 import { createImporter } from "../src/accessImport.js";
+import { createSecretBox, isPrivateAddress } from "../src/mysql.js";
+import os from "node:os";
 import MDBReader from "mdb-reader";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -20,8 +22,11 @@ try {
 
 const javaTool = { javaBin: "java", jarPath, timeoutMs: 60_000, maxConcurrent: 1, maxHeap: "256m" };
 
-function makeApp() {
+const dataDir = path.join(os.tmpdir(), `accessweb-test-${process.pid}`);
+
+function makeApp(opts: { allowPrivateHosts?: boolean } = {}) {
   return createApp({
+    connections: { secrets: createSecretBox(dataDir, "test-secret"), allowPrivateHosts: opts.allowPrivateHosts ?? true },
     db: openDatabase(":memory:"),
     exportAccdb: createExporter(javaTool),
     importAccess: createImporter(javaTool),
@@ -278,5 +283,123 @@ describe("sharing", () => {
 
     await json(owner).del(`/api/projects/${id}/shares/${(await editor.get("/api/auth/me")).body.user.id}`);
     expect((await editor.get(`/api/projects/${id}`)).status).toBe(404);
+  });
+});
+
+/**
+ * MySQL connections. Uses a real MySQL/MariaDB server when MYSQL_TEST_URL is set, e.g.
+ * mysql://webapp:S3cret!pw@127.0.0.1:3306/shop with the sample tables from the README.
+ */
+const mysqlUrl = process.env.MYSQL_TEST_URL;
+describe.skipIf(!mysqlUrl)("mysql connections", () => {
+  const app = makeApp();
+  const url = new URL(mysqlUrl ?? "mysql://x@localhost/x");
+  const settings = {
+    name: "Shop",
+    host: url.hostname,
+    port: Number(url.port || 3306),
+    database: url.pathname.slice(1),
+    user: decodeURIComponent(url.username),
+    password: decodeURIComponent(url.password),
+    ssl: "off",
+  };
+  let owner: Awaited<ReturnType<typeof signUp>>;
+  let viewer: Awaited<ReturnType<typeof signUp>>;
+  let id = "";
+  let cid = "";
+  const base = () => `/api/projects/${id}/connections`;
+
+  beforeAll(async () => {
+    owner = await signUp(app, "dba@example.com");
+    viewer = await signUp(app, "looker@example.com");
+    id = (await owner.post("/api/projects").send({ name: "Ext", template: "blank" })).body.project.id;
+    await owner.put(`/api/projects/${id}/shares`).send({ email: "looker@example.com", permission: "view" });
+  });
+
+  it("tests settings before saving, with mysql-style errors", async () => {
+    const ok = await owner.post(`${base()}/test`).send({ settings });
+    expect(ok.body).toMatchObject({ ok: true, database: settings.database });
+    expect(ok.body.version).toMatch(/\d+\.\d+/);
+    const bad = await owner.post(`${base()}/test`).send({ settings: { ...settings, password: "wrong" } });
+    expect(bad.body.ok).toBe(false);
+    expect(bad.body.error).toMatchObject({ errno: 1045, sqlState: "28000" });
+    const refused = await owner.post(`${base()}/test`).send({ settings: { ...settings, port: 1 } });
+    expect(refused.body.error.message).toMatch(/Can't connect to MySQL server/);
+    // A mysql:// URL pasted into the server box fills in the other settings.
+    const fromUrl = await owner.post(`${base()}/test`).send({ settings: { ...settings, host: mysqlUrl, user: "", password: undefined, database: "" } });
+    expect(fromUrl.body.ok).toBe(true);
+  });
+
+  it("saves connections with the password encrypted and never returned", async () => {
+    const created = await owner.post(base()).send(settings);
+    expect(created.status).toBe(201);
+    cid = created.body.connection.id;
+    expect(created.body.connection).toMatchObject({ name: "Shop", hasPassword: true });
+    expect(JSON.stringify(created.body)).not.toContain(settings.password);
+    const list = await viewer.get(base());
+    expect(list.body.connections).toHaveLength(1);
+    expect(JSON.stringify(list.body)).not.toContain(settings.password);
+    // Editing without a password keeps it; Test Connection uses the saved one.
+    const { password: _p, ...noPassword } = settings;
+    expect((await owner.put(`${base()}/${cid}`).send({ ...noPassword, name: "Shop DB" })).body.connection.name).toBe("Shop DB");
+    expect((await owner.post(`${base()}/test`).send({ connectionId: cid, settings: noPassword })).body.ok).toBe(true);
+    // Viewers can't change connections or run SQL.
+    expect((await viewer.post(base()).send(settings)).status).toBe(403);
+    expect((await viewer.post(`${base()}/${cid}/sql`).send({ sql: "SELECT 1" })).status).toBe(403);
+  });
+
+  it("lists and browses remote tables, mapping MySQL types", async () => {
+    const tables = (await viewer.get(`${base()}/${cid}/tables`)).body.tables;
+    expect(tables.map((t: { name: string; type: string }) => `${t.name}:${t.type}`)).toEqual(
+      expect.arrayContaining(["customers:table", "orders:table", "products:table", "big_orders:view"]),
+    );
+    const rows = (await viewer.get(`${base()}/${cid}/tables/customers/rows?limit=2`)).body;
+    expect(rows.total).toBe(3);
+    expect(rows.rows).toHaveLength(2);
+    const types = Object.fromEntries(rows.fields.map((f: { name: string; type: string }) => [f.name, f.type]));
+    expect(types).toMatchObject({ id: "AutoNumber", name: "ShortText", joined: "DateTime", vip: "YesNo", notes: "LongText", balance: "Currency" });
+    expect(rows.rows[0]).toEqual([1, "Ada Lovelace", "ada@example.com", "2026-01-12", true, "first", 12.5]);
+    const products = (await viewer.get(`${base()}/${cid}/tables/products/rows`)).body;
+    expect(products.skipped).toEqual(["raw"]); // BLOB
+    expect(products.rows[0]).toContain("2026-05-01T10:30");
+  });
+
+  it("runs SQL like the mysql client: result sets, OK packets and errors", async () => {
+    const sql = (q: string) => owner.post(`${base()}/${cid}/sql`).send({ sql: q }).then((r) => r.body);
+    const rows = await sql("SELECT name, balance FROM customers WHERE vip = 1 ORDER BY id");
+    expect(rows).toMatchObject({ kind: "rows", columns: ["name", "balance"], rows: [["Ada Lovelace", 12.5], ["Linus T", 99.99]] });
+    const upd = await sql("UPDATE customers SET notes = 'vip' WHERE vip = 1");
+    expect(upd).toMatchObject({ kind: "ok", affectedRows: 2 });
+    expect(upd.info).toMatch(/Rows matched: 2/);
+    const err = await sql("SELECT * FROM nope");
+    expect(err).toMatchObject({ kind: "error", errno: 1146, sqlState: "42S02" });
+    expect(err.message).toMatch(/nope' doesn't exist/);
+    expect((await sql("SELECT 1; SELECT 2")).kind).toBe("error"); // one statement at a time
+    await sql("UPDATE customers SET notes = 'first' WHERE id = 1");
+  });
+
+  it("imports tables with keys, indexes and foreign keys as relationships", async () => {
+    const res = await owner.post(`${base()}/${cid}/import`).send({ tables: ["customers", "products", "orders"] });
+    expect(res.status).toBe(200);
+    const doc = res.body.doc;
+    const customers = doc.tables.find((t: { name: string }) => t.name === "customers");
+    expect(customers.fields.find((f: { name: string }) => f.name === "id")).toMatchObject({ type: "AutoNumber", primaryKey: true });
+    expect(customers.fields.find((f: { name: string }) => f.name === "email")).toMatchObject({ indexed: "YesNoDup", size: 120 });
+    expect(customers.fields.find((f: { name: string }) => f.name === "name")).toMatchObject({ required: true, description: "Full name" });
+    expect(customers.rows).toHaveLength(3);
+    expect(customers.nextAutoNumber).toBe(4);
+    expect(doc.relationships).toHaveLength(2);
+    expect(res.body.warnings.join(" ")).toMatch(/products.raw/);
+  });
+
+  it("blocks private network addresses unless allowed", async () => {
+    expect(isPrivateAddress("127.0.0.1") && isPrivateAddress("10.1.2.3") && isPrivateAddress("169.254.169.254") && isPrivateAddress("::1")).toBe(true);
+    expect(isPrivateAddress("8.8.8.8")).toBe(false);
+    const strict = makeApp({ allowPrivateHosts: false });
+    const a = await signUp(strict, "strict@example.com");
+    const pid = (await a.post("/api/projects").send({ name: "S", template: "blank" })).body.project.id;
+    const r = await a.post(`/api/projects/${pid}/connections/test`).send({ settings: { ...settings, host: "127.0.0.1" } });
+    expect(r.body.ok).toBe(false);
+    expect(r.body.error.message).toMatch(/private and internal network addresses are blocked/);
   });
 });

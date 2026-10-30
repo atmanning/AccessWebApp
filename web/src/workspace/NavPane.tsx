@@ -1,31 +1,96 @@
-import { useEffect, useState } from "react";
-import type { ObjectKind } from "../../../shared/model";
+import { useEffect, useRef, useState } from "react";
+import { QUERY_TYPE_LABELS, type ObjectKind } from "../../../shared/model";
+import { isActionType } from "../engine/statements";
 import { useDialogs } from "../ui/dialogs";
 import { ChevronIcon, FindIcon, OBJECT_ICONS } from "../ui/icons";
 import { tabKey, useWorkspace } from "./context";
-import { QUERY_TYPE_LABELS } from "../../../shared/model";
-import { isActionType } from "../engine/statements";
+import { deleteObject, dependents, findObject, KIND_LABEL, KIND_PLURAL, objectsOf, renameObject, validateObjectName } from "./docOps";
 import { QUERY_TYPE_ICONS, typeOfQuery } from "./queryKinds";
 import { useRunAction } from "./useRunAction";
-import { deleteObject, dependents, findObject, KIND_LABEL, KIND_PLURAL, objectsOf, renameObject, validateObjectName } from "./docOps";
 
-const KINDS: ObjectKind[] = ["table", "query", "form", "report"];
+/** Navigation Pane groups. Linked tables are listed with the tables, as in Access. */
+const GROUPS: { group: ObjectKind; kinds: ObjectKind[] }[] = [
+  { group: "table", kinds: ["table", "linked"] },
+  { group: "query", kinds: ["query"] },
+  { group: "form", kinds: ["form"] },
+  { group: "report", kinds: ["report"] },
+];
 
 export type Selection = { kind: ObjectKind; id: string } | null;
 
 /** Queries show their type's icon (select, update, delete, ...). */
-function ItemIcon({ kind, id, fallback: Fallback }: { kind: ObjectKind; id: string; fallback: typeof OBJECT_ICONS.table }) {
+function ItemIcon({ kind, id }: { kind: ObjectKind; id: string }) {
   const ws = useWorkspace();
+  const Fallback = OBJECT_ICONS[kind];
   if (kind !== "query") return <Fallback />;
   const q = ws.doc.queries.find((x) => x.id === id);
   const Icon = q ? QUERY_TYPE_ICONS[typeOfQuery(q)] : Fallback;
   return <Icon />;
 }
 
-export function NavPane(props: { selection: Selection; onSelect: (s: Selection) => void; collapsed: boolean; onToggle: () => void }) {
+/** In-place rename box, like Access's F2 in the Navigation Pane. */
+function RenameBox(props: { initial: string; onCommit: (name: string) => boolean; onCancel: () => void }) {
+  const [value, setValue] = useState(props.initial);
+  const ref = useRef<HTMLInputElement>(null);
+  const done = useRef(false);
+  useEffect(() => {
+    ref.current?.focus();
+    ref.current?.select();
+  }, []);
+  const commit = () => {
+    if (done.current) return;
+    if (props.onCommit(value.trim())) done.current = true;
+    else ref.current?.focus();
+  };
+  return (
+    <input
+      ref={ref}
+      className="nav-rename"
+      value={value}
+      maxLength={64}
+      aria-label="New name"
+      onChange={(e) => setValue(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") {
+          done.current = true;
+          props.onCancel();
+        }
+      }}
+      onBlur={commit}
+    />
+  );
+}
+
+export function NavPane(props: {
+  selection: Selection;
+  onSelect: (s: Selection) => void;
+  collapsed: boolean;
+  onToggle: () => void;
+  onCopy: (kind: ObjectKind, id: string) => void;
+  onPaste: () => void;
+}) {
   const ws = useWorkspace();
   const dialogs = useDialogs();
   const runAction = useRunAction();
+  const [search, setSearch] = useState("");
+  const [closedGroups, setClosedGroups] = useState<Set<ObjectKind>>(new Set());
+  const [menu, setMenu] = useState<{ x: number; y: number; kind: ObjectKind; id: string } | null>(null);
+  const [renaming, setRenaming] = useState<{ kind: ObjectKind; id: string } | null>(null);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    window.addEventListener("mousedown", close);
+    window.addEventListener("blur", close);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("blur", close);
+    };
+  }, [menu]);
 
   /** Opening an action query runs it (after a warning), as in Access; everything else opens. */
   const openItem = async (kind: ObjectKind, id: string) => {
@@ -42,28 +107,28 @@ export function NavPane(props: { selection: Selection; onSelect: (s: Selection) 
     }
     ws.openObject(kind, id);
   };
-  const [search, setSearch] = useState("");
-  const [closedGroups, setClosedGroups] = useState<Set<ObjectKind>>(new Set());
-  const [menu, setMenu] = useState<{ x: number; y: number; kind: ObjectKind; id: string } | null>(null);
 
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    window.addEventListener("mousedown", close);
-    window.addEventListener("blur", close);
-    return () => {
-      window.removeEventListener("mousedown", close);
-      window.removeEventListener("blur", close);
-    };
-  }, [menu]);
+  const startRename = (kind: ObjectKind, id: string) => {
+    if (ws.readOnly) return ws.setStatus("You have view-only access to this database.", "error");
+    setRenaming({ kind, id });
+  };
 
-  const rename = async (kind: ObjectKind, id: string) => {
+  /** Returns false (and keeps the box open) when the name isn't allowed. */
+  const commitRename = (kind: ObjectKind, id: string, name: string): boolean => {
     const obj = findObject(ws.doc, kind, id);
-    if (!obj) return;
-    const name = await dialogs.prompt("Rename", `${KIND_LABEL[kind]} Name:`, obj.name, (v) =>
-      v.trim() === obj.name ? null : validateObjectName(ws.doc, kind, v, id),
-    );
-    if (name && name !== obj.name) ws.update((d) => renameObject(d, kind, id, name));
+    if (!obj || name === obj.name) {
+      setRenaming(null);
+      return true;
+    }
+    const err = validateObjectName(ws.doc, kind, name, id);
+    if (err) {
+      ws.setStatus(err, "error");
+      return false;
+    }
+    ws.update((d) => renameObject(d, kind, id, name));
+    ws.setStatus(`Renamed to '${name}'.`);
+    setRenaming(null);
+    return true;
   };
 
   const remove = async (kind: ObjectKind, id: string) => {
@@ -73,7 +138,11 @@ export function NavPane(props: { selection: Selection; onSelect: (s: Selection) 
     const ok = await dialogs.confirm(
       "Microsoft Access Web",
       <>
-        <p>Do you want to delete the {KIND_LABEL[kind].toLowerCase()} '{obj.name}'?</p>
+        <p>
+          {kind === "linked"
+            ? `Do you want to delete the link to the table '${obj.name}'? The table itself stays on the MySQL server.`
+            : `Do you want to delete the ${KIND_LABEL[kind].toLowerCase()} '${obj.name}'?`}
+        </p>
         {kind === "table" && <p>Deleting a table also deletes its data and any relationships it has.</p>}
         {deps.length > 0 && <p>These objects use it and will stop working: {deps.join(", ")}.</p>}
       </>,
@@ -95,9 +164,37 @@ export function NavPane(props: { selection: Selection; onSelect: (s: Selection) 
     );
   }
 
-  const q = search.trim().toLowerCase();
+  const query = search.trim().toLowerCase();
+  const menuQuery = menu?.kind === "query" ? ws.doc.queries.find((x) => x.id === menu.id) : undefined;
+  const menuItems = menu
+    ? [
+        ...(menuQuery && isActionType(typeOfQuery(menuQuery))
+          ? [
+              { label: "Run", run: () => openItem(menu.kind, menu.id) },
+              { label: "Preview (Datasheet View)", run: () => ws.openObject(menu.kind, menu.id, "datasheet") },
+            ]
+          : [{ label: "Open", run: () => ws.openObject(menu.kind, menu.id) }]),
+        ...(menu.kind !== "linked" ? [{ label: "Design View", run: () => ws.openObject(menu.kind, menu.id, "design") }] : []),
+        ...(menu.kind === "query" ? [{ label: "SQL View", run: () => ws.openObject(menu.kind, menu.id, "sql") }] : []),
+        { label: "Copy", shortcut: "Ctrl+C", run: () => props.onCopy(menu.kind, menu.id) },
+        { label: "Paste", shortcut: "Ctrl+V", run: () => props.onPaste() },
+        { label: "Rename", shortcut: "F2", run: () => startRename(menu.kind, menu.id) },
+        { label: menu.kind === "linked" ? "Delete link" : "Delete", shortcut: "Del", run: () => remove(menu.kind, menu.id) },
+      ]
+    : [];
+
   return (
-    <aside className="nav-pane" aria-label="Navigation Pane">
+    <aside
+      className="nav-pane"
+      aria-label="Navigation Pane"
+      onKeyDown={(e) => {
+        // Ctrl+V pastes anywhere in the pane (also when nothing is selected).
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v" && !(e.target instanceof HTMLInputElement)) {
+          e.preventDefault();
+          props.onPaste();
+        }
+      }}
+    >
       <div className="nav-head">
         <span>All Access Objects</span>
         <button className="icon-btn" onClick={props.onToggle} title="Shutter Bar Open/Close (F11)" aria-label="Collapse navigation pane">
@@ -108,56 +205,69 @@ export function NavPane(props: { selection: Selection; onSelect: (s: Selection) 
         <input placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search objects" />
         <FindIcon size={12} />
       </label>
-      <div className="nav-groups" role="tree">
-        {KINDS.map((kind) => {
-          const items = objectsOf(ws.doc, kind).filter((o) => !q || o.name.toLowerCase().includes(q));
-          if (q && !items.length) return null;
-          const open = !closedGroups.has(kind);
-          const Icon = OBJECT_ICONS[kind];
+      <div className="nav-groups" role="tree" tabIndex={-1}>
+        {GROUPS.map(({ group, kinds }) => {
+          const items = kinds
+            .flatMap((kind) => objectsOf(ws.doc, kind).map((o) => ({ kind, id: o.id, name: o.name })))
+            .filter((o) => !query || o.name.toLowerCase().includes(query))
+            .sort((a, b) => a.name.localeCompare(b.name));
+          if (query && !items.length) return null;
+          const open = !closedGroups.has(group);
           return (
-            <div key={kind} className="nav-group" role="treeitem" aria-expanded={open}>
+            <div key={group} className="nav-group" role="treeitem" aria-expanded={open}>
               <button
                 className="nav-group-head"
                 onClick={() =>
                   setClosedGroups((s) => {
                     const n = new Set(s);
-                    if (n.has(kind)) n.delete(kind);
-                    else n.add(kind);
+                    if (n.has(group)) n.delete(group);
+                    else n.add(group);
                     return n;
                   })
                 }
               >
-                <span>{KIND_PLURAL[kind]}</span>
+                <span>{KIND_PLURAL[group]}</span>
                 <ChevronIcon size={10} className={open ? "chev open" : "chev"} />
               </button>
               {open && (
                 <ul role="group">
-                  {[...items].sort((a, b) => a.name.localeCompare(b.name)).map((o) => {
-                    const selected = props.selection?.kind === kind && props.selection.id === o.id;
+                  {items.map(({ kind, id, name }) => {
+                    const selected = props.selection?.kind === kind && props.selection.id === id;
+                    const isRenaming = renaming?.kind === kind && renaming.id === id;
                     return (
                       <li
-                        key={o.id}
+                        key={`${kind}:${id}`}
                         role="treeitem"
                         aria-selected={selected}
                         tabIndex={0}
-                        className={`nav-item ${selected ? "selected" : ""} ${ws.activeKey === tabKey(kind, o.id) ? "active" : ""}`}
-                        onClick={() => props.onSelect({ kind, id: o.id })}
-                        onDoubleClick={() => openItem(kind, o.id)}
+                        title={kind === "linked" ? "Linked MySQL table" : undefined}
+                        className={`nav-item ${selected ? "selected" : ""} ${ws.activeKey === tabKey(kind, id) ? "active" : ""}`}
+                        onClick={() => props.onSelect({ kind, id })}
+                        onDoubleClick={() => !isRenaming && openItem(kind, id)}
                         onContextMenu={(e) => {
                           e.preventDefault();
-                          props.onSelect({ kind, id: o.id });
-                          setMenu({ x: e.clientX, y: e.clientY, kind, id: o.id });
+                          props.onSelect({ kind, id });
+                          setMenu({ x: e.clientX, y: e.clientY, kind, id });
                         }}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") openItem(kind, o.id);
-                          else if (e.key === "F2") rename(kind, o.id);
-                          else if (e.key === "Delete") remove(kind, o.id);
+                          if (isRenaming) return;
+                          const mod = e.ctrlKey || e.metaKey;
+                          if (e.key === "Enter") openItem(kind, id);
+                          else if (e.key === "F2") startRename(kind, id);
+                          else if (e.key === "Delete") remove(kind, id);
+                          else if (mod && e.key.toLowerCase() === "c") props.onCopy(kind, id);
                           else return;
                           e.preventDefault();
+                          e.stopPropagation();
                         }}
-                        onFocus={() => props.onSelect({ kind, id: o.id })}
+                        onFocus={() => props.onSelect({ kind, id })}
                       >
-                        <ItemIcon kind={kind} id={o.id} fallback={Icon} /> <span className="nav-item-name">{o.name}</span>
+                        <ItemIcon kind={kind} id={id} />{" "}
+                        {isRenaming ? (
+                          <RenameBox initial={name} onCommit={(n) => commitRename(kind, id, n)} onCancel={() => setRenaming(null)} />
+                        ) : (
+                          <span className="nav-item-name">{name}</span>
+                        )}
                       </li>
                     );
                   })}
@@ -170,21 +280,7 @@ export function NavPane(props: { selection: Selection; onSelect: (s: Selection) 
       </div>
       {menu && (
         <div className="context-menu" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()} role="menu">
-          {[
-            ...(() => {
-              const q = menu.kind === "query" ? ws.doc.queries.find((x) => x.id === menu.id) : undefined;
-              return q && isActionType(typeOfQuery(q))
-                ? [
-                    { label: "Run", run: () => openItem(menu.kind, menu.id) },
-                    { label: "Preview (Datasheet View)", run: () => ws.openObject(menu.kind, menu.id, "datasheet") },
-                  ]
-                : [{ label: "Open", run: () => ws.openObject(menu.kind, menu.id) }];
-            })(),
-            { label: "Design View", run: () => ws.openObject(menu.kind, menu.id, "design") },
-            ...(menu.kind === "query" ? [{ label: "SQL View", run: () => ws.openObject(menu.kind, menu.id, "sql") }] : []),
-            { label: "Rename", run: () => rename(menu.kind, menu.id) },
-            { label: "Delete", run: () => remove(menu.kind, menu.id) },
-          ].map((item) => (
+          {menuItems.map((item) => (
             <button
               key={item.label}
               role="menuitem"
@@ -193,7 +289,8 @@ export function NavPane(props: { selection: Selection; onSelect: (s: Selection) 
                 item.run();
               }}
             >
-              {item.label}
+              <span>{item.label}</span>
+              {"shortcut" in item && <span className="menu-shortcut">{item.shortcut}</span>}
             </button>
           ))}
         </div>

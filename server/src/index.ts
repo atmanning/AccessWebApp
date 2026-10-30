@@ -4,6 +4,7 @@ import { createApp } from "./app.js";
 import { openDatabase } from "./db.js";
 import { createExporter, createLimiter } from "./export.js";
 import { createImporter } from "./accessImport.js";
+import { createSecretBox } from "./mysql.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Works from both server/src (tsx) and server/dist/server/src (compiled).
@@ -31,6 +32,11 @@ const app = createApp({
   db,
   exportAccdb,
   importAccess,
+  connections: {
+    secrets: createSecretBox(dataDir, env.CONNECTION_SECRET),
+    // Self-hosted installs that need databases on their own network can turn this on.
+    allowPrivateHosts: env.ALLOW_PRIVATE_DB_HOSTS === "true",
+  },
   secureCookies: env.SECURE_COOKIES ? env.SECURE_COOKIES === "true" : production,
   staticDir: env.STATIC_DIR ?? path.join(repoRoot, "web/dist"),
   trustProxy: env.TRUST_PROXY === "true",

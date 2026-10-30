@@ -25,6 +25,11 @@ import {
   TableIcon,
   TextFileIcon,
   TotalsIcon,
+  ConsoleIcon,
+  CopyIcon,
+  DatabaseServerIcon,
+  LinkedTableIcon,
+  PasteIcon,
 } from "../ui/icons";
 import { viewsFor, type Tab, type ViewCommands, type ViewName } from "./context";
 import { QUERY_TYPES, QUERY_TYPE_LABELS, type QueryType } from "../../../shared/model";
@@ -49,6 +54,12 @@ export interface RibbonActions {
   createReport: () => void;
   importText: () => void;
   importAccess: () => void;
+  copy?: () => void;
+  paste?: () => void;
+  mysqlConnections: () => void;
+  mysqlLink?: () => void;
+  mysqlImport?: () => void;
+  mysqlConsole?: () => void;
   exportAccess: () => void;
   openRelationships: () => void;
   refresh: () => void;
@@ -57,6 +68,7 @@ export interface RibbonActions {
 type RibbonTab = "home" | "create" | "external" | "tools" | "design";
 
 const VIEW_ICONS: Record<ViewName, ReactNode> = {
+  console: <ConsoleIcon size={32} />,
   datasheet: <TableIcon size={32} />,
   design: <DesignIcon size={32} />,
   sql: <SqlIcon size={32} />,
@@ -66,6 +78,7 @@ const VIEW_ICONS: Record<ViewName, ReactNode> = {
 };
 
 const VIEW_ICONS_SMALL: Record<ViewName, ReactNode> = {
+  console: <ConsoleIcon size={16} />,
   datasheet: <TableIcon size={16} />,
   design: <DesignIcon size={16} />,
   sql: <SqlIcon size={16} />,
@@ -212,7 +225,13 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
         {active === "home" && (
           <>
             <Group label="Views">{viewButton}</Group>
-            {tab?.kind === "query" && c.run && (
+            <Group label="Clipboard">
+              <Big icon={<PasteIcon size={32} />} label="Paste" onClick={actions.paste} title="Paste a copied table, query, form or report (Ctrl+V)" />
+              <div className="rb-stack">
+                <Small icon={<CopyIcon />} label="Copy" onClick={actions.copy} title="Copy the object selected in the Navigation Pane (Ctrl+C)" />
+              </div>
+            </Group>
+            {(tab?.kind === "query" || tab?.kind === "console") && c.run && (
               <Group label="Results">
                 <Big icon={<RunIcon size={32} />} label="Run" onClick={c.run} title="Run this query" />
               </Group>
@@ -263,6 +282,12 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
             <Group label="Import & Link">
               <Big icon={<ImportAccessIcon size={32} />} label="Access" onClick={actions.importAccess} title="Import tables and queries from an Access database (.accdb, .mdb)" />
               <Big icon={<ImportIcon size={32} />} label="Text File" onClick={actions.importText} title="Import a CSV or text file into a new table" />
+            </Group>
+            <Group label="MySQL">
+              <Big icon={<DatabaseServerIcon size={32} />} label="Connections" onClick={actions.mysqlConnections} title="Add, edit and test MySQL / MariaDB connections" />
+              <Big icon={<LinkedTableIcon size={32} />} label="Link Tables" onClick={actions.mysqlLink} title="Link tables from a MySQL database to browse them here" />
+              <Big icon={<ImportIcon size={32} />} label="Import Tables" onClick={actions.mysqlImport} title="Copy tables and their data from a MySQL database" />
+              <Big icon={<ConsoleIcon size={32} />} label="SQL Console" onClick={actions.mysqlConsole} title="Run SQL on a MySQL connection" />
             </Group>
             <Group label="Export">
               <Big icon={<ExportAccessIcon size={32} />} label="Access" onClick={actions.exportAccess} title="Download this database as a Microsoft Access .accdb file" />

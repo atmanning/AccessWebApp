@@ -142,14 +142,17 @@ function registerAccessAggregates(db: Database) {
  * Builds an in-memory SQLite database from the project: one table per Access table
  * (rowid N = t.rows[N - 1]) and saved select queries as views, like in Access.
  */
-export async function openEngine(doc: ProjectDoc, opts: { excludeQueryId?: string } = {}): Promise<Database> {
+export async function openEngine(
+  doc: ProjectDoc,
+  opts: { excludeQueryId?: string; /** Rows fetched from linked MySQL tables. */ extraTables?: TableDef[] } = {},
+): Promise<Database> {
   const SQL = await loadSql();
   const db = new SQL.Database();
   try {
     registerAccessFunctions(db);
     registerAccessAggregates(db);
     db.run("BEGIN");
-    loadTables(db, doc.tables);
+    loadTables(db, [...doc.tables, ...(opts.extraTables ?? [])]);
     // Queries can depend on each other, so keep retrying until no more succeed; ones that
     // never work are skipped (they report their own error when opened).
     let pending = doc.queries.filter((q) => q.id !== opts.excludeQueryId && q.sql.trim() && isSelectSafe(q.sql));
@@ -203,7 +206,14 @@ export function selectRows(db: Database, accessSql: string, max = 50_000): { col
 export async function runQuery(
   doc: ProjectDoc,
   accessSql: string,
-  opts: { maxRows?: number; excludeQueryId?: string; /** Work out which cells can be edited. */ editable?: boolean } = {},
+  opts: {
+    maxRows?: number;
+    excludeQueryId?: string;
+    /** Work out which cells can be edited. */
+    editable?: boolean;
+    /** Rows fetched from linked MySQL tables the query uses (see linked.ts). */
+    extraTables?: TableDef[];
+  } = {},
 ): Promise<ResultSet> {
   if (!accessSql.trim()) throw new SqlSyntaxError("The query is empty. Add fields in Design View or type SQL.");
   const statement = parseStatement(accessSql);

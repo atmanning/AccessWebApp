@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NAME_PATTERN, QUERY_TYPE_LABELS, TOTAL_OPTIONS, type QueryColumn, type QueryDef, type QueryType } from "../../../shared/model";
 import { runQuery, type ResultSet } from "../engine/engine";
 import { previewAction } from "../engine/actions";
+import { loadLinkedTables } from "../engine/linked";
 import { isActionType } from "../engine/statements";
 import { designProblem, designSql, type QueryDesign } from "../engine/queryDesign";
 import { ComboBox, type ComboOption } from "../ui/ComboBox";
@@ -30,11 +31,20 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
     let cancelled = false;
     setRunning(true);
     const action = isActionType(typeOfQuery(query));
-    (action ? previewAction(ws.doc, query.sql, query.id) : runQuery(ws.doc, query.sql, { excludeQueryId: query.id, editable: true }))
+    let linkedNotes: string[] = [];
+    // Linked MySQL tables the query uses are fetched first (see engine/linked.ts).
+    loadLinkedTables(ws.doc, ws.projectId, query.sql)
+      .then(({ tables, notes }) => {
+        linkedNotes = notes;
+        return action
+          ? previewAction(ws.doc, query.sql, query.id, tables)
+          : runQuery(ws.doc, query.sql, { excludeQueryId: query.id, editable: true, extraTables: tables });
+      })
       .then((r) => {
         if (cancelled) return;
         setResult(r);
         setError(null);
+        if (linkedNotes.length) return ws.setStatus(linkedNotes.join(" "));
         ws.setStatus(
           action
             ? `Preview: the ${r.rows.length} record(s) this ${QUERY_TYPE_LABELS[typeOfQuery(query)].toLowerCase()} query will ${typeOfQuery(query) === "delete" ? "delete" : typeOfQuery(query) === "update" ? "change" : "add"}. Click Run to apply it.`

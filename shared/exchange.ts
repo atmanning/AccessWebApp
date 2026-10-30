@@ -144,7 +144,7 @@ export function fromExchangeDocument(x: ExchangeDocument): { doc: ProjectDoc; wa
  * already taken (as Access does: Customers -> Customers1).
  */
 export function mergeProjects(target: ProjectDoc, incoming: ProjectDoc): { doc: ProjectDoc; renamed: string[] } {
-  const taken = new Set([...target.tables, ...target.queries].map((o) => o.name.toLowerCase()));
+  const taken = new Set([...target.tables, ...target.queries, ...(target.linkedTables ?? [])].map((o) => o.name.toLowerCase()));
   const renamed: string[] = [];
   const tables = incoming.tables.map((t) => {
     const name = unique(t.name, taken);
