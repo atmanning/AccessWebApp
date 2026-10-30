@@ -22,6 +22,19 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
   return data as T;
 }
 
+async function upload<T>(url: string, file: File): Promise<T> {
+  if (file.size > 100 * 1024 * 1024) throw new ApiError("That file is larger than 100 MB.", 413);
+  const res = await fetch(url, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "X-Requested-With": "fetch", "Content-Type": "application/octet-stream" },
+    body: file,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(data.error ?? `Upload failed (${res.status})`, res.status, data);
+  return data as T;
+}
+
 export const api = {
   me: () => call<{ user: UserInfo | null }>("GET", "/api/auth/me"),
   login: (email: string, password: string) => call<{ user: UserInfo }>("POST", "/api/auth/login", { email, password }),
@@ -36,6 +49,12 @@ export const api = {
   saveProject: (id: string, baseRevision: number, changes: { name?: string; doc?: ProjectDoc }) =>
     call<{ project: ProjectSummary }>("PUT", `/api/projects/${id}`, { ...changes, baseRevision }),
   deleteProject: (id: string) => call<{ ok: true }>("DELETE", `/api/projects/${id}`),
+
+  /** Creates a new database from an Access file. */
+  importAccessProject: (file: File, name: string) =>
+    upload<{ project: ProjectRecord; warnings: string[] }>(`/api/projects/import-access?name=${encodeURIComponent(name)}`, file),
+  /** Reads an Access file's objects without saving them, to merge into the open database. */
+  convertAccess: (file: File) => upload<{ doc: ProjectDoc; warnings: string[] }>("/api/projects/convert-access", file),
 
   /** Downloads the .accdb via fetch so server errors can be shown instead of a broken file. */
   async downloadAccdb(id: string, fallbackName: string) {

@@ -55,8 +55,18 @@ public final class AccessExporter {
     private AccessExporter() {}
 
     public static void main(String[] args) throws Exception {
+        if (args.length >= 2 && "--import".equals(args[0])) {
+            try {
+                AccessImporter.run(args[1], args.length > 2 ? Integer.parseInt(args[2]) : 200_000);
+            } catch (Exception e) {
+                System.err.println("Import failed: " + describeImportError(e));
+                System.exit(1);
+            }
+            return;
+        }
         if (args.length != 1) {
             System.err.println("Usage: java -jar access-exporter.jar <output.accdb> < export.json");
+            System.err.println("       java -jar access-exporter.jar --import <input.accdb> [maxRows] > import.json");
             System.exit(2);
         }
         String json;
@@ -69,6 +79,19 @@ public final class AccessExporter {
             System.err.println("Export failed: " + e.getMessage());
             System.exit(1);
         }
+    }
+
+    /** Turns Jackcess failures into messages a user can act on. */
+    static String describeImportError(Exception e) {
+        String msg = String.valueOf(e.getMessage());
+        String lower = msg.toLowerCase(java.util.Locale.ROOT);
+        if (e instanceof UnsupportedOperationException && lower.contains("codec")) {
+            return "This database is password-protected or encrypted. Remove the password in Access (File > Info > Decrypt Database) and try again.";
+        }
+        if (lower.contains("invalid") && lower.contains("format") || lower.contains("unsupported") && lower.contains("version")) {
+            return "This doesn't look like a Microsoft Access database this tool can read (.accdb or .mdb from Access 2000 or later).";
+        }
+        return msg;
     }
 
     public static void export(JSONObject doc, File out) throws IOException {

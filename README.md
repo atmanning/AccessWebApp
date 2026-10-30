@@ -21,7 +21,7 @@ downloaded as a real Microsoft Access **.accdb** file.
 | Forms | Single-record form with record navigator; edits write back to the table |
 | Reports | Grouped, sorted print layout with group and grand totals; Print |
 | Relationships | Draggable table boxes, drag a field onto another to relate, Enforce Referential Integrity, 1–∞ lines |
-| External Data | Import CSV/text into a new table (type detection), export a table/query to CSV, **export the database to .accdb** |
+| External Data | **Import Access databases** (.accdb/.mdb), import CSV/text into a new table (type detection), export a table/query to CSV, **export the database to .accdb** |
 | Undo / Redo | Ctrl+Z / Ctrl+Y across all edits; Ctrl+S saves (it also autosaves) |
 
 Queries accept Access SQL: `[Bracketed names]`, `"text"`, `#12/31/2026#` dates, `&` concatenation,
@@ -113,6 +113,22 @@ Two safety nets keep exports from failing: a field marked *Required* that still 
 without the Required flag, and a relationship whose data doesn't satisfy integrity is exported without
 enforcement.
 
+## Importing from Access
+
+**Open Access database** on the home screen creates a new database from an `.accdb` or `.mdb` file (Access 97
+and later). **External Data → Access** inside a database adds another file's tables and queries to it, renaming
+anything whose name is already taken (Customers → Customers1). Imports can be undone with Ctrl+Z.
+
+Imported: tables, data, field types and sizes, descriptions, default values, Required, primary keys, single-field
+indexes, AutoNumber values, single-field relationships with referential integrity, and saved queries' SQL. Select
+and union queries run as-is; action queries (append, update, delete, make-table) and crosstabs come across as SQL
+you can read but not run yet. A database exported from this app round-trips completely, including its queries.
+
+Not imported (each one is listed in the notes shown after the import): forms, reports, macros, modules, linked
+tables, and Attachment, OLE Object, multi-value and calculated fields. Password-protected databases need the
+password removed first (Access: File → Info → Decrypt Database). Uploads are limited to 100 MB and about
+200,000 records.
+
 ## Security notes
 
 - Passwords are hashed with scrypt (Node's built-in `crypto`); sessions are random 256-bit tokens stored as SHA-256
@@ -133,13 +149,14 @@ server/        Express API: auth, projects, export (TypeScript)
   src/auth.ts      Registration, login, sessions
   src/projects.ts  Project CRUD and the .accdb download
   src/export.ts    Converts a project to the exporter's JSON and runs Java
+  src/accessImport.ts  Runs the Java tool in --import mode and converts the result (shared/exchange.ts)
   test/            API tests (Vitest + Supertest), including a real export read back with mdb-reader
 web/           React app (TypeScript)
   src/engine/      Access-SQL translator, in-browser SQLite query runner, value parsing/formatting
   src/workspace/   Shell: ribbon, navigation pane, tabs, autosave, undo, CSV import
   src/views/       Datasheet, Table Design, Query Design/SQL, Forms, Reports, Relationships
   test/            Query engine tests
-exporter/      Java CLI using Jackcess: JSON on stdin -> .accdb
+exporter/      Java CLI using Jackcess: JSON on stdin -> .accdb, and --import .accdb/.mdb -> JSON
 ```
 
 ## Tests
@@ -164,5 +181,3 @@ npm run typecheck
 - No macros, VBA, attachments, lookup fields, or multi-value fields.
 - Each database is stored as one JSON document; this is comfortable up to tens of thousands of records per database.
   Bigger datasets would call for storing rows in their own table.
-- Importing existing `.accdb`/`.mdb` files isn't built yet (the `mdb-reader` package used in the tests would make it
-  straightforward).

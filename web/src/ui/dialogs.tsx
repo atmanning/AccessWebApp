@@ -54,7 +54,7 @@ type DialogRequest =
       resolve: (v: string | null) => void;
     };
 
-interface DialogApi {
+export interface DialogApi {
   alert(title: string, message: ReactNode): Promise<void>;
   confirm(title: string, message: ReactNode, opts?: { okLabel?: string; danger?: boolean }): Promise<boolean>;
   prompt(title: string, message: ReactNode, initial?: string, validate?: (v: string) => string | null): Promise<string | null>;
@@ -144,5 +144,21 @@ function DialogView({ req, done }: { req: DialogRequest; done: () => void }) {
         </div>
       </div>
     </Modal>
+  );
+}
+
+/** Lists what an Access import couldn't bring across. */
+export function showImportWarnings(dialogs: DialogApi, warnings: string[], heading = "The database was imported, with these notes:") {
+  return dialogs.alert(
+    "Import notes",
+    <div className="import-notes">
+      <p>{heading}</p>
+      <ul>
+        {warnings.slice(0, 50).map((w, i) => (
+          <li key={i}>{w}</li>
+        ))}
+      </ul>
+      {warnings.length > 50 && <p className="muted">…and {warnings.length - 50} more.</p>}
+    </div>,
   );
 }

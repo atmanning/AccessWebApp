@@ -1,4 +1,4 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import crypto from "node:crypto";
 import { z } from "zod";
 import type { DB } from "./db.js";
@@ -50,9 +50,47 @@ export function safeFileName(name: string) {
   return name.replace(/[^\w\- ]+/g, "_").trim() || "Database";
 }
 
-export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise<Buffer>) {
+export type ImportAccess = (file: Buffer) => Promise<{ doc: ProjectDoc; warnings: string[] }>;
+
+/** Uploaded Access files arrive as raw bytes (application/octet-stream). */
+const accessUpload = express.raw({ type: () => true, limit: "100mb" });
+
+export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise<Buffer>, importAccess: ImportAccess) {
   const router = Router();
   router.use(requireUser);
+
+  const projectCount = (userId: string) =>
+    (db.prepare("SELECT COUNT(*) AS n FROM projects WHERE user_id = ?").get(userId) as { n: number }).n;
+
+  const insertProject = (userId: string, name: string, doc: ProjectDoc): ProjectRecord => {
+    const now = new Date().toISOString();
+    const row: ProjectRow = { id: crypto.randomUUID(), name, doc: JSON.stringify(doc), revision: 1, created_at: now, updated_at: now };
+    db.prepare(
+      "INSERT INTO projects (id, user_id, name, doc, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(row.id, userId, row.name, row.doc, row.revision, row.created_at, row.updated_at);
+    return { ...summarize(row, doc), doc };
+  };
+
+  const uploadedFile = (body: unknown) => {
+    if (!Buffer.isBuffer(body) || body.length === 0) throw Object.assign(new Error("Choose an Access file to upload."), { status: 400 });
+    return body;
+  };
+
+  /** Creates a new database from an uploaded .accdb/.mdb file. */
+  router.post("/import-access", accessUpload, async (req, res) => {
+    const name = nameSchema.parse(String(req.query.name ?? ""));
+    if (projectCount(req.user!.id) >= MAX_PROJECTS_PER_USER) {
+      res.status(400).json({ error: `You can have up to ${MAX_PROJECTS_PER_USER} databases. Delete one to make room.` });
+      return;
+    }
+    const { doc, warnings } = await importAccess(uploadedFile(req.body));
+    res.status(201).json({ project: insertProject(req.user!.id, name, doc), warnings });
+  });
+
+  /** Reads an uploaded .accdb/.mdb and returns its objects without saving, for importing into an open database. */
+  router.post("/convert-access", accessUpload, async (req, res) => {
+    res.json(await importAccess(uploadedFile(req.body)));
+  });
 
   const getOwned = (id: string, userId: string) =>
     db.prepare("SELECT * FROM projects WHERE id = ? AND user_id = ?").get(id, userId) as ProjectRow | undefined;
@@ -66,18 +104,11 @@ export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise
 
   router.post("/", (req, res) => {
     const body = createSchema.parse(req.body);
-    const count = (db.prepare("SELECT COUNT(*) AS n FROM projects WHERE user_id = ?").get(req.user!.id) as { n: number }).n;
-    if (count >= MAX_PROJECTS_PER_USER) {
+    if (projectCount(req.user!.id) >= MAX_PROJECTS_PER_USER) {
       res.status(400).json({ error: `You can have up to ${MAX_PROJECTS_PER_USER} databases. Delete one to make room.` });
       return;
     }
-    const now = new Date().toISOString();
-    const doc = buildTemplate(body.template);
-    const row: ProjectRow = { id: crypto.randomUUID(), name: body.name, doc: JSON.stringify(doc), revision: 1, created_at: now, updated_at: now };
-    db.prepare(
-      "INSERT INTO projects (id, user_id, name, doc, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    ).run(row.id, req.user!.id, row.name, row.doc, row.revision, row.created_at, row.updated_at);
-    res.status(201).json({ project: { ...summarize(row, doc), doc } satisfies ProjectRecord });
+    res.status(201).json({ project: insertProject(req.user!.id, body.name, buildTemplate(body.template)) });
   });
 
   router.get("/:id", (req, res) => {

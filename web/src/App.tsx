@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ProjectRecord, ProjectSummary, UserInfo } from "../../shared/model";
 import { TEMPLATES, type TemplateId } from "../../shared/templates";
 import { api } from "./api";
-import { DialogProvider, useDialogs } from "./ui/dialogs";
+import { DialogProvider, showImportWarnings, useDialogs } from "./ui/dialogs";
 import { AccessIcon, TableIcon } from "./ui/icons";
 import { Workspace } from "./workspace/Workspace";
 import { validateObjectName } from "./workspace/docOps";
@@ -128,6 +128,28 @@ function Home({ user, onOpen, onSignOut }: { user: UserInfo; onOpen: (p: Project
     load();
   }, []);
 
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+
+  const importFile = async (file: File) => {
+    let base = file.name.replace(/\.[^.]+$/, "").replace(/[.!`[\]]/g, "_").trim().slice(0, 60) || "Imported";
+    for (let n = 2; projects?.some((p) => p.name.toLowerCase() === base.toLowerCase()); n++) base = `${base.replace(/ \(\d+\)$/, "")} (${n})`;
+    const name = await dialogs.prompt("Open Access database", `Import "${file.name}" as a new database named:`, base, (v) =>
+      validateObjectName(emptyProject(), "table", v),
+    );
+    if (!name) return;
+    setImporting(true);
+    try {
+      const r = await api.importAccessProject(file, name);
+      onOpen(r.project);
+      if (r.warnings.length) showImportWarnings(dialogs, r.warnings);
+    } catch (e) {
+      dialogs.alert("Open Access database", (e as Error).message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const create = async (template: TemplateId) => {
     const base = template === "blank" ? "Database" : "Contacts";
     let n = 1;
@@ -183,6 +205,24 @@ function Home({ user, onOpen, onSignOut }: { user: UserInfo; onOpen: (p: Project
       <main className="home-main">
         <h1>Good {greeting()}, {user.name.split(" ")[0]}</h1>
         <div className="template-row">
+          <button className="template-tile" onClick={() => fileInput.current?.click()} disabled={importing}>
+            <div className="template-art access-file">
+              <AccessIcon size={56} />
+            </div>
+            <div className="template-name">{importing ? "Importing…" : "Open Access database"}</div>
+            <div className="small muted">Import an .accdb or .mdb file: tables, data, keys, relationships and queries.</div>
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".accdb,.mdb,.accde,.mde"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) importFile(f);
+            }}
+          />
           {(Object.keys(TEMPLATES) as TemplateId[]).map((t) => (
             <button key={t} className="template-tile" onClick={() => create(t)}>
               <div className={`template-art ${t}`}>

@@ -5,6 +5,7 @@ import {
   DeleteRowIcon,
   DesignIcon,
   ExportAccessIcon,
+  ImportAccessIcon,
   FindIcon,
   FormIcon,
   ImportIcon,
@@ -35,6 +36,7 @@ export interface RibbonActions {
   createForm: () => void;
   createReport: () => void;
   importText: () => void;
+  importAccess: () => void;
   exportAccess: () => void;
   openRelationships: () => void;
   refresh: () => void;
@@ -236,6 +238,7 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
         {active === "external" && (
           <>
             <Group label="Import & Link">
+              <Big icon={<ImportAccessIcon size={32} />} label="Access" onClick={actions.importAccess} title="Import tables and queries from an Access database (.accdb, .mdb)" />
               <Big icon={<ImportIcon size={32} />} label="Text File" onClick={actions.importText} title="Import a CSV or text file into a new table" />
             </Group>
             <Group label="Export">

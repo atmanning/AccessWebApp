@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { createApp } from "../src/app.js";
 import { openDatabase } from "../src/db.js";
 import { createExporter } from "../src/export.js";
+import { createImporter } from "../src/accessImport.js";
 import MDBReader from "mdb-reader";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -17,10 +18,13 @@ try {
   javaAvailable = false;
 }
 
+const javaTool = { javaBin: "java", jarPath, timeoutMs: 60_000, maxConcurrent: 1, maxHeap: "256m" };
+
 function makeApp() {
   return createApp({
     db: openDatabase(":memory:"),
-    exportAccdb: createExporter({ javaBin: "java", jarPath, timeoutMs: 60_000, maxConcurrent: 1, maxHeap: "256m" }),
+    exportAccdb: createExporter(javaTool),
+    importAccess: createImporter(javaTool),
     secureCookies: false,
   });
 }
@@ -135,6 +139,55 @@ describe("projects", () => {
     expect(customers.getData().find((r) => r.CustomerID === 1)?.City).toBe("Paris");
     expect(db.getTable("_SavedQueries").getData().map((r) => r.QueryName)).toContain("Sales by Customer");
   }, 60_000);
+
+  it.skipIf(!javaAvailable)("imports an Access file as a new database, round-tripping the export", async () => {
+    const exported = await alice
+      .get(`/api/projects/${projectId}/export.accdb`)
+      .buffer(true)
+      .parse((r, cb) => {
+        const chunks: Buffer[] = [];
+        r.on("data", (c: Buffer) => chunks.push(c));
+        r.on("end", () => cb(null, Buffer.concat(chunks)));
+      });
+    const res = await alice
+      .post("/api/projects/import-access?name=Imported")
+      .set("Content-Type", "application/octet-stream")
+      .set("X-Requested-With", "fetch")
+      .send(exported.body as Buffer);
+    expect(res.status).toBe(201);
+    const doc = res.body.project.doc;
+    expect(doc.tables.map((t: { name: string }) => t.name)).toEqual(["Customers", "Orders"]);
+    const customers = doc.tables[0];
+    expect(customers.fields.find((f: { name: string }) => f.name === "CustomerID")).toMatchObject({ type: "AutoNumber", primaryKey: true });
+    expect(customers.fields.find((f: { name: string }) => f.name === "Email")).toMatchObject({ indexed: "YesNoDup", size: 120 });
+    expect(customers.rows).toHaveLength(5);
+    expect(customers.nextAutoNumber).toBe(6);
+    expect(doc.relationships).toHaveLength(1);
+    expect(doc.relationships[0]).toMatchObject({ fromTable: customers.id, toTable: doc.tables[1].id, enforce: true });
+    // The _SavedQueries table turns back into real queries.
+    expect(doc.queries.map((q: { name: string }) => q.name).sort()).toEqual(["Active Customers", "Order Details", "Sales by Customer"]);
+    expect((await alice.get("/api/projects")).body.projects).toHaveLength(2);
+
+    const converted = await alice
+      .post("/api/projects/convert-access")
+      .set("Content-Type", "application/octet-stream")
+      .set("X-Requested-With", "fetch")
+      .send(exported.body as Buffer);
+    expect(converted.status).toBe(200);
+    expect(converted.body.doc.tables).toHaveLength(2);
+    expect((await alice.get("/api/projects")).body.projects).toHaveLength(2);
+    await alice.delete(`/api/projects/${res.body.project.id}`).set("X-Requested-With", "fetch");
+  }, 60_000);
+
+  it("rejects files that aren't Access databases", async () => {
+    const res = await alice
+      .post("/api/projects/import-access?name=Bad")
+      .set("Content-Type", "application/octet-stream")
+      .set("X-Requested-With", "fetch")
+      .send(Buffer.from("this is not a database at all, just some text"));
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/isn't a Microsoft Access database/);
+  });
 
   it("deletes", async () => {
     expect((await alice.delete(`/api/projects/${projectId}`).set("X-Requested-With", "fetch")).status).toBe(200);

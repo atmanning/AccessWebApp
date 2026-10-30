@@ -115,6 +115,13 @@ export const ExportAccessIcon = svg(
     <path d="M10 6h5M12.5 3.5L15 6l-2.5 2.5" stroke="#2e7d4f" strokeWidth="1.5" fill="none" />
   </>,
 );
+export const ImportAccessIcon = svg(
+  <>
+    <rect x="5" y="3" width="10" height="12" rx="1" fill="#c74634" />
+    <text x="10" y="12" textAnchor="middle" fontSize="7" fontWeight="700" fill="#fff" fontFamily="Segoe UI, Arial">A</text>
+    <path d="M1 6h5M3.5 3.5L6 6 3.5 8.5" stroke="#2e7d4f" strokeWidth="1.5" fill="none" />
+  </>,
+);
 export const TextFileIcon = svg(
   <>
     <path d="M3 1.5h7l3 3v10H3z" fill="#fff" stroke="#555" />

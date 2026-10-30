@@ -2,7 +2,8 @@ import { produce } from "immer";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ObjectKind, ProjectDoc, ProjectRecord, UserInfo } from "../../../shared/model";
 import { api, ApiError } from "../api";
-import { Modal, useDialogs } from "../ui/dialogs";
+import { Modal, showImportWarnings, useDialogs } from "../ui/dialogs";
+import { mergeProjects } from "../../../shared/exchange";
 import { AccessIcon, BackIcon, CloseIcon, OBJECT_ICONS, RedoIcon, RelationshipsIcon, SaveIcon, UndoIcon } from "../ui/icons";
 import { FormReportDesign, FormView, ReportView } from "../views/FormReportViews";
 import { QueryDatasheet, QueryDesignView, QuerySqlView } from "../views/QueryViews";
@@ -240,6 +241,47 @@ export function Workspace(props: { project: ProjectRecord; user: UserInfo; onClo
     } else setSourcePicker(kind);
   };
 
+  const accessInput = useRef<HTMLInputElement>(null);
+
+  /** External Data > Access: adds another Access file's tables and queries to this database. */
+  const importAccessFile = async (file: File) => {
+    setStatus(`Reading ${file.name}…`);
+    try {
+      const { doc: incoming, warnings } = await api.convertAccess(file);
+      const records = incoming.tables.reduce((n, t) => n + t.rows.length, 0);
+      if (!incoming.tables.length && !incoming.queries.length) {
+        setStatus("");
+        await showImportWarnings(dialogs, warnings, `Nothing in ${file.name} could be imported.`);
+        return;
+      }
+      const ok = await dialogs.confirm(
+        "Get External Data - Access Database",
+        <>
+          <p>
+            Import {incoming.tables.length} table(s) with {records.toLocaleString()} record(s), {incoming.queries.length} query(ies) and{" "}
+            {incoming.relationships.length} relationship(s) from <strong>{file.name}</strong> into this database?
+          </p>
+          {incoming.tables.length > 0 && <p className="small muted">Tables: {incoming.tables.map((t) => t.name).join(", ")}</p>}
+          <p className="small muted">Objects whose names are already used here get a number added, as in Access.</p>
+        </>,
+        { okLabel: "Import" },
+      );
+      if (!ok) return setStatus("");
+      const { doc: merged, renamed } = mergeProjects(docRef.current, incoming);
+      update((d) => {
+        d.tables = merged.tables;
+        d.queries = merged.queries;
+        d.relationships = merged.relationships;
+      });
+      setStatus(`Imported ${incoming.tables.length} table(s) and ${incoming.queries.length} query(ies) from ${file.name}.`);
+      const notes = [...renamed.map((r) => `Renamed to avoid a clash: ${r}.`), ...warnings];
+      if (notes.length) showImportWarnings(dialogs, notes, "Imported, with these notes:");
+    } catch (e) {
+      setStatus((e as Error).message, "error");
+      dialogs.alert("Get External Data - Access Database", (e as Error).message);
+    }
+  };
+
   const exportAccess = async () => {
     setStatus("Preparing your Access database…");
     try {
@@ -336,6 +378,7 @@ export function Workspace(props: { project: ProjectRecord; user: UserInfo; onClo
             createForm: () => createFormOrReport("form"),
             createReport: () => createFormOrReport("report"),
             importText: () => setImporting(true),
+            importAccess: () => accessInput.current?.click(),
             exportAccess,
             openRelationships: () => openObject("relationships", "main"),
             refresh: () => setRefreshKey((k) => k + 1),
@@ -414,6 +457,17 @@ export function Workspace(props: { project: ProjectRecord; user: UserInfo; onClo
           />
         )}
         {importing && <ImportCsvDialog onClose={() => setImporting(false)} />}
+        <input
+          ref={accessInput}
+          type="file"
+          accept=".accdb,.mdb,.accde,.mde"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) importAccessFile(f);
+          }}
+        />
         {sourcePicker && (
           <SourcePicker
             kind={sourcePicker}

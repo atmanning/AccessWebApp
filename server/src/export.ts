@@ -71,54 +71,58 @@ export interface ExporterConfig {
   maxHeap: string;
 }
 
-/** Runs the Jackcess exporter and returns the .accdb bytes. */
-export function createExporter(cfg: ExporterConfig) {
+/** Runs async jobs at most `max` at a time (each Java process needs its own memory). */
+export function createLimiter(max: number) {
   let running = 0;
   const waiting: (() => void)[] = [];
-  const acquire = () =>
-    new Promise<void>((resolve) => {
-      if (running < cfg.maxConcurrent) {
-        running++;
-        resolve();
-      } else waiting.push(() => { running++; resolve(); });
-    });
-  const release = () => {
-    running--;
-    waiting.shift()?.();
-  };
-
-  return async function exportAccdb(doc: ProjectDoc): Promise<Buffer> {
-    await acquire();
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "accessweb-"));
-    const out = path.join(dir, `${crypto.randomUUID()}.accdb`);
+  return async function limit<T>(job: () => Promise<T>): Promise<T> {
+    if (running >= max) await new Promise<void>((resolve) => waiting.push(resolve));
+    running++;
     try {
-      await new Promise<void>((resolve, reject) => {
-        const child = spawn(cfg.javaBin, [`-Xmx${cfg.maxHeap}`, "-XX:+UseSerialGC", "-jar", cfg.jarPath, out], { stdio: ["pipe", "ignore", "pipe"] });
-        let stderr = "";
-        const timer = setTimeout(() => {
-          child.kill("SIGKILL");
-          reject(new Error("Export timed out"));
-        }, cfg.timeoutMs);
-        child.stderr.on("data", (d) => (stderr = (stderr + d).slice(-4000)));
-        child.on("error", (e) => {
-          clearTimeout(timer);
-          reject(new Error(`Could not start the exporter (${e.message}). Is Java installed?`));
-        });
-        child.on("close", (code) => {
-          clearTimeout(timer);
-          if (code === 0) resolve();
-          else {
-            const msg = stderr.split("\n").filter((l) => l && !l.startsWith("Picked up JAVA_TOOL_OPTIONS")).pop();
-            reject(new Error(msg || `Exporter exited with code ${code}`));
-          }
-        });
-        child.stdin.on("error", () => { /* surfaced via close */ });
-        child.stdin.end(JSON.stringify(toExportDocument(doc)));
-      });
-      return await fs.readFile(out);
+      return await job();
     } finally {
-      release();
-      await fs.rm(dir, { recursive: true, force: true });
+      running--;
+      waiting.shift()?.();
     }
   };
+}
+
+export type Limiter = ReturnType<typeof createLimiter>;
+
+/** Runs the Jackcess exporter and returns the .accdb bytes. */
+export function createExporter(cfg: ExporterConfig, limit: Limiter = createLimiter(cfg.maxConcurrent)) {
+  return (doc: ProjectDoc): Promise<Buffer> => limit(() => exportOnce(cfg, doc));
+}
+
+async function exportOnce(cfg: ExporterConfig, doc: ProjectDoc): Promise<Buffer> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "accessweb-"));
+  const out = path.join(dir, `${crypto.randomUUID()}.accdb`);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(cfg.javaBin, [`-Xmx${cfg.maxHeap}`, "-XX:+UseSerialGC", "-jar", cfg.jarPath, out], { stdio: ["pipe", "ignore", "pipe"] });
+      let stderr = "";
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        reject(new Error("Export timed out"));
+      }, cfg.timeoutMs);
+      child.stderr.on("data", (d) => (stderr = (stderr + d).slice(-4000)));
+      child.on("error", (e) => {
+        clearTimeout(timer);
+        reject(new Error(`Could not start the exporter (${e.message}). Is Java installed?`));
+      });
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        if (code === 0) resolve();
+        else {
+          const msg = stderr.split("\n").filter((l) => l && !l.startsWith("Picked up JAVA_TOOL_OPTIONS")).pop();
+          reject(new Error(msg || `Exporter exited with code ${code}`));
+        }
+      });
+      child.stdin.on("error", () => { /* surfaced via close */ });
+      child.stdin.end(JSON.stringify(toExportDocument(doc)));
+    });
+    return await fs.readFile(out);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 }

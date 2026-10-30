@@ -2,7 +2,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApp } from "./app.js";
 import { openDatabase } from "./db.js";
-import { createExporter } from "./export.js";
+import { createExporter, createLimiter } from "./export.js";
+import { createImporter } from "./accessImport.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Works from both server/src (tsx) and server/dist/server/src (compiled).
@@ -14,17 +15,22 @@ const port = Number(env.PORT ?? 3001);
 const dataDir = env.DATA_DIR ?? path.join(repoRoot, "data");
 
 const db = openDatabase(path.join(dataDir, "access-web.db"));
-const exportAccdb = createExporter({
+const javaTool = {
   javaBin: env.JAVA_BIN ?? "java",
   jarPath: env.EXPORTER_JAR ?? path.join(repoRoot, "exporter/target/access-exporter.jar"),
   timeoutMs: Number(env.EXPORT_TIMEOUT_MS ?? 60_000),
   maxConcurrent: Number(env.EXPORT_CONCURRENCY ?? 2),
   maxHeap: env.EXPORT_MAX_HEAP ?? "512m",
-});
+};
+// Imports and exports both start Java, so they share one concurrency limit.
+const javaLimit = createLimiter(javaTool.maxConcurrent);
+const exportAccdb = createExporter(javaTool, javaLimit);
+const importAccess = createImporter(javaTool, javaLimit);
 
 const app = createApp({
   db,
   exportAccdb,
+  importAccess,
   secureCookies: env.SECURE_COOKIES ? env.SECURE_COOKIES === "true" : production,
   staticDir: env.STATIC_DIR ?? path.join(repoRoot, "web/dist"),
   trustProxy: env.TRUST_PROXY === "true",
