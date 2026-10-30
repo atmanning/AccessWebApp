@@ -1,0 +1,16 @@
+services:
+  access-web:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - access-web-data:/data
+    environment:
+      # Set to "true" when serving over HTTPS (recommended in production).
+      SECURE_COOKIES: "false"
+      # Set to "true" when running behind a reverse proxy / load balancer.
+      TRUST_PROXY: "false"
+    restart: unless-stopped
+
+volumes:
+  access-web-data:

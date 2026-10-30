@@ -1,0 +1,30 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# In the Render Dashboard choose New > Blueprint and pick this repository.
+services:
+  - type: web
+    name: access-web
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # Persistent disks need a paid instance (the free type has no disk, so data would be lost on every deploy).
+    # Omitted plan = Render's smallest paid instance (0.5 CPU / 512 MB). Choose a bigger one in the dashboard if needed.
+    region: ohio
+    numInstances: 1          # a service with a disk can only run one instance
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    disk:
+      name: access-web-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /data
+      - key: SECURE_COOKIES     # Render serves your site over HTTPS
+        value: "true"
+      - key: TRUST_PROXY        # Render's load balancer sits in front of the app
+        value: "true"
+      - key: EXPORT_MAX_HEAP    # leave room for Node in a 512 MB instance; raise to 512m on 2 GB+
+        value: 256m
+      - key: EXPORT_CONCURRENCY
+        value: "1"

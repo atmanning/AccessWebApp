@@ -1,0 +1,24 @@
+{
+  "name": "access-web",
+  "private": true,
+  "version": "1.0.0",
+  "description": "A web-based Microsoft Access look-alike with user accounts and .accdb export",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c red,blue \"npm run dev -w server\" \"npm run dev -w web\"",
+    "build": "npm run build --workspace web && npm run build --workspace server",
+    "start": "npm run start --workspace server",
+    "test": "npm run test -w server && npm run test -w web",
+    "typecheck": "npm run typecheck --workspace server && npm run typecheck --workspace web",
+    "build:exporter": "mvn -q -f exporter/pom.xml package -DskipTests"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "access-web-shared",
+  "private": true,
+  "type": "module",
+  "description": "Data model shared by the server and the browser app"
+}
