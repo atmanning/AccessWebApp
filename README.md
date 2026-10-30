@@ -18,7 +18,7 @@ downloaded as a real Microsoft Access **.accdb** file.
 | Tables — Design View | Field Name / Data Type / Description grid, Field Properties pane (Field Size, Default Value, Required, Indexed), Primary Key, Insert/Delete Rows, safe type conversion |
 | Data types | AutoNumber, Short Text, Long Text, Number (Byte/Integer/Long/Single/Double), Currency, Date/Time, Yes/No |
 | Validation | Types, field sizes, primary keys, *No Duplicates* indexes, required-field reminders, referential integrity |
-| Queries | Design grid (Show Table, Field/Table/Sort/Show/Criteria, automatic joins from relationships; select a column by its grey bar to drag it, resize it, Ctrl+←/→ to move it or Delete to remove it), SQL View, Datasheet results, queries can use other queries. Results are **editable** when Access would allow it (tables only, no totals/DISTINCT/UNION); calculated columns stay read-only and say why |
+| Queries | **Select, Make Table, Append, Update, Delete and Crosstab** queries, chosen on the Query Design tab, each with Access's extra grid rows (Total, Crosstab, Append To, Update To, Delete). **Totals (Σ)** adds Group By, Sum, Avg, Min, Max, Count, StDev, Var, First, Last and Where. Design grid: Show Table, automatic joins from relationships, select a column by its grey bar to drag, resize, Ctrl+←/→ or Delete it. SQL View for any of these, including SQL typed by hand or imported from Access. Datasheet View previews what an action query will change; **Run** applies it after a confirmation (Ctrl+Z undoes it), skipping and reporting records that would break keys, required fields or relationships, like Access. Select query results are **editable** when Access would allow it |
 | Forms | Single-record form with record navigator; edits write back to the table |
 | Reports | Grouped, sorted print layout with group and grand totals; Print |
 | Relationships | Draggable table boxes, drag a field onto another to relate, Enforce Referential Integrity, 1–∞ lines |
@@ -190,8 +190,10 @@ npm run typecheck
 
 ## Known limitations
 
-- Only SELECT queries run (no update/append/delete or crosstab queries yet). New records can't be added through a
-  query's results, and records can be deleted through a query only when it uses a single table.
+- Parameter queries (PARAMETERS ...) and pass-through/data-definition queries don't run. The design grid's Field row
+  picks table fields; calculated fields and expressions are typed in SQL View. New records can't be added through a
+  select query's results, and records can be deleted through one only when it uses a single table. Delete queries
+  don't cascade to related records.
 - Forms and reports are generated layouts (choose fields, order, grouping) rather than free-form drag-and-drop designers.
 - No macros, VBA, attachments, lookup fields, or multi-value fields.
 - Each database is stored as one JSON document; this is comfortable up to tens of thousands of records per database.

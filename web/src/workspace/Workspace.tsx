@@ -27,6 +27,7 @@ import {
 import { findObject, KIND_LABEL, newId, newTable, uniqueObjectName, validateObjectName } from "./docOps";
 import { ImportCsvDialog } from "./ImportCsvDialog";
 import { ShareDialog } from "./ShareDialog";
+import { QUERY_TYPE_ICONS, typeOfQuery } from "./queryKinds";
 import { NavPane, type Selection } from "./NavPane";
 import { Ribbon } from "./Ribbon";
 
@@ -178,10 +179,11 @@ export function Workspace(props: {
   }, [setStatus]);
 
   const registerCommands = useCallback((key: string, cmds: ViewCommands | null) => {
-    const had = commands.current.has(key);
+    const before = signature(commands.current.get(key));
     if (cmds) commands.current.set(key, cmds);
     else commands.current.delete(key);
-    if (had !== !!cmds) forceRibbon((n) => n + 1);
+    // Redraw the ribbon only when what it shows changes (which buttons are enabled, pressed states).
+    if (signature(cmds ?? undefined) !== before) forceRibbon((n) => n + 1);
   }, []);
 
   // Close tabs whose objects were deleted (e.g. by undo of a create).
@@ -417,7 +419,8 @@ export function Workspace(props: {
   }, [save, undo, redo, activeKey, closeTab]);
 
   const saveLabel = { saved: "All changes saved", pending: "Unsaved changes", saving: "Saving…", error: "Not saved — will retry", conflict: "Changed elsewhere" }[saveState];
-  const activeCommands = (activeKey && commands.current.get(activeKey)) || {};
+  // Ribbon buttons call the view's latest handler, so they always see current state.
+  const activeCommands = liveCommands(commands.current, activeKey);
 
   return (
     <WorkspaceContext.Provider value={wsApi}>
@@ -484,7 +487,8 @@ export function Workspace(props: {
               <div className="doc-tabs" role="tablist">
                 {tabs.map((t) => {
                   const obj = t.kind === "relationships" ? { name: "Relationships" } : findObject(doc, t.kind, t.id);
-                  const Icon = t.kind === "relationships" ? RelationshipsIcon : OBJECT_ICONS[t.kind];
+                  const q = t.kind === "query" ? doc.queries.find((x) => x.id === t.id) : undefined;
+                  const Icon = t.kind === "relationships" ? RelationshipsIcon : q ? QUERY_TYPE_ICONS[typeOfQuery(q)] : OBJECT_ICONS[t.kind];
                   return (
                     <div key={t.key} role="tab" aria-selected={t.key === activeKey} className={`doc-tab ${t.key === activeKey ? "active" : ""}`} onMouseDown={() => setActiveKey(t.key)} onAuxClick={(e) => e.button === 1 && closeTab(t.key)}>
                       <Icon size={14} />
@@ -575,6 +579,27 @@ export function Workspace(props: {
       </div>
     </WorkspaceContext.Provider>
   );
+}
+
+/** Which commands exist and their displayed state; changes here redraw the ribbon. */
+function signature(c: ViewCommands | undefined): string {
+  if (!c) return "";
+  const present = Object.entries(c).filter(([, v]) => typeof v === "function").map(([k]) => k).sort();
+  return JSON.stringify([present, c.queryType ?? null, c.totals ?? null]);
+}
+
+function liveCommands(all: Map<string, ViewCommands>, key: string | null): ViewCommands {
+  const current = (key && all.get(key)) || {};
+  const live: Record<string, unknown> = { queryType: current.queryType, totals: current.totals };
+  for (const [name, value] of Object.entries(current)) {
+    if (typeof value === "function") {
+      live[name] = (...args: unknown[]) => {
+        const latest = key ? (all.get(key) as Record<string, unknown> | undefined)?.[name] : undefined;
+        return typeof latest === "function" ? latest(...args) : undefined;
+      };
+    }
+  }
+  return live as ViewCommands;
 }
 
 function TabContent({ tab, refreshKey }: { tab: Tab; refreshKey: number }) {

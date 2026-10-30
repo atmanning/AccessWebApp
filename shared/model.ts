@@ -70,6 +70,20 @@ export const tableSchema = z.object({
 });
 export type TableDef = z.infer<typeof tableSchema>;
 
+export const QUERY_TYPES = ["select", "makeTable", "append", "update", "delete", "crosstab"] as const;
+export type QueryType = (typeof QUERY_TYPES)[number];
+export const QUERY_TYPE_LABELS: Record<QueryType, string> = {
+  select: "Select",
+  makeTable: "Make Table",
+  append: "Append",
+  update: "Update",
+  delete: "Delete",
+  crosstab: "Crosstab",
+};
+/** Choices in the design grid's Total row, as Access names them. */
+export const TOTAL_OPTIONS = ["Group By", "Sum", "Avg", "Min", "Max", "Count", "StDev", "Var", "First", "Last", "Where"] as const;
+export type TotalOption = (typeof TOTAL_OPTIONS)[number];
+
 export const queryColumnSchema = z.object({
   table: z.string(),
   field: z.string(),
@@ -78,6 +92,14 @@ export const queryColumnSchema = z.object({
   criteria: z.string().max(1000),
   /** Column width in the design grid, in pixels. */
   width: z.number().int().min(40).max(1000).optional(),
+  /** Total row (select queries with Totals on, and crosstabs). */
+  total: z.enum(TOTAL_OPTIONS).optional(),
+  /** Crosstab row. */
+  crosstab: z.enum(["", "row", "column", "value"]).optional(),
+  /** Append To row: the target table's field name. */
+  appendTo: z.string().max(64).optional(),
+  /** Update To row: an Access expression. */
+  updateTo: z.string().max(1000).optional(),
 });
 export type QueryColumn = z.infer<typeof queryColumnSchema>;
 
@@ -91,6 +113,12 @@ export const querySchema = z.object({
     .object({
       tables: z.array(z.string()).max(16),
       columns: z.array(queryColumnSchema).max(255),
+      /** Query type chosen in Design View (defaults to select). */
+      type: z.enum(QUERY_TYPES).optional(),
+      /** Totals (Σ) on: shows the Total row for select, make-table and append queries. */
+      totals: z.boolean().optional(),
+      /** Make Table: the new table's name. Append: the table records are added to. */
+      target: z.string().max(64).optional(),
     })
     .optional(),
   /** Saved datasheet column widths in pixels, by result column name. */

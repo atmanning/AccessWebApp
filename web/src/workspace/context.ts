@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect } from "react";
-import type { ObjectKind, ProjectDoc } from "../../../shared/model";
+import type { ObjectKind, ProjectDoc, QueryType } from "../../../shared/model";
 
 export type TabKind = ObjectKind | "relationships";
 export type ViewName = "datasheet" | "design" | "sql" | "form" | "report" | "relationships";
@@ -27,6 +27,11 @@ export interface ViewCommands {
   print?: () => void;
   exportText?: () => void;
   addRelationship?: () => void;
+  /** Query Design: switch query type, and the current type / Totals state for the ribbon. */
+  setQueryType?: (type: QueryType) => void;
+  queryType?: QueryType;
+  toggleTotals?: () => void;
+  totals?: boolean;
 }
 
 export type StatusKind = "info" | "error";

@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { QueryColumn, QueryDef } from "../../../shared/model";
+import { NAME_PATTERN, QUERY_TYPE_LABELS, TOTAL_OPTIONS, type QueryColumn, type QueryDef, type QueryType } from "../../../shared/model";
 import { runQuery, type ResultSet } from "../engine/engine";
-import { designToSql } from "../engine/queryDesign";
+import { previewAction } from "../engine/actions";
+import { isActionType } from "../engine/statements";
+import { designProblem, designSql, type QueryDesign } from "../engine/queryDesign";
 import { ComboBox, type ComboOption } from "../ui/ComboBox";
 import { Modal, useDialogs } from "../ui/dialogs";
 import { KeyIcon, TableIcon } from "../ui/icons";
 import { useCommands, useWorkspace } from "../workspace/context";
 import { useRecordEditing } from "../workspace/useTableEditing";
+import { useRunAction } from "../workspace/useRunAction";
+import { QUERY_TYPE_ICONS, typeOfQuery } from "../workspace/queryKinds";
 import { parseInput } from "../engine/values";
 import { exportCsv } from "../workspace/csv";
 import { Datasheet, type DatasheetHandle } from "./Datasheet";
@@ -25,12 +29,19 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
   useEffect(() => {
     let cancelled = false;
     setRunning(true);
-    runQuery(ws.doc, query.sql, { excludeQueryId: query.id, editable: true })
+    const action = isActionType(typeOfQuery(query));
+    (action ? previewAction(ws.doc, query.sql, query.id) : runQuery(ws.doc, query.sql, { excludeQueryId: query.id, editable: true }))
       .then((r) => {
         if (cancelled) return;
         setResult(r);
         setError(null);
-        ws.setStatus(r.rows.length >= 50_000 ? "Showing the first 50,000 records." : "");
+        ws.setStatus(
+          action
+            ? `Preview: the ${r.rows.length} record(s) this ${QUERY_TYPE_LABELS[typeOfQuery(query)].toLowerCase()} query will ${typeOfQuery(query) === "delete" ? "delete" : typeOfQuery(query) === "update" ? "change" : "add"}. Click Run to apply it.`
+            : r.rows.length >= 50_000
+              ? "Showing the first 50,000 records."
+              : "",
+        );
       })
       .catch((e: Error) => !cancelled && (setError(e.message), setResult(null)))
       .finally(() => !cancelled && setRunning(false));
@@ -117,7 +128,9 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
     }
   };
 
+  const runAction = useRunAction();
   useCommands(tabKey, {
+    run: () => void runAction(query),
     sortAsc: () => grid.current?.sort("ASC"),
     sortDesc: () => grid.current?.sort("DESC"),
     removeSort: () => grid.current?.sort(null),
@@ -184,12 +197,12 @@ export function QuerySqlView({ query, tabKey }: { query: QueryDef; tabKey: strin
   // Save edits when the tab closes or switches view.
   useEffect(() => () => commit(), []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useCommands(tabKey, {
-    run: () => {
-      commit();
-      ws.setTabView(tabKey, "datasheet");
-    },
-  });
+  const runAction = useRunAction();
+  const run = async () => {
+    commit();
+    if (!(await runAction(query, latest.current))) ws.setTabView(tabKey, "datasheet");
+  };
+  useCommands(tabKey, { run });
 
   return (
     <div className="sql-view">
@@ -201,17 +214,51 @@ export function QuerySqlView({ query, tabKey }: { query: QueryDef; tabKey: strin
         onChange={(e) => setText(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
-          if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-            commit();
-            ws.setTabView(tabKey, "datasheet");
-          }
+          if ((e.ctrlKey || e.metaKey) && e.key === "Enter") void run();
         }}
       />
       <div className="sql-hint">
         Access SQL: use [Brackets] for names, "text" or 'text', #12/31/2026# for dates, &amp; to join text, Like "A*" wildcards.
-        Functions such as IIf, Nz, Left, Mid, Len, UCase, Year and Now work. Ctrl+Enter runs the query.
+        Functions such as IIf, Nz, Left, Mid, Len, UCase, Year and Now work. UPDATE, DELETE, INSERT INTO, SELECT … INTO and
+        TRANSFORM … PIVOT queries run too. Ctrl+Enter runs the query.
       </div>
     </div>
+  );
+}
+
+const TOTAL_COMBO = TOTAL_OPTIONS.map((t) => ({ value: t, label: t }));
+const CROSSTAB_OPTIONS: ComboOption<NonNullable<QueryColumn["crosstab"]>>[] = [
+  { value: "", label: "(not shown)" },
+  { value: "row", label: "Row Heading" },
+  { value: "column", label: "Column Heading" },
+  { value: "value", label: "Value" },
+];
+
+function QueryTypeIcon({ type }: { type: QueryType }) {
+  const Icon = QUERY_TYPE_ICONS[type];
+  return <Icon size={16} />;
+}
+
+function AppendTargetDialog(props: { current?: string; onClose: () => void; onPick: (table: string) => void }) {
+  const ws = useWorkspace();
+  const tables = ws.doc.tables.map((t) => t.name);
+  const [picked, setPicked] = useState(props.current ?? tables[0] ?? "");
+  return (
+    <Modal
+      title="Append"
+      onClose={props.onClose}
+      width={380}
+      footer={
+        <>
+          <button className="primary" disabled={!picked} onClick={() => props.onPick(picked)}>OK</button>
+          <button onClick={props.onClose}>Cancel</button>
+        </>
+      }
+    >
+      <p>Append to table:</p>
+      <ComboBox className="text-input" value={picked} ariaLabel="Table Name" options={tables.map((t) => ({ value: t, label: t }))} onChange={setPicked} />
+      <p className="small muted" style={{ marginTop: 10 }}>Then pick each column's target field in the Append To row. Fields with matching names are filled in for you.</p>
+    </Modal>
   );
 }
 
@@ -226,24 +273,87 @@ const EMPTY_COL: QueryColumn = { table: "", field: "", show: true, sort: "", cri
 export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: string }) {
   const ws = useWorkspace();
   const dialogs = useDialogs();
+  const runAction = useRunAction();
   const [showTables, setShowTables] = useState(false);
-  const design = query.design ?? { tables: [], columns: [] };
-  const generated = useMemo(() => designToSql(ws.doc, design.tables, design.columns), [ws.doc, design]);
-  const sqlDiverged = query.mode === "sql" && query.sql.trim() !== generated.trim();
+  const [appendPicker, setAppendPicker] = useState(false);
+  // Column selection/move/resize state (kept above the early return: hooks must always run).
+  const [selectedCol, setSelectedCol] = useState<number | null>(null);
+  const [dropAt, setDropAt] = useState<number | null>(null);
+  const [liveWidths, setLiveWidths] = useState<Record<number, number>>({});
+  const dragFrom = useRef<number | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
 
-  const setDesign = (fn: (dz: { tables: string[]; columns: QueryColumn[] }) => void) =>
+  const design: QueryDesign = query.design ?? { tables: [], columns: [] };
+  const type: QueryType = design.type ?? "select";
+  const totalsOn = type === "crosstab" || (!!design.totals && (type === "select" || type === "makeTable" || type === "append"));
+  const generated = useMemo(() => designSql(ws.doc, design), [ws.doc, design]);
+  const sqlDiverged = query.mode === "sql" && query.sql.trim() !== generated.trim();
+  const problem = designProblem(ws.doc, design);
+  const appendTable = type === "append" ? ws.doc.tables.find((t) => t.name === design.target) : undefined;
+
+  const setDesign = (fn: (dz: QueryDesign) => void) =>
     ws.update((d) => {
       const q = d.queries.find((x) => x.id === query.id)!;
       q.design ??= { tables: [], columns: [] };
       fn(q.design);
       q.design.columns = q.design.columns.filter((c) => c.field);
-      q.sql = designToSql(d, q.design.tables, q.design.columns);
+      q.sql = designSql(d, q.design);
       q.mode = "design";
     });
 
+  /** Append To defaults to the target field with the same name, like Access. */
+  const autoAppendTo = (dz: QueryDesign, target?: string) => {
+    const t = ws.doc.tables.find((x) => x.name === (target ?? dz.target));
+    for (const c of dz.columns) {
+      if (c.field === "*" || !t) continue;
+      c.appendTo = t.fields.find((f) => f.name.toLowerCase() === c.field.toLowerCase() && f.type !== "AutoNumber")?.name ?? c.appendTo;
+    }
+  };
+
+  const setQueryType = async (next: QueryType) => {
+    if (next === "makeTable") {
+      const name = await dialogs.prompt(
+        "Make Table",
+        "Table Name (an existing table with this name is replaced when the query runs):",
+        design.target ?? `${query.name} Table`.slice(0, 64),
+        (v) => (!v.trim() ? "Enter a table name." : !NAME_PATTERN.test(v.trim()) ? "Names can't contain . ! ` [ or ]." : ws.doc.queries.some((q) => q.name.toLowerCase() === v.trim().toLowerCase()) ? "A query has that name." : null),
+      );
+      if (!name) return;
+      setDesign((dz) => {
+        dz.type = "makeTable";
+        dz.target = name;
+      });
+    } else if (next === "append") {
+      setAppendPicker(true);
+      return;
+    } else {
+      setDesign((dz) => {
+        dz.type = next;
+        delete dz.target; // only Make Table and Append have a target table
+        if (next === "crosstab") for (const c of dz.columns) c.total ??= "Group By";
+      });
+    }
+    ws.setStatus(`${QUERY_TYPE_LABELS[next]} query.${next === "select" || next === "crosstab" ? "" : " Datasheet View previews the records it changes; click Run to apply it."}`);
+  };
+
+  const run = async () => {
+    if (problem) return ws.setStatus(problem, "error");
+    if (!(await runAction(query))) ws.setTabView(tabKey, "datasheet");
+  };
+
   useCommands(tabKey, {
-    run: () => ws.setTabView(tabKey, "datasheet"),
+    run,
     showTable: () => setShowTables(true),
+    setQueryType,
+    queryType: type,
+    totals: totalsOn,
+    toggleTotals:
+      type === "select" || type === "makeTable" || type === "append"
+        ? () =>
+            setDesign((dz) => {
+              dz.totals = !dz.totals;
+            })
+        : undefined,
   });
 
   useEffect(() => {
@@ -281,9 +391,10 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
   const addField = (table: string, field: string) =>
     setDesign((dz) => {
       const firstEmpty = dz.columns.findIndex((c) => !c.field);
-      const col = { ...EMPTY_COL, table, field };
+      const col: QueryColumn = { ...EMPTY_COL, table, field, ...(dz.type === "crosstab" ? { total: "Group By" as const } : {}) };
       if (firstEmpty >= 0) dz.columns[firstEmpty] = col;
       else dz.columns.push(col);
+      if (dz.type === "append") autoAppendTo(dz);
     });
 
   const setCol = (i: number, patch: Partial<QueryColumn>) =>
@@ -294,11 +405,6 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
     });
 
   // ---- Selecting, moving and resizing grid columns (the grey bar above each column) ----
-  const [selectedCol, setSelectedCol] = useState<number | null>(null);
-  const [dropAt, setDropAt] = useState<number | null>(null);
-  const [liveWidths, setLiveWidths] = useState<Record<number, number>>({});
-  const dragFrom = useRef<number | null>(null);
-  const gridRef = useRef<HTMLDivElement>(null);
   const used = design.columns.length;
   const widthOf = (i: number) => liveWidths[i] ?? cols[i]?.width ?? 130;
 
@@ -378,6 +484,13 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
             </button>
           </div>
         )}
+      </div>
+      <div className={`qd-info ${problem ? "warn" : ""}`}>
+        <QueryTypeIcon type={type} />
+        <strong>{QUERY_TYPE_LABELS[type]} query</strong>
+        {type === "makeTable" && design.target && <span>· new table: <strong>{design.target}</strong> <button className="link" onClick={() => setQueryType("makeTable")}>change</button></span>}
+        {type === "append" && design.target && <span>· append to: <strong>{design.target}</strong> <button className="link" onClick={() => setAppendPicker(true)}>change</button></span>}
+        {problem && design.columns.length > 0 && <span className="qd-problem">{problem}</span>}
       </div>
       <div
         className="qd-grid-wrap"
@@ -482,28 +595,111 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
                 <td key={i} className={`qd-static ${colClass(i)}`}>{c.table}</td>
               ))}
             </tr>
-            <tr>
-              <th>Sort:</th>
-              {cols.map((c, i) => (
-                <td key={i} className={colClass(i)}>
-                  <ComboBox
-                    value={c.sort}
-                    ariaLabel={`Sort ${i + 1}`}
-                    disabled={!c.field || c.field === "*"}
-                    options={SORT_OPTIONS}
-                    onChange={(v) => setCol(i, { sort: v })}
-                  />
-                </td>
-              ))}
-            </tr>
-            <tr>
-              <th>Show:</th>
-              {cols.map((c, i) => (
-                <td key={i} className={`center ${colClass(i)}`}>
-                  <input type="checkbox" checked={c.show} disabled={!c.field} onChange={(e) => setCol(i, { show: e.target.checked })} />
-                </td>
-              ))}
-            </tr>
+            {totalsOn && (
+              <tr>
+                <th>Total:</th>
+                {cols.map((c, i) => (
+                  <td key={i} className={colClass(i)}>
+                    <ComboBox
+                      value={c.total ?? "Group By"}
+                      ariaLabel={`Total ${i + 1}`}
+                      disabled={!c.field}
+                      options={TOTAL_COMBO}
+                      onChange={(v) => setCol(i, { total: v })}
+                    />
+                  </td>
+                ))}
+              </tr>
+            )}
+            {type === "crosstab" && (
+              <tr>
+                <th>Crosstab:</th>
+                {cols.map((c, i) => (
+                  <td key={i} className={colClass(i)}>
+                    <ComboBox
+                      value={c.crosstab ?? ""}
+                      ariaLabel={`Crosstab ${i + 1}`}
+                      disabled={!c.field || c.field === "*"}
+                      options={CROSSTAB_OPTIONS}
+                      onChange={(v) => setCol(i, { crosstab: v, ...(v === "value" && (!c.total || c.total === "Group By") ? { total: "Sum" as const } : {}) })}
+                    />
+                  </td>
+                ))}
+              </tr>
+            )}
+            {type === "update" && (
+              <tr>
+                <th>Update To:</th>
+                {cols.map((c, i) => (
+                  <td key={i} className={colClass(i)}>
+                    <input
+                      defaultValue={c.updateTo ?? ""}
+                      key={`u${i}:${c.field}:${c.updateTo}`}
+                      disabled={!c.field || c.field === "*"}
+                      placeholder={c.field && c.field !== "*" ? 'e.g. "Closed" or [Price]*1.1' : ""}
+                      aria-label={`Update To ${i + 1}`}
+                      onBlur={(e) => e.target.value !== (c.updateTo ?? "") && setCol(i, { updateTo: e.target.value })}
+                      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                    />
+                  </td>
+                ))}
+              </tr>
+            )}
+            {type === "delete" && (
+              <tr>
+                <th>Delete:</th>
+                {cols.map((c, i) => (
+                  <td key={i} className={`qd-static ${colClass(i)}`}>{c.field ? (c.field === "*" ? "From" : "Where") : ""}</td>
+                ))}
+              </tr>
+            )}
+            {type !== "update" && type !== "delete" && (
+              <tr>
+                <th>Sort:</th>
+                {cols.map((c, i) => (
+                  <td key={i} className={colClass(i)}>
+                    <ComboBox
+                      value={c.sort}
+                      ariaLabel={`Sort ${i + 1}`}
+                      disabled={!c.field || c.field === "*"}
+                      options={SORT_OPTIONS}
+                      onChange={(v) => setCol(i, { sort: v })}
+                    />
+                  </td>
+                ))}
+              </tr>
+            )}
+            {type === "append" && (
+              <tr>
+                <th>Append To:</th>
+                {cols.map((c, i) => (
+                  <td key={i} className={colClass(i)}>
+                    <ComboBox
+                      value={c.appendTo ?? ""}
+                      ariaLabel={`Append To ${i + 1}`}
+                      disabled={!c.field || c.field === "*"}
+                      options={[{ value: "", label: "" }, ...(appendTable?.fields.map((f) => ({ value: f.name, label: f.name })) ?? [])]}
+                      onChange={(v) => setCol(i, { appendTo: v || undefined })}
+                    />
+                  </td>
+                ))}
+              </tr>
+            )}
+            {(type === "select" || type === "makeTable") && (
+              <tr>
+                <th>Show:</th>
+                {cols.map((c, i) => (
+                  <td key={i} className={`center ${colClass(i)}`}>
+                    <input
+                      type="checkbox"
+                      checked={c.show && !(totalsOn && c.total === "Where")}
+                      disabled={!c.field || (totalsOn && c.total === "Where")}
+                      onChange={(e) => setCol(i, { show: e.target.checked })}
+                    />
+                  </td>
+                ))}
+              </tr>
+            )}
             <tr>
               <th>Criteria:</th>
               {cols.map((c, i) => (
@@ -522,6 +718,21 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
           </tbody>
         </table>
       </div>
+      {appendPicker && (
+        <AppendTargetDialog
+          current={design.target}
+          onClose={() => setAppendPicker(false)}
+          onPick={(target) => {
+            setAppendPicker(false);
+            setDesign((dz) => {
+              dz.type = "append";
+              dz.target = target;
+              autoAppendTo(dz, target);
+            });
+            ws.setStatus("Append query. Datasheet View previews the records it adds; click Run to apply it.");
+          }}
+        />
+      )}
       {showTables && (
         <ShowTableDialog
           existing={design.tables}

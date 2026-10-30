@@ -24,8 +24,20 @@ import {
   SqlIcon,
   TableIcon,
   TextFileIcon,
+  TotalsIcon,
 } from "../ui/icons";
 import { viewsFor, type Tab, type ViewCommands, type ViewName } from "./context";
+import { QUERY_TYPES, QUERY_TYPE_LABELS, type QueryType } from "../../../shared/model";
+import { QUERY_TYPE_ICONS } from "./queryKinds";
+
+const QUERY_TYPE_HELP: Record<QueryType, string> = {
+  select: "Select: show records",
+  makeTable: "Make Table: save the results as a new table",
+  append: "Append: add the results to an existing table",
+  update: "Update: change values in existing records",
+  crosstab: "Crosstab: summarize with row and column headings",
+  delete: "Delete: remove the matching records",
+};
 
 export interface RibbonActions {
   openBackstage: () => void;
@@ -62,9 +74,15 @@ const VIEW_ICONS_SMALL: Record<ViewName, ReactNode> = {
   relationships: <RelationshipsIcon size={16} />,
 };
 
-function Big(props: { icon: ReactNode; label: string; onClick?: () => void; title?: string }) {
+function Big(props: { icon: ReactNode; label: string; onClick?: () => void; title?: string; pressed?: boolean }) {
   return (
-    <button className="rb-big" onClick={props.onClick} disabled={!props.onClick} title={props.title ?? props.label}>
+    <button
+      className={`rb-big ${props.pressed ? "pressed" : ""}`}
+      onClick={props.onClick}
+      disabled={!props.onClick}
+      title={props.title ?? props.label}
+      aria-pressed={props.pressed}
+    >
       {props.icon}
       <span>{props.label}</span>
     </button>
@@ -194,6 +212,11 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
         {active === "home" && (
           <>
             <Group label="Views">{viewButton}</Group>
+            {tab?.kind === "query" && c.run && (
+              <Group label="Results">
+                <Big icon={<RunIcon size={32} />} label="Run" onClick={c.run} title="Run this query" />
+              </Group>
+            )}
             <Group label="Sort & Filter">
               <div className="rb-stack">
                 <Small icon={<SortAscIcon />} label="Ascending" onClick={c.sortAsc} />
@@ -273,8 +296,26 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
               {viewButton}
               <Big icon={<RunIcon size={32} />} label="Run" onClick={c.run} />
             </Group>
+            <Group label="Query Type">
+              {QUERY_TYPES.map((t) => {
+                const Icon = QUERY_TYPE_ICONS[t];
+                return (
+                  <Big
+                    key={t}
+                    icon={<Icon size={32} />}
+                    label={QUERY_TYPE_LABELS[t]}
+                    pressed={c.queryType === t}
+                    onClick={c.setQueryType ? () => c.setQueryType!(t) : undefined}
+                    title={QUERY_TYPE_HELP[t]}
+                  />
+                );
+              })}
+            </Group>
             <Group label="Query Setup">
               <Big icon={<ShowTableIcon size={32} />} label="Show Table" onClick={c.showTable} />
+            </Group>
+            <Group label="Show/Hide">
+              <Big icon={<TotalsIcon size={32} />} label="Totals" pressed={!!c.totals} onClick={c.toggleTotals} title="Show the Total row (Group By, Sum, Count, ...)" />
             </Group>
           </>
         )}

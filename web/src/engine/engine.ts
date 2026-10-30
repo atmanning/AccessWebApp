@@ -1,7 +1,8 @@
 import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
 import wasmUrl from "sql.js/dist/sql-wasm.wasm?url";
 import type { CellValue, Field, ProjectDoc, SourceRef, TableDef } from "../../../shared/model";
-import { isSelect, SqlSyntaxError, translateAccessSql } from "./accessSql";
+import { isSelect, SqlSyntaxError, tokenize, translateAccessSql } from "./accessSql";
+import { parseStatement, type Statement } from "./statements";
 import { analyzeUpdatable } from "./updatable";
 
 export interface ResultSet {
@@ -111,28 +112,46 @@ function loadTables(db: Database, tables: TableDef[]) {
   }
 }
 
+/** Access totals SQLite lacks: StDev/StDevP, Var/VarP, First, Last. */
+function registerAccessAggregates(db: Database) {
+  type Agg = { init: () => unknown; step: (state: never, value: unknown) => unknown; finalize: (state: never) => unknown };
+  const numbers = (): Agg => ({
+    init: () => [] as number[],
+    step: ((s: number[], v: unknown) => (v === null || v === undefined || Number.isNaN(Number(v)) ? s : (s.push(Number(v)), s))) as never,
+    finalize: (() => null) as never,
+  });
+  const variance = (sample: boolean) => (s: number[]) => {
+    const n = s.length;
+    if (n < (sample ? 2 : 1)) return null;
+    const mean = s.reduce((a, b) => a + b, 0) / n;
+    return s.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - (sample ? 1 : 0));
+  };
+  const aggs: Record<string, Agg> = {
+    stdev: { ...numbers(), finalize: ((s: number[]) => { const v = variance(true)(s); return v === null ? null : Math.sqrt(v); }) as never },
+    stdevp: { ...numbers(), finalize: ((s: number[]) => { const v = variance(false)(s); return v === null ? null : Math.sqrt(v); }) as never },
+    var: { ...numbers(), finalize: variance(true) as never },
+    varp: { ...numbers(), finalize: variance(false) as never },
+    first: { init: () => ({ set: false, v: null }), step: ((s: { set: boolean; v: unknown }, v: unknown) => (s.set ? s : { set: true, v })) as never, finalize: ((s: { v: unknown }) => s.v) as never },
+    last: { init: () => null, step: ((_s: unknown, v: unknown) => v) as never, finalize: ((s: unknown) => s) as never },
+  };
+  const withAgg = db as unknown as { create_aggregate: (name: string, agg: Agg) => void };
+  for (const [name, agg] of Object.entries(aggs)) withAgg.create_aggregate(name, agg);
+}
+
 /**
- * Builds an in-memory SQLite database from the project and runs one SELECT.
- * Saved queries are available to each other as views, like in Access.
+ * Builds an in-memory SQLite database from the project: one table per Access table
+ * (rowid N = t.rows[N - 1]) and saved select queries as views, like in Access.
  */
-export async function runQuery(
-  doc: ProjectDoc,
-  accessSql: string,
-  opts: { maxRows?: number; excludeQueryId?: string; /** Work out which cells can be edited. */ editable?: boolean } = {},
-): Promise<ResultSet> {
-  if (!accessSql.trim()) throw new SqlSyntaxError("The query is empty. Add fields in Design View or type SQL.");
-  if (!isSelect(accessSql)) {
-    throw new SqlSyntaxError("Only SELECT queries can run here. Update, append and delete queries aren't supported yet.");
-  }
+export async function openEngine(doc: ProjectDoc, opts: { excludeQueryId?: string } = {}): Promise<Database> {
   const SQL = await loadSql();
   const db = new SQL.Database();
   try {
     registerAccessFunctions(db);
+    registerAccessAggregates(db);
     db.run("BEGIN");
     loadTables(db, doc.tables);
-    // Make saved queries usable from other queries. Queries can depend on each other, so keep
-    // retrying until no more succeed; ones that never work are skipped (they report their own
-    // error when opened).
+    // Queries can depend on each other, so keep retrying until no more succeed; ones that
+    // never work are skipped (they report their own error when opened).
     let pending = doc.queries.filter((q) => q.id !== opts.excludeQueryId && q.sql.trim() && isSelectSafe(q.sql));
     while (pending.length) {
       const failed = pending.filter((q) => {
@@ -147,23 +166,55 @@ export async function runQuery(
       pending = failed;
     }
     db.run("COMMIT");
+    return db;
+  } catch (e) {
+    db.close();
+    throw e;
+  }
+}
 
-    const updatable = opts.editable ? analyzeUpdatable(doc, accessSql) : null;
-    const translated = translateAccessSql(updatable?.ok ? updatable.sql : accessSql).replace(/;\s*$/, "");
-    let stmt;
-    try {
-      stmt = db.prepare(translated);
-    } catch (e) {
-      throw new SqlSyntaxError(friendlySqlError((e as Error).message));
-    }
+/** Runs one Access-SQL SELECT on an open engine database. */
+export function selectRows(db: Database, accessSql: string, max = 50_000): { columns: string[]; rows: CellValue[][] } {
+  let stmt;
+  try {
+    stmt = db.prepare(translateAccessSql(accessSql).replace(/;\s*$/, ""));
+  } catch (e) {
+    throw new SqlSyntaxError(friendlySqlError((e as Error).message));
+  }
+  try {
     const columns = stmt.getColumnNames();
     const rows: CellValue[][] = [];
-    const max = opts.maxRows ?? 50_000;
     while (stmt.step()) {
       if (rows.length >= max) break;
       rows.push(stmt.get().map((v) => (v instanceof Uint8Array ? "(binary)" : (v as CellValue))));
     }
+    return { columns, rows };
+  } catch (e) {
+    throw new SqlSyntaxError(friendlySqlError((e as Error).message));
+  } finally {
     stmt.free();
+  }
+}
+
+/**
+ * Runs a select or crosstab query and returns its results. Action queries are run with
+ * runAction (actions.ts); their Datasheet View shows previewAction's results.
+ */
+export async function runQuery(
+  doc: ProjectDoc,
+  accessSql: string,
+  opts: { maxRows?: number; excludeQueryId?: string; /** Work out which cells can be edited. */ editable?: boolean } = {},
+): Promise<ResultSet> {
+  if (!accessSql.trim()) throw new SqlSyntaxError("The query is empty. Add fields in Design View or type SQL.");
+  const statement = parseStatement(accessSql);
+  if (statement.kind !== "select" && statement.kind !== "crosstab") {
+    throw new SqlSyntaxError("This is an action query. Click Run to apply it; Datasheet View previews the records it changes.");
+  }
+  const db = await openEngine(doc, opts);
+  try {
+    if (statement.kind === "crosstab") return runCrosstab(doc, db, statement);
+    const updatable = opts.editable ? analyzeUpdatable(doc, accessSql) : null;
+    const { columns, rows } = selectRows(db, updatable?.ok ? updatable.sql : accessSql, opts.maxRows);
     if (!updatable) return { columns, fields: columns.map((c) => guessField(doc, c)), rows };
     if (!updatable.ok) return { columns, fields: columns.map((c) => guessField(doc, c)), rows, edit: updatable };
 
@@ -194,6 +245,60 @@ export async function runQuery(
   } finally {
     db.close();
   }
+}
+
+/**
+ * TRANSFORM value SELECT rows... GROUP BY rows... PIVOT column: runs the grouped query with
+ * the column heading added, then turns each distinct column heading into its own column.
+ */
+function runCrosstab(doc: ProjectDoc, db: Database, st: Extract<Statement, { kind: "crosstab" }>): ResultSet {
+  const toks = tokenize(st.select);
+  // Insert the pivot and value columns before FROM, and the pivot into GROUP BY.
+  let depth = 0;
+  let fromAt = -1;
+  let groupAt = -1;
+  let afterGroup = -1;
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    if (t.text === "(") depth++;
+    else if (t.text === ")") depth--;
+    if (depth !== 0 || t.kind !== "word") continue;
+    const w = t.text.toUpperCase();
+    if (w === "FROM" && fromAt < 0) fromAt = t.start;
+    if (w === "GROUP" && groupAt < 0) groupAt = t.start;
+    if (groupAt >= 0 && (w === "HAVING" || w === "ORDER") && afterGroup < 0) afterGroup = t.start;
+  }
+  if (fromAt < 0) throw new SqlSyntaxError("The crosstab's SELECT part needs a FROM clause.");
+  if (groupAt < 0) throw new SqlSyntaxError("A crosstab query needs GROUP BY for its row headings.");
+  const sel = st.select;
+  const groupEnd = afterGroup >= 0 ? afterGroup : sel.length;
+  const sql =
+    `${sel.slice(0, fromAt).trimEnd()}, (${st.pivot}) AS __pivot, ${st.value} AS __value ` +
+    `${sel.slice(fromAt, groupEnd).trimEnd()}, (${st.pivot}) ${sel.slice(groupEnd)}`;
+  const { columns, rows } = selectRows(db, sql);
+  const heads = columns.length - 2;
+  const label = (v: CellValue) => (v === null || v === undefined ? "<>" : typeof v === "boolean" ? (v ? "Yes" : "No") : String(v));
+  // Column headings: the IN list if given, else every value found, sorted.
+  let pivots = st.pivotIn ?? [...new Set(rows.map((r) => label(r[heads])))];
+  if (!st.pivotIn) {
+    pivots = pivots.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    if (pivots.length > 250) throw new SqlSyntaxError("This crosstab would have more than 250 columns. Add criteria or use a different Column Heading.");
+  }
+  const out = new Map<string, CellValue[]>();
+  for (const r of rows) {
+    const key = JSON.stringify(r.slice(0, heads));
+    let line = out.get(key);
+    if (!line) out.set(key, (line = [...r.slice(0, heads), ...pivots.map(() => null as CellValue)]));
+    const at = pivots.indexOf(label(r[heads]));
+    if (at >= 0) line[heads + at] = r[heads + 1];
+  }
+  const headCols = columns.slice(0, heads);
+  return {
+    columns: [...headCols, ...pivots],
+    fields: [...headCols.map((c) => guessField(doc, c)), ...pivots.map(() => undefined)],
+    rows: [...out.values()],
+    edit: { ok: false, reason: "Crosstab query results can't be edited." },
+  };
 }
 
 function isSelectSafe(sql: string) {

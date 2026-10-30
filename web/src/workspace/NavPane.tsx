@@ -3,15 +3,45 @@ import type { ObjectKind } from "../../../shared/model";
 import { useDialogs } from "../ui/dialogs";
 import { ChevronIcon, FindIcon, OBJECT_ICONS } from "../ui/icons";
 import { tabKey, useWorkspace } from "./context";
+import { QUERY_TYPE_LABELS } from "../../../shared/model";
+import { isActionType } from "../engine/statements";
+import { QUERY_TYPE_ICONS, typeOfQuery } from "./queryKinds";
+import { useRunAction } from "./useRunAction";
 import { deleteObject, dependents, findObject, KIND_LABEL, KIND_PLURAL, objectsOf, renameObject, validateObjectName } from "./docOps";
 
 const KINDS: ObjectKind[] = ["table", "query", "form", "report"];
 
 export type Selection = { kind: ObjectKind; id: string } | null;
 
+/** Queries show their type's icon (select, update, delete, ...). */
+function ItemIcon({ kind, id, fallback: Fallback }: { kind: ObjectKind; id: string; fallback: typeof OBJECT_ICONS.table }) {
+  const ws = useWorkspace();
+  if (kind !== "query") return <Fallback />;
+  const q = ws.doc.queries.find((x) => x.id === id);
+  const Icon = q ? QUERY_TYPE_ICONS[typeOfQuery(q)] : Fallback;
+  return <Icon />;
+}
+
 export function NavPane(props: { selection: Selection; onSelect: (s: Selection) => void; collapsed: boolean; onToggle: () => void }) {
   const ws = useWorkspace();
   const dialogs = useDialogs();
+  const runAction = useRunAction();
+
+  /** Opening an action query runs it (after a warning), as in Access; everything else opens. */
+  const openItem = async (kind: ObjectKind, id: string) => {
+    const q = kind === "query" ? ws.doc.queries.find((x) => x.id === id) : undefined;
+    if (q && isActionType(typeOfQuery(q))) {
+      const verb = QUERY_TYPE_LABELS[typeOfQuery(q)].toLowerCase();
+      const ok = await dialogs.confirm(
+        "Microsoft Access Web",
+        `You are about to run a${/^[aeiou]/.test(verb) ? "n" : ""} ${verb} query that will modify data in your database. Are you sure you want to run this type of action query?`,
+        { okLabel: "Yes" },
+      );
+      if (ok) await runAction(q);
+      return;
+    }
+    ws.openObject(kind, id);
+  };
   const [search, setSearch] = useState("");
   const [closedGroups, setClosedGroups] = useState<Set<ObjectKind>>(new Set());
   const [menu, setMenu] = useState<{ x: number; y: number; kind: ObjectKind; id: string } | null>(null);
@@ -112,14 +142,14 @@ export function NavPane(props: { selection: Selection; onSelect: (s: Selection) 
                         tabIndex={0}
                         className={`nav-item ${selected ? "selected" : ""} ${ws.activeKey === tabKey(kind, o.id) ? "active" : ""}`}
                         onClick={() => props.onSelect({ kind, id: o.id })}
-                        onDoubleClick={() => ws.openObject(kind, o.id)}
+                        onDoubleClick={() => openItem(kind, o.id)}
                         onContextMenu={(e) => {
                           e.preventDefault();
                           props.onSelect({ kind, id: o.id });
                           setMenu({ x: e.clientX, y: e.clientY, kind, id: o.id });
                         }}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") ws.openObject(kind, o.id);
+                          if (e.key === "Enter") openItem(kind, o.id);
                           else if (e.key === "F2") rename(kind, o.id);
                           else if (e.key === "Delete") remove(kind, o.id);
                           else return;
@@ -127,7 +157,7 @@ export function NavPane(props: { selection: Selection; onSelect: (s: Selection) 
                         }}
                         onFocus={() => props.onSelect({ kind, id: o.id })}
                       >
-                        <Icon /> <span className="nav-item-name">{o.name}</span>
+                        <ItemIcon kind={kind} id={o.id} fallback={Icon} /> <span className="nav-item-name">{o.name}</span>
                       </li>
                     );
                   })}
@@ -141,7 +171,15 @@ export function NavPane(props: { selection: Selection; onSelect: (s: Selection) 
       {menu && (
         <div className="context-menu" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()} role="menu">
           {[
-            { label: "Open", run: () => ws.openObject(menu.kind, menu.id) },
+            ...(() => {
+              const q = menu.kind === "query" ? ws.doc.queries.find((x) => x.id === menu.id) : undefined;
+              return q && isActionType(typeOfQuery(q))
+                ? [
+                    { label: "Run", run: () => openItem(menu.kind, menu.id) },
+                    { label: "Preview (Datasheet View)", run: () => ws.openObject(menu.kind, menu.id, "datasheet") },
+                  ]
+                : [{ label: "Open", run: () => ws.openObject(menu.kind, menu.id) }];
+            })(),
             { label: "Design View", run: () => ws.openObject(menu.kind, menu.id, "design") },
             ...(menu.kind === "query" ? [{ label: "SQL View", run: () => ws.openObject(menu.kind, menu.id, "sql") }] : []),
             { label: "Rename", run: () => rename(menu.kind, menu.id) },

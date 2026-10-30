@@ -429,3 +429,10 @@ select.grid-input { padding: 0 2px; }
 .qd-sel.drop-after { box-shadow: inset -3px 0 0 #d13438; }
 .qd-resizer { position: absolute; right: -3px; top: 0; bottom: 0; width: 7px; cursor: col-resize; z-index: 2; }
 .home-notice { margin: -8px 0 18px; border: 1px solid #e8d48a; }
+
+/* ---------- query types ---------- */
+.rb-big.pressed { background: #f6d7d8; border-color: #e3a3a6; }
+.qd-info { display: flex; align-items: center; gap: 8px; padding: 4px 10px; background: var(--chrome); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap; min-height: 26px; }
+.qd-info .link { font-size: 11px; }
+.qd-info.warn .qd-problem { color: #8a5a00; background: #fff4ce; padding: 1px 8px; border-radius: 2px; }
+.plan-problems { margin: 4px 0 8px; padding-left: 18px; }

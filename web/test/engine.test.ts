@@ -66,7 +66,7 @@ describe("query engine", () => {
   });
   it("gives friendly errors and refuses non-SELECT", async () => {
     await expect(runQuery(doc, "SELECT * FROM Nope")).rejects.toThrow(/can't find the table or query 'Nope'/);
-    await expect(runQuery(doc, "DELETE FROM Customers")).rejects.toThrow(/Only SELECT/);
+    await expect(runQuery(doc, "DELETE FROM Customers")).rejects.toThrow(/action query/);
   });
 });
 
@@ -109,5 +109,111 @@ describe("editable query results", () => {
       expect(r.edit && !r.edit.ok && r.edit.reason, sql).toMatch(why);
       expect(r.rows.length, sql).toBeGreaterThan(0);
     }
+  });
+});
+
+import { planAction, previewAction } from "../src/engine/actions";
+import { designSql, designProblem } from "../src/engine/queryDesign";
+import { queryTypeOf } from "../src/engine/statements";
+import type { ProjectDoc } from "../../shared/model";
+
+describe("query types", () => {
+  const fresh = () => buildTemplate("contacts");
+  const apply = async (doc: ProjectDoc, sql: string) => {
+    const plan = await planAction(doc, sql);
+    const next = structuredClone(doc);
+    plan.apply(next);
+    return { plan, next };
+  };
+  const col = (table: string, field: string, extra: object = {}) => ({ table, field, show: true, sort: "" as const, criteria: "", ...extra });
+
+  it("designs SQL for each type, the way Access writes it", () => {
+    const doc = fresh();
+    const t = ["Orders"];
+    expect(designSql(doc, { type: "update", tables: t, columns: [col("Orders", "Amount", { updateTo: "[Amount]*1.1", criteria: "<20" })] })).toBe(
+      "UPDATE [Orders]\nSET [Orders].[Amount] = [Amount]*1.1\nWHERE [Orders].[Amount] <20;",
+    );
+    expect(designSql(doc, { type: "delete", tables: t, columns: [col("Orders", "*"), col("Orders", "Amount", { criteria: "<20" })] })).toBe(
+      "DELETE [Orders].*\nFROM [Orders]\nWHERE [Orders].[Amount] <20;",
+    );
+    expect(designSql(doc, { type: "makeTable", target: "Big", tables: t, columns: [col("Orders", "Item"), col("Orders", "Amount", { criteria: ">100" })] })).toBe(
+      "SELECT [Orders].[Item], [Orders].[Amount]\nINTO [Big]\nFROM [Orders]\nWHERE [Orders].[Amount] >100;",
+    );
+    expect(
+      designSql(doc, { type: "select", totals: true, tables: t, columns: [col("Orders", "CustomerID"), col("Orders", "Amount", { total: "Sum", sort: "DESC" })] }),
+    ).toBe("SELECT [Orders].[CustomerID], Sum([Orders].[Amount]) AS SumOfAmount\nFROM [Orders]\nGROUP BY [Orders].[CustomerID]\nORDER BY Sum([Orders].[Amount]) DESC;");
+    const xtab = {
+      type: "crosstab" as const,
+      tables: t,
+      columns: [col("Orders", "CustomerID", { crosstab: "row" }), col("Orders", "Item", { crosstab: "column" }), col("Orders", "Amount", { crosstab: "value", total: "Sum" })],
+    };
+    expect(designProblem(doc, xtab)).toBeNull();
+    expect(designSql(doc, xtab)).toBe(
+      "TRANSFORM Sum([Orders].[Amount]) AS SumOfAmount\nSELECT [Orders].[CustomerID]\nFROM [Orders]\nGROUP BY [Orders].[CustomerID]\nPIVOT [Orders].[Item];",
+    );
+    expect(designProblem(doc, { ...xtab, columns: xtab.columns.slice(0, 2) })).toMatch(/exactly one Value/);
+    expect(queryTypeOf("SELECT a INTO b FROM c")).toBe("makeTable");
+    expect(queryTypeOf("TRANSFORM Sum(x) SELECT y FROM z GROUP BY y PIVOT w")).toBe("crosstab");
+  });
+
+  it("runs totals and crosstab queries", async () => {
+    const doc = fresh();
+    const totals = await runQuery(doc, "SELECT c.City, Count(*) AS N, Sum(o.Amount) AS Total, StDev(o.Amount) AS S, First(o.Item) AS F FROM Customers c INNER JOIN Orders o ON o.CustomerID = c.CustomerID GROUP BY c.City ORDER BY c.City");
+    expect(totals.rows[0]).toEqual(["Arlington", 2, 93.49, expect.any(Number), "COBOL manual"]);
+    const x = await runQuery(doc, "TRANSFORM Sum(o.[Amount]) AS SumOfAmount SELECT c.[City] FROM Customers AS c INNER JOIN Orders AS o ON o.CustomerID = c.CustomerID GROUP BY c.[City] PIVOT Month(o.[OrderDate]);");
+    expect(x.columns).toEqual(["City", "6", "7", "8", "9", "10"]);
+    expect(x.rows.find((r) => r[0] === "London")).toEqual(["London", 1250, 45.5, null, null, null]);
+    const fixed = await runQuery(doc, "TRANSFORM Count(*) SELECT Active FROM Customers GROUP BY Active PIVOT City IN ('London', 'Austin')");
+    expect(fixed.columns).toEqual(["Active", "London", "Austin"]);
+  });
+
+  it("runs update queries and skips records that would break keys", async () => {
+    const doc = fresh();
+    const { plan, next } = await apply(doc, "UPDATE Orders SET Orders.Amount = [Amount]*2 WHERE Orders.Amount < 20");
+    expect(plan.count).toBe(2);
+    expect(next.tables[1].rows.map((r) => r.o_amount)).toEqual([1250, 45.5, 89.99, 640, 32, 25.5, 7]);
+    const dup = await planAction(doc, "UPDATE Customers SET Email = 'ada@example.com' WHERE CustomerID = 2");
+    expect(dup.count).toBe(0);
+    expect(dup.problems[0]).toMatch(/key violations/);
+    const preview = await previewAction(doc, "UPDATE Orders SET Orders.Amount = 0 WHERE Amount < 20");
+    expect(preview.rows).toEqual([[12.75], [3.5]]);
+  });
+
+  it("runs delete queries, keeping records related records still use", async () => {
+    const doc = fresh();
+    const { plan, next } = await apply(doc, "DELETE [Orders].* FROM [Orders] WHERE [Orders].[Amount] < 20;");
+    expect(plan.count).toBe(2);
+    expect(next.tables[1].rows).toHaveLength(5);
+    const blocked = await planAction(doc, "DELETE * FROM Customers WHERE City = 'London'");
+    expect(blocked.count).toBe(0);
+    expect(blocked.problems[0]).toMatch(/related records/);
+  });
+
+  it("runs append queries with AutoNumbers, defaults and relationship checks", async () => {
+    const doc = fresh();
+    const { plan, next } = await apply(doc, `INSERT INTO Orders (CustomerID, Item, Amount, OrderDate) SELECT CustomerID, "Gift card", 25, #11/1/2026# FROM Customers WHERE Active`);
+    expect(plan.count).toBe(4);
+    const added = next.tables[1].rows.slice(7);
+    expect(added.map((r) => r.o_id)).toEqual([8, 9, 10, 11]);
+    expect(added[0]).toMatchObject({ o_item: "Gift card", o_amount: 25, o_date: "2026-11-01" });
+    expect(next.tables[1].nextAutoNumber).toBe(12);
+    const orphan = await planAction(doc, "INSERT INTO Orders (CustomerID, Item) VALUES (99, 'Nobody')");
+    expect(orphan.count).toBe(0);
+    expect(orphan.problems[0]).toMatch(/key violations/);
+  });
+
+  it("runs make-table queries, inferring field types", async () => {
+    const doc = fresh();
+    const { plan, next } = await apply(doc, "SELECT City, Count(*) AS Customers INTO CityCounts FROM Customers GROUP BY City");
+    expect(plan.count).toBe(5);
+    const t = next.tables.find((x) => x.name === "CityCounts")!;
+    expect(t.fields.map((f) => `${f.name}:${f.type}`)).toEqual(["City:ShortText", "Customers:Number"]);
+    // Running it again replaces the table, keeping its id.
+    const again = await planAction(next, "SELECT City INTO CityCounts FROM Customers");
+    expect(again.replaces).toMatch(/will be deleted/);
+    const after = structuredClone(next);
+    again.apply(after);
+    expect(after.tables.find((x) => x.name === "CityCounts")!.id).toBe(t.id);
+    await expect(planAction(doc, "SELECT City INTO [Order Details] FROM Customers")).rejects.toThrow(/query is already named/);
   });
 });

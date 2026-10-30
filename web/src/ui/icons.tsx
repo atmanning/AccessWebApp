@@ -185,4 +185,43 @@ export const BackIcon = svg(
 );
 export const FilterIcon = svg(<path d="M1.5 2.5h13L9.5 8.5v5l-3 1.5v-6.5z" fill="#fff" stroke="#333" />);
 
+// Query type icons (Access shows each action query type with its own symbol).
+export const MakeTableQueryIcon = svg(
+  <>
+    <rect x="1.5" y="3.5" width="10" height="9" fill="#fff" stroke="#6d5aa6" />
+    <path d="M1.5 6.5h10M5 6.5v6" stroke="#6d5aa6" />
+    <path d="M13 1.5l.7 1.5 1.6.2-1.2 1.1.3 1.6-1.4-.8-1.4.8.3-1.6-1.2-1.1 1.6-.2z" fill="#f2c94c" stroke="#9a7a12" strokeWidth=".5" />
+  </>,
+);
+export const AppendQueryIcon = svg(
+  <>
+    <rect x="1.5" y="3.5" width="10" height="9" fill="#fff" stroke="#6d5aa6" />
+    <path d="M1.5 6.5h10M5 6.5v6" stroke="#6d5aa6" />
+    <path d="M13 9v6M10 12h6" stroke="#2e7d4f" strokeWidth="1.8" />
+  </>,
+);
+export const UpdateQueryIcon = svg(
+  <>
+    <rect x="1.5" y="3.5" width="10" height="9" fill="#fff" stroke="#6d5aa6" />
+    <path d="M1.5 6.5h10M5 6.5v6" stroke="#6d5aa6" />
+    <path d="M9 15l.8-2.6L14 8.2l1.8 1.8-4.2 4.2z" fill="#f2c94c" stroke="#7a5d00" strokeWidth=".7" />
+  </>,
+);
+export const DeleteQueryIcon = svg(
+  <>
+    <rect x="1.5" y="3.5" width="10" height="9" fill="#fff" stroke="#6d5aa6" />
+    <path d="M1.5 6.5h10M5 6.5v6" stroke="#6d5aa6" />
+    <path d="M10.5 9.5l5 5M15.5 9.5l-5 5" stroke="#c42b1c" strokeWidth="1.8" strokeLinecap="round" />
+  </>,
+);
+export const CrosstabQueryIcon = svg(
+  <>
+    <rect x="1.5" y="1.5" width="13" height="13" fill="#fff" stroke="#6d5aa6" />
+    <rect x="1.5" y="1.5" width="13" height="3.5" fill="#d9d2ee" stroke="#6d5aa6" />
+    <rect x="1.5" y="1.5" width="4" height="13" fill="#d9d2ee" stroke="#6d5aa6" />
+    <path d="M5.5 8.5h9M5.5 11.5h9M9.5 5v9.5" stroke="#6d5aa6" />
+  </>,
+);
+export const TotalsIcon = svg(<text x="8" y="13" textAnchor="middle" fontSize="14" fontWeight="700" fill="#333" fontFamily="Segoe UI, Arial">Σ</text>);
+
 export const OBJECT_ICONS = { table: TableIcon, query: QueryIcon, form: FormIcon, report: ReportIcon } as const;
