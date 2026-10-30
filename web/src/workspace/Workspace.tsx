@@ -28,6 +28,7 @@ import { findObject, KIND_LABEL, newId, newTable, uniqueObjectName, validateObje
 import { ImportCsvDialog } from "./ImportCsvDialog";
 import { ShareDialog } from "./ShareDialog";
 import { ConnectionDialog, ConnectionsManager, RemoteTablesDialog } from "./ConnectionDialogs";
+import { OtherDatabaseDialog, type OtherDbMode } from "./OtherDatabaseDialog";
 import { copyObject, PasteDialog, readClipboard, type ClipItem } from "./clipboard";
 import { LinkedTableView, SqlConsoleView } from "../views/RemoteViews";
 import { cleanName } from "../../../shared/exchange";
@@ -429,6 +430,8 @@ export function Workspace(props: {
     }
   };
 
+  const [otherDb, setOtherDb] = useState<OtherDbMode | null>(null);
+
   // ---- Copy / paste ----
   const [pasting, setPasting] = useState<ClipItem | null>(null);
   const copySelected = (kind?: ObjectKind, id?: string) => {
@@ -545,6 +548,8 @@ export function Workspace(props: {
             mysqlLink: readOnly ? undefined : () => setMysqlDialog(connections?.length ? "link" : "new"),
             mysqlImport: readOnly ? undefined : () => setMysqlDialog(connections?.length ? "import" : "new"),
             mysqlConsole: readOnly ? undefined : () => openConsole(),
+            otherDbImport: readOnly ? undefined : () => setOtherDb("import"),
+            otherDbLink: readOnly ? undefined : () => setOtherDb("link"),
             exportAccess,
             openRelationships: () => openObject("relationships", "main"),
             refresh: () => setRefreshKey((k) => k + 1),
@@ -669,6 +674,17 @@ export function Workspace(props: {
             onClose={() => setMysqlDialog(null)}
             onNewConnection={() => setMysqlDialog("new")}
             onDone={(c, tables) => (mysqlDialog === "link" ? linkTables(c, tables) : importTables(c, tables))}
+          />
+        )}
+        {otherDb && (
+          <OtherDatabaseDialog
+            mode={otherDb}
+            onClose={() => setOtherDb(null)}
+            onDone={(message, notes) => {
+              setOtherDb(null);
+              setStatus(message);
+              if (notes.length) showImportWarnings(dialogs, notes, "Done, with these notes:");
+            }}
           />
         )}
         {sharing && <ShareDialog projectId={props.project.id} projectName={name} owner={props.user} onClose={() => setSharing(false)} />}

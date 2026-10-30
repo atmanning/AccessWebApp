@@ -135,7 +135,7 @@ export function PasteDialog({ item, onClose }: { item: ClipItem; onClose: () => 
         }
         case "linked": {
           const l = { ...(item.object as LinkedTable), id: newId("lt"), name: n };
-          if (!ws.connections?.some((c) => c.id === l.connectionId)) {
+          if (l.connectionId && !ws.connections?.some((c) => c.id === l.connectionId)) {
             warnings.push("Its MySQL connection isn't part of this database, so the link won't open until you re-link it.");
           }
           d.linkedTables = [...(d.linkedTables ?? []), l];

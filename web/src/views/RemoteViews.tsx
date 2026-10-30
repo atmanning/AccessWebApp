@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CellValue, ConnectionInfo, Field, LinkedTable, RemoteRows, SqlRunResult } from "../../../shared/model";
+import { isAppLink, type CellValue, type ConnectionInfo, type Field, type LinkedTable, type RemoteRows, type SqlRunResult } from "../../../shared/model";
 import { api } from "../api";
+import { loadAppLink, type AppLinkData } from "../engine/linked";
 import { ComboBox } from "../ui/ComboBox";
 import { useCommands, useWorkspace } from "../workspace/context";
 import { exportCsv } from "../workspace/csv";
@@ -8,8 +9,103 @@ import { Datasheet, type DatasheetHandle } from "./Datasheet";
 
 const PAGE = 500;
 
-/** A linked MySQL table: read-only datasheet, loaded a page at a time. */
+/** A linked table: from MySQL, or from another database here. */
 export function LinkedTableView({ link, tabKey }: { link: LinkedTable; tabKey: string }) {
+  return isAppLink(link) ? <AppLinkedView link={link} tabKey={tabKey} /> : <MySqlLinkedView link={link} tabKey={tabKey} />;
+}
+
+/** A table or query linked from another database: read-only, live (Refresh re-reads it). */
+function AppLinkedView({ link, tabKey }: { link: LinkedTable; tabKey: string }) {
+  const ws = useWorkspace();
+  const [data, setData] = useState<AppLinkData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [reload, setReload] = useState(0);
+  const grid = useRef<DatasheetHandle>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    loadAppLink(link).then(
+      (d) => {
+        if (cancelled) return;
+        setData(d);
+        setError(null);
+        ws.setStatus(
+          `Linked ${link.sourceKind} '${d.objectName}' from '${d.project.name}' (${d.project.ownerName}): ${d.table.rows.length.toLocaleString()} record(s), read-only.` +
+            (d.notes.length ? " " + d.notes.join(" ") : ""),
+        );
+      },
+      (e) => !cancelled && (setError((e as Error).message), setData(null)),
+    ).finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [link.sourceProject, link.sourceId, reload]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const fields = data?.table.fields ?? [];
+  const columns = useMemo(
+    () =>
+      fields.map((f) => ({
+        key: f.id,
+        label: f.name,
+        field: f,
+        readOnly: true,
+        readOnlyReason: `Linked from '${data?.project.name}'. Open that database to change its data, or import the ${link.sourceKind} to get your own copy.`,
+      })),
+    [data], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const getValue = useCallback((r: number, c: number) => data?.table.rows[r]?.[fields[c]?.id] ?? null, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useCommands(tabKey, {
+    sortAsc: () => grid.current?.sort("ASC"),
+    sortDesc: () => grid.current?.sort("DESC"),
+    removeSort: () => grid.current?.sort(null),
+    find: () => grid.current?.focusFind(),
+    exportText: () => data && exportCsv(link.name, fields.map((f) => f.name), data.table.rows.map((r) => fields.map((f) => r[f.id] ?? null)), fields),
+  });
+
+  const openSource = () => window.open(`/?db=${encodeURIComponent(link.sourceProject!)}`, "_blank", "noopener");
+
+  if (error) {
+    return (
+      <div className="query-error">
+        <strong>Couldn't read the linked {link.sourceKind} '{link.sourceName}'.</strong>
+        <p>{error}</p>
+        <button onClick={() => setReload((n) => n + 1)}>Try again</button>
+      </div>
+    );
+  }
+  if (!data) return <div className="empty-view">{loading ? "Loading linked data…" : ""}</div>;
+  return (
+    <div className="linked-view">
+      <div className="linked-bar">
+        <span>
+          Linked {link.sourceKind} <strong>{data.objectName}</strong> from <strong>{data.project.name}</strong> ({data.project.ownerName}) ·{" "}
+          {data.table.rows.length.toLocaleString()} record(s) · read-only
+        </span>
+        <span className="spacer" />
+        <button onClick={openSource} title="Open the source database in a new browser tab">Open source database</button>
+        <button disabled={loading} onClick={() => setReload((n) => n + 1)} title="Re-read the latest data">Refresh</button>
+      </div>
+      <Datasheet
+        key={reload}
+        ref={grid}
+        columns={columns}
+        rowCount={data.table.rows.length}
+        getValue={getValue}
+        rowKey={(r) => String(data.table.rows[r]._id)}
+        editable={false}
+        emptyMessage={`This ${link.sourceKind} has no records.`}
+        onStatus={ws.setStatus}
+      />
+    </div>
+  );
+}
+
+/** A linked MySQL table: read-only datasheet, loaded a page at a time. */
+function MySqlLinkedView({ link: anyLink, tabKey }: { link: LinkedTable; tabKey: string }) {
+  const link = anyLink as LinkedTable & { connectionId: string; remoteTable: string };
   const ws = useWorkspace();
   const [page, setPage] = useState<RemoteRows | null>(null);
   const [offset, setOffset] = useState(0);

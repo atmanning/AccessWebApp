@@ -29,6 +29,7 @@ import {
   CopyIcon,
   DatabaseServerIcon,
   LinkedTableIcon,
+  OtherDbIcon,
   PasteIcon,
 } from "../ui/icons";
 import { viewsFor, type Tab, type ViewCommands, type ViewName } from "./context";
@@ -60,6 +61,8 @@ export interface RibbonActions {
   mysqlLink?: () => void;
   mysqlImport?: () => void;
   mysqlConsole?: () => void;
+  otherDbImport?: () => void;
+  otherDbLink?: () => void;
   exportAccess: () => void;
   openRelationships: () => void;
   refresh: () => void;
@@ -282,6 +285,10 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
             <Group label="Import & Link">
               <Big icon={<ImportAccessIcon size={32} />} label="Access" onClick={actions.importAccess} title="Import tables and queries from an Access database (.accdb, .mdb)" />
               <Big icon={<ImportIcon size={32} />} label="Text File" onClick={actions.importText} title="Import a CSV or text file into a new table" />
+            </Group>
+            <Group label="Other Databases">
+              <Big icon={<OtherDbIcon size={32} />} label="Import Objects" onClick={actions.otherDbImport} title="Copy tables and queries from another of your databases, or one shared with you" />
+              <Big icon={<LinkedTableIcon size={32} />} label="Link Objects" onClick={actions.otherDbLink} title="Link to tables and select queries in another of your databases, or one shared with you" />
             </Group>
             <Group label="MySQL">
               <Big icon={<DatabaseServerIcon size={32} />} label="Connections" onClick={actions.mysqlConnections} title="Add, edit and test MySQL / MariaDB connections" />

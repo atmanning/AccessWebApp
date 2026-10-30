@@ -35,7 +35,7 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
     setRunning(true);
     const action = isActionType(typeOfQuery(query));
     let linkedNotes: string[] = [];
-    // Linked MySQL tables the query uses are fetched first (see engine/linked.ts).
+    // Linked tables (MySQL or other databases) the query uses are fetched first (see engine/linked.ts).
     loadLinkedTables(ws.doc, ws.projectId, query.sql)
       .then(({ tables, notes }) => {
         linkedNotes = notes;

@@ -23,6 +23,7 @@ downloaded as a real Microsoft Access **.accdb** file.
 | Forms | Single-record form with record navigator; edits write back to the table |
 | Reports | Grouped, sorted print layout with group and grand totals; Print |
 | Relationships | Draggable table boxes, drag a field onto another to relate, Enforce Referential Integrity, 1–∞ lines |
+| Other databases | External Data → **Import Objects** / **Link Objects**: pick one of your databases or one shared with you, then its tables and queries. *Import* copies them (definition and data, or definition only, plus relationships between them), renaming anything whose name is taken and updating imported queries to match. *Link* shows the source's current data read-only, for tables and select queries; links work in local queries too, and stop working (with a clear message) if the source is unshared or deleted |
 | MySQL / MariaDB | External Data → **Connections**: server address (or a `mysql://` URL), port, database, user name, password and SSL, with **Test Connection**. **Link Tables** to browse remote tables (read-only, 500 records a page) and use them in local queries alongside your own tables; **Import Tables** copies tables, keys, indexes and foreign-key relationships with their data; **SQL Console** runs one statement at a time and shows `mysql`-client output (`Query OK…`, `ERROR 1146 (42S02)…`) plus a datasheet for SELECT results |
 | External Data | **Import Access databases** (.accdb/.mdb), import CSV/text into a new table (type detection), export a table/query to CSV, **export the database to .accdb** |
 | Keyboard | Ctrl+; enters today's date and Ctrl+Shift+; the time (in Date/Time and text fields), double-click a combo box to cycle its choices, Ctrl+Z / Ctrl+Y undo and redo, Ctrl+S saves (it also autosaves) |
@@ -209,7 +210,8 @@ npm run typecheck
   picks table fields; calculated fields and expressions are typed in SQL View. New records can't be added through a
   select query's results, and records can be deleted through one only when it uses a single table. Delete queries
   don't cascade to related records.
-- Linked MySQL tables are read-only, don't appear in the Show Table list of the query designer (use SQL View), aren't
+- Linked tables (MySQL, or tables and queries from other databases here) are read-only. Links to other databases
+  open only for people who can open the source database. Linked tables don't appear in the Show Table list of the query designer (use SQL View), aren't
   included in .accdb exports, and local queries read at most 10,000 rows from each. Use Import Tables for more.
 - Forms and reports are generated layouts (choose fields, order, grouping) rather than free-form drag-and-drop designers.
 - No macros, VBA, attachments, lookup fields, or multi-value fields.

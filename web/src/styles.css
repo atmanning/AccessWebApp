@@ -496,3 +496,18 @@ select.grid-input { padding: 0 2px; }
 .paste-options { margin: 12px 0 0; border: 1px solid var(--border); padding: 6px 12px; }
 .paste-options legend { padding: 0 4px; }
 .paste-options .check-label { margin: 4px 0; }
+
+/* Import / link from another database */
+.otherdb { display: flex; flex-direction: column; gap: 8px; }
+.otherdb p { margin: 0; }
+.otherdb .paste-options .check-label { align-items: flex-start; margin: 4px 0; }
+.otherdb-list { height: 220px; overflow: auto; border: 1px solid var(--border-strong); background: #fff; }
+.otherdb-list .list-item { width: 100%; border: 0; border-radius: 0; background: transparent; min-width: 0; justify-content: space-between; padding: 6px 8px; text-align: left; }
+.otherdb-list .list-item:hover { background: #f2f7fc; }
+.otherdb-list .list-item.selected { background: var(--select); }
+.otherdb-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border-strong); }
+.otherdb-tabs button { border-bottom: 0; border-radius: 2px 2px 0 0; background: #f3f3f3; min-width: 90px; margin-bottom: -1px; }
+.otherdb-tabs button.active { background: #fff; border-bottom: 1px solid #fff; font-weight: 600; }
+.otherdb-objects { height: 200px; overflow: auto; border: 1px solid var(--border-strong); border-top: 0; background: #fff; }
+.otherdb-objects .list-item .muted { margin-left: auto; }
+.otherdb-row { display: flex; gap: 6px; align-items: center; }

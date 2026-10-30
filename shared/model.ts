@@ -159,14 +159,29 @@ export const relationshipSchema = z.object({
 });
 export type Relationship = z.infer<typeof relationshipSchema>;
 
-/** A table in an external MySQL database, shown in the Tables group and browsed through its connection. */
+/**
+ * A linked table, shown in the Tables group: either a table in an external MySQL database (browsed
+ * through its connection) or a table or query in another database in this app that you can open
+ * (yours, or shared with you).
+ */
 export const linkedTableSchema = z.object({
   id,
   name: nameSchema,
-  connectionId: id,
-  remoteTable: z.string().min(1).max(64),
+  /** MySQL link. */
+  connectionId: id.optional(),
+  remoteTable: z.string().min(1).max(64).optional(),
+  /** Link to another database here: its id, the object's kind and id, and names for messages. */
+  sourceProject: id.optional(),
+  sourceKind: z.enum(["table", "query"]).optional(),
+  sourceId: id.optional(),
+  sourceName: z.string().max(64).optional(),
+  sourceProjectName: z.string().max(200).optional(),
 });
 export type LinkedTable = z.infer<typeof linkedTableSchema>;
+
+/** True when a link points at another database in this app rather than MySQL. */
+export const isAppLink = (l: LinkedTable): l is LinkedTable & { sourceProject: string; sourceKind: "table" | "query"; sourceId: string } =>
+  !!l.sourceProject && !!l.sourceKind && !!l.sourceId;
 
 export const projectDocSchema = z.object({
   version: z.literal(1),

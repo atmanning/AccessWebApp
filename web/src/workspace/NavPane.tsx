@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { QUERY_TYPE_LABELS, type ObjectKind } from "../../../shared/model";
+import { isAppLink, QUERY_TYPE_LABELS, type LinkedTable, type ObjectKind } from "../../../shared/model";
 import { isActionType } from "../engine/statements";
 import { useDialogs } from "../ui/dialogs";
 import { ChevronIcon, FindIcon, OBJECT_ICONS } from "../ui/icons";
@@ -15,6 +15,12 @@ const GROUPS: { group: ObjectKind; kinds: ObjectKind[] }[] = [
   { group: "form", kinds: ["form"] },
   { group: "report", kinds: ["report"] },
 ];
+
+function linkTitle(l: LinkedTable | undefined) {
+  if (!l) return undefined;
+  if (isAppLink(l)) return `Linked ${l.sourceKind} '${l.sourceName}' from the database '${l.sourceProjectName}'`;
+  return `Linked MySQL table '${l.remoteTable}'`;
+}
 
 export type Selection = { kind: ObjectKind; id: string } | null;
 
@@ -140,7 +146,7 @@ export function NavPane(props: {
       <>
         <p>
           {kind === "linked"
-            ? `Do you want to delete the link to the table '${obj.name}'? The table itself stays on the MySQL server.`
+            ? `Do you want to delete the link '${obj.name}'? The linked data itself isn't affected.`
             : `Do you want to delete the ${KIND_LABEL[kind].toLowerCase()} '${obj.name}'?`}
         </p>
         {kind === "table" && <p>Deleting a table also deletes its data and any relationships it has.</p>}
@@ -240,7 +246,7 @@ export function NavPane(props: {
                         role="treeitem"
                         aria-selected={selected}
                         tabIndex={0}
-                        title={kind === "linked" ? "Linked MySQL table" : undefined}
+                        title={kind === "linked" ? linkTitle(ws.doc.linkedTables?.find((l) => l.id === id)) : undefined}
                         className={`nav-item ${selected ? "selected" : ""} ${ws.activeKey === tabKey(kind, id) ? "active" : ""}`}
                         onClick={() => props.onSelect({ kind, id })}
                         onDoubleClick={() => !isRenaming && openItem(kind, id)}

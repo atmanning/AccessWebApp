@@ -108,7 +108,7 @@ export function analyzeUpdatable(doc: ProjectDoc, accessSql: string): UpdatableI
       const table = doc.tables.find((x) => x.name.toLowerCase() === name.toLowerCase());
       if (!table) {
         if (doc.queries.some((q) => q.name.toLowerCase() === name.toLowerCase())) return notUpdatable(`it is based on the query '${name}'`);
-        if (doc.linkedTables?.some((l) => l.name.toLowerCase() === name.toLowerCase())) return notUpdatable(`it uses the linked MySQL table '${name}'`);
+        if (doc.linkedTables?.some((l) => l.name.toLowerCase() === name.toLowerCase())) return notUpdatable(`it uses the linked table '${name}', which is read-only`);
         return notUpdatable(`'${name}' isn't a table`);
       }
       let alias = table.name;

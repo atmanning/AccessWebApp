@@ -259,4 +259,15 @@ export const PasteIcon = svg(
   </>,
 );
 
+/** Two stacked databases: another database in this app. */
+export const OtherDbIcon = svg(
+  <>
+    <ellipse cx="6" cy="4" rx="4.5" ry="1.8" fill="#fff" stroke="#a4373a" />
+    <path d="M1.5 4v6c0 1 2 1.8 4.5 1.8" fill="none" stroke="#a4373a" />
+    <path d="M10.5 4v2.5" stroke="#a4373a" />
+    <ellipse cx="10" cy="8.5" rx="4.5" ry="1.8" fill="#fff" stroke="#3b6ea5" />
+    <path d="M5.5 8.5v4c0 1 2 1.8 4.5 1.8s4.5-.8 4.5-1.8v-4" fill="#fff" stroke="#3b6ea5" />
+  </>,
+);
+
 export const OBJECT_ICONS = { table: TableIcon, query: QueryIcon, form: FormIcon, report: ReportIcon, linked: LinkedTableIcon } as const;
