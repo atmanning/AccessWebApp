@@ -69,3 +69,45 @@ describe("query engine", () => {
     await expect(runQuery(doc, "DELETE FROM Customers")).rejects.toThrow(/Only SELECT/);
   });
 });
+
+describe("editable query results", () => {
+  const doc = buildTemplate("contacts");
+  const run = (sql: string) => runQuery(doc, sql, { editable: true });
+
+  it("maps a designed query's columns back to table fields and rows", async () => {
+    const r = await run(doc.queries[0].sql); // Active Customers
+    expect(r.edit?.ok).toBe(true);
+    if (!r.edit?.ok) return;
+    expect(r.columns).toEqual(["FirstName", "LastName", "City"]);
+    expect(r.edit.columns.map((c) => c?.fieldId)).toEqual(["c_first", "c_last", "c_city"]);
+    // First row (sorted by LastName) is Dijkstra, customer 5.
+    expect(r.rows[0][1]).toBe("Dijkstra");
+    expect(r.edit.rowIds[0]).toEqual(["r_c5"]);
+  });
+
+  it("handles joins with aliases, *, and calculated columns", async () => {
+    const r = await run(doc.queries[2].sql); // Order Details: alias c/o, a calculated Customer column
+    expect(r.edit?.ok).toBe(true);
+    if (!r.edit?.ok) return;
+    expect(r.columns).toEqual(["City", "Customer", "OrderDate", "Item", "Amount"]);
+    expect(r.edit.columns.map((c) => c && `${c.source}:${c.fieldId}`)).toEqual(["0:c_city", null, "1:o_date", "1:o_item", "1:o_amount"]);
+    const star = await run("SELECT o.*, c.City AS Town FROM Orders AS o INNER JOIN Customers c ON c.CustomerID = o.CustomerID WHERE o.OrderID = 3");
+    expect(star.edit?.ok && star.edit.columns.map((c) => c?.fieldId)).toEqual(["o_id", "o_cust", "o_date", "o_item", "o_amount", "c_city"]);
+    expect(star.edit?.ok && star.edit.rowIds[0]).toEqual(["r_o3", "r_c2"]);
+  });
+
+  it("keeps totals, DISTINCT, unions and query-based queries read-only, like Access", async () => {
+    for (const [sql, why] of [
+      [doc.queries[1].sql, /totals|groups/],
+      ["SELECT DISTINCT City FROM Customers", /DISTINCT/],
+      ["SELECT City FROM Customers UNION SELECT Item FROM Orders", /union/],
+      ["SELECT * FROM [Order Details]", /based on the query/],
+      ["SELECT * FROM Customers WHERE CustomerID IN (SELECT CustomerID FROM Orders)", /subquery/],
+    ] as const) {
+      const r = await run(sql);
+      expect(r.edit?.ok, sql).toBe(false);
+      expect(r.edit && !r.edit.ok && r.edit.reason, sql).toMatch(why);
+      expect(r.rows.length, sql).toBeGreaterThan(0);
+    }
+  });
+});

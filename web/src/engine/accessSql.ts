@@ -9,11 +9,12 @@
  * [Bracketed] identifiers, True/False, IIf and most operators already work in SQLite.
  */
 
-type Token = { kind: "str" | "ident" | "date" | "word" | "other" | "ws"; text: string };
+/** `start` is the token's offset in the original SQL. */
+export type Token = { kind: "str" | "ident" | "date" | "word" | "other" | "ws"; text: string; start: number };
 
 export class SqlSyntaxError extends Error {}
 
-function tokenize(sql: string): Token[] {
+export function tokenize(sql: string): Token[] {
   const tokens: Token[] = [];
   let i = 0;
   while (i < sql.length) {
@@ -33,22 +34,22 @@ function tokenize(sql: string): Token[] {
         }
         value += sql[j++];
       }
-      tokens.push({ kind: "str", text: value });
+      tokens.push({ kind: "str", text: value, start: i });
       i = j + 1;
     } else if (c === "[") {
       const end = sql.indexOf("]", i);
       if (end < 0) throw new SqlSyntaxError("A [name] is missing its closing bracket.");
-      tokens.push({ kind: "ident", text: sql.slice(i, end + 1) });
+      tokens.push({ kind: "ident", text: sql.slice(i, end + 1), start: i });
       i = end + 1;
     } else if (c === "#") {
       const end = sql.indexOf("#", i + 1);
       if (end < 0) throw new SqlSyntaxError("A #date# is missing its closing #.");
-      tokens.push({ kind: "date", text: sql.slice(i + 1, end) });
+      tokens.push({ kind: "date", text: sql.slice(i + 1, end), start: i });
       i = end + 1;
     } else if (/\s/.test(c)) {
       let j = i;
       while (j < sql.length && /\s/.test(sql[j])) j++;
-      tokens.push({ kind: "ws", text: sql.slice(i, j) });
+      tokens.push({ kind: "ws", text: sql.slice(i, j), start: i });
       i = j;
     } else if (c === "-" && sql[i + 1] === "-") {
       const end = sql.indexOf("\n", i);
@@ -56,10 +57,10 @@ function tokenize(sql: string): Token[] {
     } else if (/[A-Za-z_]/.test(c)) {
       let j = i;
       while (j < sql.length && /[A-Za-z0-9_$]/.test(sql[j])) j++;
-      tokens.push({ kind: "word", text: sql.slice(i, j) });
+      tokens.push({ kind: "word", text: sql.slice(i, j), start: i });
       i = j;
     } else {
-      tokens.push({ kind: "other", text: c });
+      tokens.push({ kind: "other", text: c, start: i });
       i++;
     }
   }

@@ -6,21 +6,26 @@ import { ComboBox, type ComboOption } from "../ui/ComboBox";
 import { Modal, useDialogs } from "../ui/dialogs";
 import { KeyIcon, TableIcon } from "../ui/icons";
 import { useCommands, useWorkspace } from "../workspace/context";
+import { useRecordEditing } from "../workspace/useTableEditing";
+import { parseInput } from "../engine/values";
 import { exportCsv } from "../workspace/csv";
 import { Datasheet, type DatasheetHandle } from "./Datasheet";
 
 /** Runs a query and shows the results read-only. */
 export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: string }) {
   const ws = useWorkspace();
+  const { commitTo, deleteFrom } = useRecordEditing();
   const [result, setResult] = useState<ResultSet | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(true);
   const grid = useRef<DatasheetHandle>(null);
 
+  // Like Access, results are fetched when the query opens (or on Refresh All) and edits update
+  // them in place, so a record you change doesn't vanish just because it no longer matches.
   useEffect(() => {
     let cancelled = false;
     setRunning(true);
-    runQuery(ws.doc, query.sql, { excludeQueryId: query.id })
+    runQuery(ws.doc, query.sql, { excludeQueryId: query.id, editable: true })
       .then((r) => {
         if (cancelled) return;
         setResult(r);
@@ -32,19 +37,87 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
     return () => {
       cancelled = true;
     };
-  }, [ws.doc, query.sql, query.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query.sql, query.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const edit = result?.edit?.ok ? result.edit : null;
   const columns = useMemo(
-    () => (result?.columns ?? []).map((c, i) => ({ key: `${i}:${c}`, label: c, field: result?.fields[i], readOnly: true })),
-    [result],
+    () =>
+      (result?.columns ?? []).map((c, i) => {
+        const editable = !!edit?.columns[i];
+        return {
+          key: `${i}:${c}`,
+          label: c,
+          field: result?.fields[i],
+          readOnly: !editable,
+          readOnlyReason: edit
+            ? `'${c}' is calculated by the query, so it can't be edited.`
+            : result?.edit && !result.edit.ok
+              ? result.edit.reason
+              : undefined,
+        };
+      }),
+    [result, edit],
   );
   const getValue = useCallback((r: number, c: number) => result?.rows[r]?.[c] ?? null, [result]);
+
+  /** Writes one cell back to its table, then updates every result cell showing that same value. */
+  const onCommit = (row: number | "new", col: number, input: string | boolean): string | null => {
+    if (!edit || !result || row === "new") return "This record can't be edited.";
+    const map = edit.columns[col];
+    if (!map) return columns[col].readOnlyReason ?? "This field can't be edited.";
+    const table = ws.doc.tables.find((t) => t.id === edit.tables[map.source].id);
+    const rowId = edit.rowIds[row][map.source];
+    const rowIdx = table && rowId ? table.rows.findIndex((r) => r._id === rowId) : -1;
+    if (!table || rowIdx < 0) return "This record was deleted. Click Refresh All to update the results.";
+    const err = commitTo(table, rowIdx, map.fieldId, input);
+    if (err) return err;
+    const field = table.fields.find((f) => f.id === map.fieldId)!;
+    const parsed = parseInput(field, input);
+    const value = parsed.ok ? parsed.value : null;
+    setResult((prev) => {
+      if (!prev?.edit?.ok) return prev;
+      const e = prev.edit;
+      const rows = prev.rows.map((r, ri) => {
+        let copy: typeof r | null = null;
+        e.columns.forEach((m, ci) => {
+          if (m && e.tables[m.source].id === table.id && m.fieldId === map.fieldId && e.rowIds[ri][m.source] === rowId) {
+            copy ??= [...r];
+            copy[ci] = value;
+          }
+        });
+        return copy ?? r;
+      });
+      return { ...prev, rows };
+    });
+    return null;
+  };
+
+  const onDeleteRows = async (rows: number[]) => {
+    if (!edit || !result) return;
+    if (edit.tables.length !== 1) {
+      ws.setStatus("Records can only be deleted from a query that uses a single table. Delete them from the table instead.", "error");
+      return;
+    }
+    const table = ws.doc.tables.find((t) => t.id === edit.tables[0].id);
+    if (!table) return;
+    const ids = new Set(rows.map((r) => edit.rowIds[r][0]));
+    const indexes = table.rows.flatMap((r, i) => (ids.has(r._id as string) ? [i] : []));
+    if (await deleteFrom(table, indexes)) {
+      setResult((prev) => {
+        if (!prev?.edit?.ok) return prev;
+        const e = prev.edit;
+        const keep = prev.rows.map((_, i) => !ids.has(e.rowIds[i][0]));
+        return { ...prev, rows: prev.rows.filter((_, i) => keep[i]), edit: { ...e, rowIds: e.rowIds.filter((_, i) => keep[i]) } };
+      });
+    }
+  };
 
   useCommands(tabKey, {
     sortAsc: () => grid.current?.sort("ASC"),
     sortDesc: () => grid.current?.sort("DESC"),
     removeSort: () => grid.current?.sort(null),
     find: () => grid.current?.focusFind(),
+    deleteRecord: edit ? () => grid.current?.deleteSelected() : undefined,
     exportText: () => result && exportCsv(query.name, result.columns, result.rows, result.fields),
   });
 
@@ -65,7 +138,10 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
       rowCount={result.rows.length}
       getValue={getValue}
       rowKey={(r) => String(r)}
-      editable={false}
+      editable={!!edit}
+      allowNew={false}
+      onCommit={onCommit}
+      onDeleteRows={(rows) => void onDeleteRows(rows)}
       emptyMessage="The query returned no records."
       onStatus={ws.setStatus}
     />

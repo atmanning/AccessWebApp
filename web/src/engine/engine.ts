@@ -2,13 +2,28 @@ import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
 import wasmUrl from "sql.js/dist/sql-wasm.wasm?url";
 import type { CellValue, Field, ProjectDoc, SourceRef, TableDef } from "../../../shared/model";
 import { isSelect, SqlSyntaxError, translateAccessSql } from "./accessSql";
+import { analyzeUpdatable } from "./updatable";
 
 export interface ResultSet {
   columns: string[];
   /** Best guess at each column's Access field, used for display formatting. */
   fields: (Field | undefined)[];
   rows: CellValue[][];
+  /** Present when editing was requested: how each cell maps back to a table record. */
+  edit?: QueryEditInfo;
 }
+
+export type QueryEditInfo =
+  | { ok: false; reason: string }
+  | {
+      ok: true;
+      /** The table behind each source in the query's FROM clause. */
+      tables: TableDef[];
+      /** Per result column: which source and field it edits, or null if calculated. */
+      columns: ({ source: number; fieldId: string } | null)[];
+      /** Per result row, per source: the table row's `_id`. */
+      rowIds: (string | null)[][];
+    };
 
 let sqlPromise: Promise<SqlJsStatic> | null = null;
 const loadSql = () => (sqlPromise ??= initSqlJs({ locateFile: () => wasmUrl }));
@@ -90,6 +105,7 @@ function loadTables(db: Database, tables: TableDef[]) {
     const stmt = db.prepare(
       `INSERT INTO ${ident(t.name)} VALUES (${t.fields.map(() => "?").join(", ")})`,
     );
+    // Rows go in in order, so SQLite rowid N is t.rows[N - 1] (used to edit query results).
     for (const r of t.rows) stmt.run(t.fields.map((f) => toSqlite(r[f.id])));
     stmt.free();
   }
@@ -99,7 +115,11 @@ function loadTables(db: Database, tables: TableDef[]) {
  * Builds an in-memory SQLite database from the project and runs one SELECT.
  * Saved queries are available to each other as views, like in Access.
  */
-export async function runQuery(doc: ProjectDoc, accessSql: string, opts: { maxRows?: number; excludeQueryId?: string } = {}): Promise<ResultSet> {
+export async function runQuery(
+  doc: ProjectDoc,
+  accessSql: string,
+  opts: { maxRows?: number; excludeQueryId?: string; /** Work out which cells can be edited. */ editable?: boolean } = {},
+): Promise<ResultSet> {
   if (!accessSql.trim()) throw new SqlSyntaxError("The query is empty. Add fields in Design View or type SQL.");
   if (!isSelect(accessSql)) {
     throw new SqlSyntaxError("Only SELECT queries can run here. Update, append and delete queries aren't supported yet.");
@@ -128,7 +148,8 @@ export async function runQuery(doc: ProjectDoc, accessSql: string, opts: { maxRo
     }
     db.run("COMMIT");
 
-    const translated = translateAccessSql(accessSql).replace(/;\s*$/, "");
+    const updatable = opts.editable ? analyzeUpdatable(doc, accessSql) : null;
+    const translated = translateAccessSql(updatable?.ok ? updatable.sql : accessSql).replace(/;\s*$/, "");
     let stmt;
     try {
       stmt = db.prepare(translated);
@@ -143,7 +164,33 @@ export async function runQuery(doc: ProjectDoc, accessSql: string, opts: { maxRo
       rows.push(stmt.get().map((v) => (v instanceof Uint8Array ? "(binary)" : (v as CellValue))));
     }
     stmt.free();
-    return { columns, fields: columns.map((c) => guessField(doc, c)), rows };
+    if (!updatable) return { columns, fields: columns.map((c) => guessField(doc, c)), rows };
+    if (!updatable.ok) return { columns, fields: columns.map((c) => guessField(doc, c)), rows, edit: updatable };
+
+    // Split off the hidden rowid columns and map rowids (insertion order) to row ids.
+    const n = updatable.sources.length;
+    const shown = columns.slice(0, columns.length - n);
+    if (shown.length !== updatable.columns.length) {
+      // The SELECT list didn't parse the way SQLite ran it; play safe.
+      return { columns: shown, fields: shown.map((c) => guessField(doc, c)), rows: rows.map((r) => r.slice(0, shown.length)), edit: { ok: false, reason: "This query's results can't be edited." } };
+    }
+    const rowIds = rows.map((r) =>
+      updatable.sources.map((s, i) => {
+        const rowid = r[shown.length + i];
+        return typeof rowid === "number" ? ((s.table.rows[rowid - 1]?._id as string | undefined) ?? null) : null;
+      }),
+    );
+    return {
+      columns: shown,
+      fields: shown.map((c, i) => updatable.columns[i]?.field ?? guessField(doc, c)),
+      rows: rows.map((r) => r.slice(0, shown.length)),
+      edit: {
+        ok: true,
+        tables: updatable.sources.map((s) => s.table),
+        columns: updatable.columns.map((c) => (c ? { source: c.source, fieldId: c.field.id } : null)),
+        rowIds,
+      },
+    };
   } finally {
     db.close();
   }

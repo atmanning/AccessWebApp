@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ObjectKind, ProjectDoc, ProjectRecord, UserInfo } from "../../../shared/model";
 import { api, ApiError } from "../api";
 import { Modal, showImportWarnings, useDialogs } from "../ui/dialogs";
+import { dateShortcut, insertAtCaret, isTextBox, nowText } from "../ui/dateKeys";
 import { mergeProjects } from "../../../shared/exchange";
 import { AccessIcon, BackIcon, CloseIcon, OBJECT_ICONS, RedoIcon, RelationshipsIcon, SaveIcon, UndoIcon } from "../ui/icons";
 import { FormReportDesign, FormView, ReportView } from "../views/FormReportViews";
@@ -328,6 +329,17 @@ export function Workspace(props: { project: ProjectRecord; user: UserInfo; onClo
       const target = e.target as HTMLElement;
       const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
       const mod = e.ctrlKey || e.metaKey;
+      // Ctrl+; / Ctrl+Shift+; in any text box (forms, criteria, properties). Datasheets handle their own.
+      const shortcut = dateShortcut(e);
+      if (shortcut && !e.defaultPrevented) {
+        if (isTextBox(target)) {
+          e.preventDefault();
+          // Form controls say whether their field can hold a date (Number, Currency can't).
+          if (target.dataset.acceptsDate === "false") setStatus(`This field can't hold a ${shortcut}.`, "error");
+          else insertAtCaret(target, nowText(shortcut));
+        }
+        return;
+      }
       if (mod && e.key.toLowerCase() === "s") {
         e.preventDefault();
         save();

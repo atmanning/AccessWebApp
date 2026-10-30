@@ -9,11 +9,21 @@ import { newId } from "./docOps";
  * primary key / no-duplicate checks, AutoNumber, defaults and referential integrity.
  */
 export function useTableEditing(table: TableDef | undefined) {
+  const { commitTo, deleteFrom } = useRecordEditing();
+  return {
+    commit: (rowIdx: number | "new", fieldId: string, input: string | boolean) =>
+      table ? commitTo(table, rowIdx, fieldId, input) : "This record can't be edited.",
+    deleteRows: (rows: number[]) => (table ? deleteFrom(table, rows) : Promise.resolve(false)),
+  };
+}
+
+/** The same rules for any table, chosen per call (query results edit several tables). */
+export function useRecordEditing() {
   const ws = useWorkspace();
   const dialogs = useDialogs();
 
-  const uniquenessError = (f: Field, value: CellValue, rowIdx: number | "new"): string | null => {
-    if (!table || !(f.primaryKey || f.indexed === "YesNoDup")) return null;
+  const uniquenessError = (table: TableDef, f: Field, value: CellValue, rowIdx: number | "new"): string | null => {
+    if (!(f.primaryKey || f.indexed === "YesNoDup")) return null;
     if (f.primaryKey && (value === null || value === "")) return `${f.name} is the primary key, so it can't be empty.`;
     if (value === null || value === "") return null;
     // A multi-field primary key only needs the combination to be unique.
@@ -24,13 +34,12 @@ export function useTableEditing(table: TableDef | undefined) {
   };
 
   /** Validates and saves one value. Returns an error message, or null on success. */
-  const commit = (rowIdx: number | "new", fieldId: string, input: string | boolean): string | null => {
-    if (!table) return "This record can't be edited.";
+  const commitTo = (table: TableDef, rowIdx: number | "new", fieldId: string, input: string | boolean): string | null => {
     const f = table.fields.find((x) => x.id === fieldId);
     if (!f) return "That field no longer exists.";
     const parsed = parseInput(f, input);
     if (!parsed.ok) return parsed.error;
-    const uniq = uniquenessError(f, parsed.value, rowIdx);
+    const uniq = uniquenessError(table, f, parsed.value, rowIdx);
     if (uniq) return uniq;
     // Changing a key that related records point to would orphan them.
     if (rowIdx !== "new") {
@@ -67,8 +76,8 @@ export function useTableEditing(table: TableDef | undefined) {
   };
 
   /** Asks for confirmation and deletes records (by index). Returns true if deleted. */
-  const deleteRows = async (rows: number[]): Promise<boolean> => {
-    if (!table || !rows.length) return false;
+  const deleteFrom = async (table: TableDef, rows: number[]): Promise<boolean> => {
+    if (!rows.length) return false;
     for (const rel of ws.doc.relationships.filter((r) => r.enforce && r.fromTable === table.id)) {
       const child = ws.doc.tables.find((t) => t.id === rel.toTable);
       if (!child) continue;
@@ -99,5 +108,5 @@ export function useTableEditing(table: TableDef | undefined) {
     return true;
   };
 
-  return { commit, deleteRows };
+  return { commitTo, deleteFrom };
 }

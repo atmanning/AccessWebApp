@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CellValue, Field } from "../../../shared/model";
 import { editText, formatValue, isNumericType } from "../engine/values";
+import { acceptsDateText, dateShortcut, insertAtCaret, nowText, type DateShortcut } from "../ui/dateKeys";
 import { FindIcon } from "../ui/icons";
 
 export interface DatasheetColumn {
@@ -8,6 +9,8 @@ export interface DatasheetColumn {
   label: string;
   field?: Field;
   readOnly?: boolean;
+  /** Shown in the status bar when someone tries to type in a read-only column. */
+  readOnlyReason?: string;
 }
 
 export interface DatasheetProps {
@@ -16,6 +19,8 @@ export interface DatasheetProps {
   getValue: (row: number, col: number) => CellValue;
   rowKey: (row: number) => string;
   editable: boolean;
+  /** Show the new-record row (defaults to `editable`; query results edit existing records only). */
+  allowNew?: boolean;
   /** Returns an error message to keep the editor open, or null on success. `row` is "new" for the new-record row. */
   onCommit?: (row: number | "new", col: number, input: string | boolean) => string | null;
   onDeleteRows?: (rows: number[]) => void;
@@ -85,8 +90,9 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
   }, [p.rowCount, p.getValue, p.columns, sort, filter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const count = order.length;
-  const totalRows = count + (p.editable ? 1 : 0);
-  const isNewRow = (r: number) => p.editable && r === count;
+  const allowNew = p.allowNew ?? p.editable;
+  const totalRows = count + (allowNew ? 1 : 0);
+  const isNewRow = (r: number) => allowNew && r === count;
   const colCount = p.columns.length;
 
   useLayoutEffect(() => {
@@ -140,7 +146,9 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
 
   const startEdit = (initial?: string) => {
     if (!canEdit(cell.c)) {
-      if (p.columns[cell.c]?.field?.type === "AutoNumber" && p.editable) p.onStatus?.("This field is an AutoNumber; Access fills it in for you.");
+      const col = p.columns[cell.c];
+      if (col?.readOnly && col.readOnlyReason) p.onStatus?.(col.readOnlyReason, "error");
+      else if (col?.field?.type === "AutoNumber" && p.editable) p.onStatus?.("This field is an AutoNumber; Access fills it in for you.");
       return;
     }
     const field = p.columns[cell.c].field;
@@ -198,7 +206,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
       if (dir && p.columns[cell.c]) p.onStatus?.(`Sorted by ${p.columns[cell.c].label} (${dir === "ASC" ? "A→Z" : "Z→A"}).`);
     },
     goToNewRecord: () => {
-      if (!p.editable) return;
+      if (!allowNew) return;
       moveTo(count, firstEditableCol());
       scroller.current?.focus();
     },
@@ -207,7 +215,37 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
     selectedRowCount: () => selRows.size,
   }));
 
+  /** Ctrl+; (date) and Ctrl+Shift+; (time), where the field can hold them. */
+  const handleDateShortcut = (kind: DateShortcut): boolean => {
+    const field = p.columns[cell.c]?.field;
+    if (!canEdit(cell.c) || !acceptsDateText(field?.type)) {
+      if (canEdit(cell.c)) p.onStatus?.(`${field?.name ?? "This field"} can't hold a ${kind}.`, "error");
+      else startEdit(); // explains why the cell is read-only
+      return true;
+    }
+    const text = nowText(kind);
+    if (editing && editorRef.current) {
+      insertAtCaret(editorRef.current, text);
+      return true;
+    }
+    // Not editing: a date replaces the value; a time is added to a Date/Time field's date (or today's).
+    let next = text;
+    if (kind === "time" && field?.type === "DateTime") {
+      const current = valueAt(cell.r, cell.c);
+      next = `${current ? formatValue(field, current).split(" ")[0] : nowText("date")} ${text}`;
+    }
+    startEdit(next);
+    return true;
+  };
+
   const onKeyDown = (e: React.KeyboardEvent) => {
+    const shortcut = dateShortcut(e);
+    if (shortcut) {
+      e.preventDefault();
+      e.stopPropagation();
+      handleDateShortcut(shortcut);
+      return;
+    }
     if (editing) {
       if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey)) {
         e.preventDefault();
@@ -252,7 +290,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
       if (canEdit(cell.c) && p.columns[cell.c]?.field?.type !== "YesNo") {
         e.preventDefault();
         startEdit(k);
-      }
+      } else if (!canEdit(cell.c)) startEdit(); // reports why the cell can't be edited
     } else return;
     e.preventDefault();
   };
@@ -432,7 +470,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
             )}
           </tbody>
         </table>
-        {count === 0 && !p.editable && <div className="empty-note">{p.emptyMessage ?? "No records."}</div>}
+        {count === 0 && !allowNew && <div className="empty-note">{p.emptyMessage ?? "No records."}</div>}
       </div>
       <div className="record-nav">
         <span className="rn-label">Record:</span>
@@ -454,7 +492,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
         />
         <button onClick={() => navTo(cell.r + 1)} title="Next record" disabled={cell.r >= totalRows - 1}>▶</button>
         <button onClick={() => navTo(count - 1)} title="Last record" disabled={!count}>⏭</button>
-        {p.editable && (
+        {allowNew && (
           <button onClick={() => navTo(count)} title="New (blank) record">▶*</button>
         )}
         <span className={`rn-filter ${filter ? "on" : ""}`}>{filter ? "Filtered" : "No Filter"}</span>

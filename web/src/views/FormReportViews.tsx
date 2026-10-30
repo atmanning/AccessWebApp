@@ -3,6 +3,7 @@ import type { CellValue, Field, FormDef, ReportDef, SourceRef } from "../../../s
 import { readSource, type ResultSet } from "../engine/engine";
 import { editText, formatValue, isNumericType } from "../engine/values";
 import { ComboBox } from "../ui/ComboBox";
+import { acceptsDateText } from "../ui/dateKeys";
 import { useCommands, useWorkspace } from "../workspace/context";
 import { useTableEditing } from "../workspace/useTableEditing";
 
@@ -135,6 +136,7 @@ export function FormView({ form, tabKey }: { form: FormDef; tabKey: string }) {
                 ) : field!.type === "LongText" ? (
                   <textarea
                     id={id}
+                    data-accepts-date="true"
                     className={`control ${err ? "has-error" : ""}`}
                     defaultValue={editText(field!, value)}
                     rows={3}
@@ -143,6 +145,7 @@ export function FormView({ form, tabKey }: { form: FormDef; tabKey: string }) {
                 ) : (
                   <input
                     id={id}
+                    data-accepts-date={String(acceptsDateText(field!.type))}
                     className={`control ${err ? "has-error" : ""} ${isNumericType(field!.type) ? "num" : ""}`}
                     defaultValue={editText(field!, value)}
                     placeholder={field!.type === "DateTime" ? "m/d/yyyy" : undefined}

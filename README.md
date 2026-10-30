@@ -17,12 +17,12 @@ downloaded as a real Microsoft Access **.accdb** file.
 | Tables — Design View | Field Name / Data Type / Description grid, Field Properties pane (Field Size, Default Value, Required, Indexed), Primary Key, Insert/Delete Rows, safe type conversion |
 | Data types | AutoNumber, Short Text, Long Text, Number (Byte/Integer/Long/Single/Double), Currency, Date/Time, Yes/No |
 | Validation | Types, field sizes, primary keys, *No Duplicates* indexes, required-field reminders, referential integrity |
-| Queries | Design grid (Show Table, Field/Table/Sort/Show/Criteria, automatic joins from relationships), SQL View, Datasheet results, queries can use other queries |
+| Queries | Design grid (Show Table, Field/Table/Sort/Show/Criteria, automatic joins from relationships), SQL View, Datasheet results, queries can use other queries. Results are **editable** when Access would allow it (tables only, no totals/DISTINCT/UNION); calculated columns stay read-only and say why |
 | Forms | Single-record form with record navigator; edits write back to the table |
 | Reports | Grouped, sorted print layout with group and grand totals; Print |
 | Relationships | Draggable table boxes, drag a field onto another to relate, Enforce Referential Integrity, 1–∞ lines |
 | External Data | **Import Access databases** (.accdb/.mdb), import CSV/text into a new table (type detection), export a table/query to CSV, **export the database to .accdb** |
-| Undo / Redo | Ctrl+Z / Ctrl+Y across all edits; Ctrl+S saves (it also autosaves) |
+| Keyboard | Ctrl+; enters today's date and Ctrl+Shift+; the time (in Date/Time and text fields), double-click a combo box to cycle its choices, Ctrl+Z / Ctrl+Y undo and redo, Ctrl+S saves (it also autosaves) |
 
 Queries accept Access SQL: `[Bracketed names]`, `"text"`, `#12/31/2026#` dates, `&` concatenation,
 `Like "A*"` wildcards, `Yes`/`No`, and functions such as `IIf`, `Nz`, `Left`, `Right`, `Mid`, `Len`,
@@ -175,8 +175,8 @@ npm run typecheck
 
 ## Known limitations
 
-- Queries are read-only SELECT queries (no update/append/delete or crosstab queries yet), and query results can't be
-  edited in place.
+- Only SELECT queries run (no update/append/delete or crosstab queries yet). New records can't be added through a
+  query's results, and records can be deleted through a query only when it uses a single table.
 - Forms and reports are generated layouts (choose fields, order, grouping) rather than free-form drag-and-drop designers.
 - No macros, VBA, attachments, lookup fields, or multi-value fields.
 - Each database is stored as one JSON document; this is comfortable up to tens of thousands of records per database.
