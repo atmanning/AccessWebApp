@@ -4,9 +4,8 @@
 FROM maven:3.9-eclipse-temurin-21 AS exporter
 WORKDIR /src/exporter
 COPY exporter/pom.xml .
-RUN mvn -q dependency:go-offline
 COPY exporter/src ./src
-RUN mvn -q package -DskipTests
+RUN mvn -B -ntp package -DskipTests
 
 # 2) Web app + API server (TypeScript)
 FROM node:22-bookworm-slim AS build
