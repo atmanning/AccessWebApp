@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { QueryColumn, QueryDef } from "../../../shared/model";
 import { runQuery, type ResultSet } from "../engine/engine";
 import { designToSql } from "../engine/queryDesign";
+import { ComboBox, type ComboOption } from "../ui/ComboBox";
 import { Modal, useDialogs } from "../ui/dialogs";
 import { KeyIcon, TableIcon } from "../ui/icons";
 import { useCommands, useWorkspace } from "../workspace/context";
@@ -122,6 +123,12 @@ export function QuerySqlView({ query, tabKey }: { query: QueryDef; tabKey: strin
     </div>
   );
 }
+
+const SORT_OPTIONS: ComboOption<QueryColumn["sort"]>[] = [
+  { value: "", label: "(not sorted)" },
+  { value: "ASC", label: "Ascending" },
+  { value: "DESC", label: "Descending" },
+];
 
 const EMPTY_COL: QueryColumn = { table: "", field: "", show: true, sort: "", criteria: "" };
 
@@ -244,21 +251,21 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
               <th>Field:</th>
               {cols.map((c, i) => (
                 <td key={i}>
-                  <select
+                  <ComboBox
                     value={c.field ? `${c.table}\u0000${c.field}` : ""}
-                    aria-label={`Field ${i + 1}`}
-                    onChange={(e) => {
-                      const [table, field] = e.target.value ? e.target.value.split("\u0000") : ["", ""];
+                    ariaLabel={`Field ${i + 1}`}
+                    options={[
+                      { value: "", label: "" },
+                      ...fieldOptions.map((o) => ({
+                        value: `${o.table}\u0000${o.field}`,
+                        label: design.tables.length > 1 ? `${o.table}.${o.field}` : o.field,
+                      })),
+                    ]}
+                    onChange={(v) => {
+                      const [table, field] = v ? v.split("\u0000") : ["", ""];
                       setCol(i, { table, field });
                     }}
-                  >
-                    <option value="" />
-                    {fieldOptions.map((o) => (
-                      <option key={`${o.table}.${o.field}`} value={`${o.table}\u0000${o.field}`}>
-                        {design.tables.length > 1 ? `${o.table}.${o.field}` : o.field}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </td>
               ))}
             </tr>
@@ -272,11 +279,13 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
               <th>Sort:</th>
               {cols.map((c, i) => (
                 <td key={i}>
-                  <select value={c.sort} disabled={!c.field || c.field === "*"} onChange={(e) => setCol(i, { sort: e.target.value as QueryColumn["sort"] })}>
-                    <option value="">(not sorted)</option>
-                    <option value="ASC">Ascending</option>
-                    <option value="DESC">Descending</option>
-                  </select>
+                  <ComboBox
+                    value={c.sort}
+                    ariaLabel={`Sort ${i + 1}`}
+                    disabled={!c.field || c.field === "*"}
+                    options={SORT_OPTIONS}
+                    onChange={(v) => setCol(i, { sort: v })}
+                  />
                 </td>
               ))}
             </tr>

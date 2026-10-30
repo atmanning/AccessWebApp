@@ -378,3 +378,19 @@ select.grid-input { padding: 0 2px; }
 .template-tile:disabled { opacity: 0.6; }
 .import-notes ul { margin: 6px 0 0; padding-left: 18px; max-height: 260px; overflow: auto; }
 .import-notes li { margin-bottom: 4px; }
+
+/* ---------- Access-style combo box ---------- */
+.combo { display: flex; align-items: center; width: 100%; height: 23px; background: #fff; cursor: default; outline: none; position: relative; user-select: none; }
+.combo:focus { box-shadow: inset 0 0 0 2px #0078d4; }
+.combo.text-input { padding: 0; height: 26px; }
+.combo-text { flex: 1; min-width: 0; padding: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.combo-text.placeholder { color: var(--muted); }
+.combo-arrow { flex-shrink: 0; width: 18px; height: 100%; border: none; border-left: 1px solid transparent; background: none; font-size: 10px; color: #444; padding: 0; }
+.combo:hover:not(.disabled) .combo-arrow, .combo:focus .combo-arrow { border-left-color: var(--border); background: #f3f3f3; }
+.combo.disabled { color: #9a9a9a; background: #fafafa; }
+.combo.disabled .combo-arrow { visibility: hidden; }
+.combo-list { position: fixed; z-index: 300; background: #fff; border: 1px solid var(--border-strong); box-shadow: 2px 4px 12px rgba(0, 0, 0, 0.18); overflow-y: auto; }
+.combo-option { padding: 3px 8px; white-space: nowrap; cursor: default; min-height: 22px; }
+.combo-option.selected { font-weight: 600; }
+.combo-option.highlight { background: var(--select); }
+.qd-grid .combo, .design-grid .combo, .props-table .combo { background: transparent; }

@@ -12,9 +12,18 @@ import {
   type TableDef,
 } from "../../../shared/model";
 import { useDialogs } from "../ui/dialogs";
+import { ComboBox } from "../ui/ComboBox";
 import { KeyIcon } from "../ui/icons";
 import { useCommands, useWorkspace } from "../workspace/context";
 import { changeFieldType, countLostOnTypeChange, deleteField, newId, renameField, uniqueFieldName, validateFieldName } from "../workspace/docOps";
+
+const TYPE_OPTIONS = FIELD_TYPES.map((t) => ({ value: t, label: FIELD_TYPE_LABELS[t] }));
+const NUMBER_SIZE_OPTIONS = NUMBER_SIZES.map((s) => ({ value: s, label: s === "Long" ? "Long Integer" : s }));
+const YES_NO_OPTIONS = [
+  { value: "No", label: "No" },
+  { value: "Yes", label: "Yes" },
+];
+const INDEX_COMBO_OPTIONS = INDEX_OPTIONS.map((o) => ({ value: o, label: INDEX_LABELS[o] }));
 
 const HELP: Record<string, string> = {
   name: "A field name can be up to 64 characters long, including spaces.",
@@ -225,19 +234,14 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
                 </td>
                 <td>
                   {f && (
-                    <select
+                    <ComboBox
                       className="grid-input"
                       value={f.type}
-                      aria-label="Data Type"
+                      ariaLabel="Data Type"
+                      options={TYPE_OPTIONS}
                       onFocus={() => setHelp(HELP.type)}
-                      onChange={(e) => changeType(f, e.target.value as FieldType)}
-                    >
-                      {FIELD_TYPES.map((t) => (
-                        <option key={t} value={t}>
-                          {FIELD_TYPE_LABELS[t]}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(v) => changeType(f, v)}
+                    />
                   )}
                 </td>
                 <td>
@@ -297,13 +301,12 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
                   )}
                   {field.type === "Number" && (
                     <PropRow label="Field Size" onFocus={() => setHelp(HELP.numberSize)}>
-                      <select value={field.numberSize ?? "Long"} onChange={(e) => setProp(field.id, "numberSize", e.target.value as Field["numberSize"])}>
-                        {NUMBER_SIZES.map((s) => (
-                          <option key={s} value={s}>
-                            {s === "Long" ? "Long Integer" : s}
-                          </option>
-                        ))}
-                      </select>
+                      <ComboBox
+                        value={field.numberSize ?? "Long"}
+                        ariaLabel="Field Size"
+                        options={NUMBER_SIZE_OPTIONS}
+                        onChange={(v) => setProp(field.id, "numberSize", v)}
+                      />
                     </PropRow>
                   )}
                   {field.type === "AutoNumber" && (
@@ -337,19 +340,22 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
                   )}
                   {field.type !== "AutoNumber" && field.type !== "YesNo" && (
                     <PropRow label="Required" onFocus={() => setHelp(HELP.required)}>
-                      <select value={field.required ? "Yes" : "No"} onChange={(e) => setProp(field.id, "required", e.target.value === "Yes")}>
-                        <option>No</option>
-                        <option>Yes</option>
-                      </select>
+                      <ComboBox
+                        value={field.required ? "Yes" : "No"}
+                        ariaLabel="Required"
+                        options={YES_NO_OPTIONS}
+                        onChange={(v) => setProp(field.id, "required", v === "Yes")}
+                      />
                     </PropRow>
                   )}
                   {field.type !== "LongText" && (
                     <PropRow label="Indexed" onFocus={() => setHelp(HELP.indexed)}>
-                      <select
+                      <ComboBox
                         value={field.primaryKey ? "YesNoDup" : field.indexed ?? "No"}
+                        ariaLabel="Indexed"
+                        options={INDEX_COMBO_OPTIONS}
                         disabled={field.primaryKey}
-                        onChange={async (e) => {
-                          const v = e.target.value as Field["indexed"];
+                        onChange={async (v) => {
                           if (v === "YesNoDup") {
                             const vals = table.rows.map((r) => r[field.id]).filter((x) => x !== null && x !== "");
                             if (new Set(vals).size !== vals.length) {
@@ -359,13 +365,7 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
                           }
                           setProp(field.id, "indexed", v === "No" ? undefined : v);
                         }}
-                      >
-                        {INDEX_OPTIONS.map((o) => (
-                          <option key={o} value={o}>
-                            {INDEX_LABELS[o]}
-                          </option>
-                        ))}
-                      </select>
+                      />
                     </PropRow>
                   )}
                 </tbody>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CellValue, Field, FormDef, ReportDef, SourceRef } from "../../../shared/model";
 import { readSource, type ResultSet } from "../engine/engine";
 import { editText, formatValue, isNumericType } from "../engine/values";
+import { ComboBox } from "../ui/ComboBox";
 import { useCommands, useWorkspace } from "../workspace/context";
 import { useTableEditing } from "../workspace/useTableEditing";
 
@@ -305,39 +306,41 @@ export function FormReportDesign({ kind, obj }: { kind: "form" | "report"; obj: 
         </label>
         <label>
           Record Source
-          <select
+          <ComboBox
             className="text-input"
             value={`${obj.source.kind}:${obj.source.id}`}
-            onChange={(e) => {
-              const [k, id] = e.target.value.split(":");
+            ariaLabel="Record Source"
+            options={sources}
+            onChange={(v) => {
+              const [k, id] = v.split(":");
+              // Fields are kept; any the new source lacks are flagged "(not in source)" below.
               mutate((o) => {
                 o.source = { kind: k as "table" | "query", id };
-                o.columns = [];
-                delete o.groupBy;
-                delete o.sortBy;
               });
             }}
-          >
-            {sources.map((s) => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </select>
+          />
         </label>
         {report && (
           <>
             <label>
               Group On
-              <select className="text-input" value={report.groupBy ?? ""} onChange={(e) => mutate((o) => (e.target.value ? (o.groupBy = e.target.value) : delete o.groupBy))}>
-                <option value="">(no grouping)</option>
-                {available.map((c) => <option key={c}>{c}</option>)}
-              </select>
+              <ComboBox
+                className="text-input"
+                value={report.groupBy ?? ""}
+                ariaLabel="Group On"
+                options={[{ value: "", label: "(no grouping)" }, ...available.map((c) => ({ value: c, label: c }))]}
+                onChange={(v) => mutate((o) => (v ? (o.groupBy = v) : delete o.groupBy))}
+              />
             </label>
             <label>
               Sort By
-              <select className="text-input" value={report.sortBy ?? ""} onChange={(e) => mutate((o) => (e.target.value ? (o.sortBy = e.target.value) : delete o.sortBy))}>
-                <option value="">(source order)</option>
-                {available.map((c) => <option key={c}>{c}</option>)}
-              </select>
+              <ComboBox
+                className="text-input"
+                value={report.sortBy ?? ""}
+                ariaLabel="Sort By"
+                options={[{ value: "", label: "(source order)" }, ...available.map((c) => ({ value: c, label: c }))]}
+                onChange={(v) => mutate((o) => (v ? (o.sortBy = v) : delete o.sortBy))}
+              />
             </label>
           </>
         )}
