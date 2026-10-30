@@ -127,7 +127,8 @@ button.link { background: none; border: none; padding: 0; color: #0b5cad; text-d
 .rb-split .rb-big { height: 54px; }
 .rb-split-arrow { background: none; border: 1px solid transparent; height: 16px; font-size: 10px; padding: 0; }
 .rb-menu, .context-menu { position: absolute; z-index: 50; background: #fff; border: 1px solid var(--border-strong); box-shadow: 2px 4px 12px rgba(0, 0, 0, 0.18); min-width: 160px; padding: 2px 0; display: flex; flex-direction: column; }
-.rb-menu { top: 72px; left: 0; }
+.rb-menu { position: fixed; z-index: 200; }
+.rb-menu button { display: flex; align-items: center; gap: 8px; padding: 5px 16px 5px 10px; }
 .context-menu { position: fixed; }
 .rb-menu button, .context-menu button { background: none; border: none; text-align: left; padding: 5px 24px; white-space: nowrap; }
 .rb-menu button:hover, .context-menu button:hover { background: #e5f1fb; }

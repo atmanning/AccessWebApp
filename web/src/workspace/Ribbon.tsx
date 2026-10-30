@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   DeleteIcon,
   DeleteRowIcon,
@@ -50,6 +51,15 @@ const VIEW_ICONS: Record<ViewName, ReactNode> = {
   relationships: <RelationshipsIcon size={32} />,
 };
 
+const VIEW_ICONS_SMALL: Record<ViewName, ReactNode> = {
+  datasheet: <TableIcon size={16} />,
+  design: <DesignIcon size={16} />,
+  sql: <SqlIcon size={16} />,
+  form: <FormIcon size={16} />,
+  report: <ReportIcon size={16} />,
+  relationships: <RelationshipsIcon size={16} />,
+};
+
 function Big(props: { icon: ReactNode; label: string; onClick?: () => void; title?: string }) {
   return (
     <button className="rb-big" onClick={props.onClick} disabled={!props.onClick} title={props.title ?? props.label}>
@@ -85,7 +95,9 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
         ? "query"
         : null;
   const [active, setActive] = useState<RibbonTab>("home");
-  const [viewMenu, setViewMenu] = useState(false);
+  // Where to draw the View menu. It's rendered at the page level (portal) so the ribbon
+  // and navigation pane can't clip or cover it.
+  const [viewMenu, setViewMenu] = useState<{ left: number; top: number } | null>(null);
 
   // Like Access, jump to the contextual Design tab when entering Design View.
   useEffect(() => {
@@ -95,28 +107,62 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
 
   useEffect(() => {
     if (!viewMenu) return;
-    const close = () => setViewMenu(false);
+    const close = () => setViewMenu(null);
     window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", close);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("keydown", close);
+    };
   }, [viewMenu]);
 
   const views = tab ? viewsFor(tab.kind) : [];
-  const nextView = tab ? views.find((v) => v.view !== tab.view)?.view : undefined;
+  // Like Access: the View button opens Design View, and from Design View goes back to the normal view.
+  const nextView: ViewName | undefined = !tab
+    ? undefined
+    : tab.view !== "design" && views.some((v) => v.view === "design")
+      ? "design"
+      : views.find((v) => v.view !== tab.view)?.view;
   const c = commands;
 
   const viewButton = (
     <div className="rb-split">
       <Big icon={VIEW_ICONS[nextView ?? "datasheet"]} label="View" onClick={nextView ? () => actions.setView(nextView) : undefined} title={nextView ? views.find((v) => v.view === nextView)?.label : "View"} />
-      <button className="rb-split-arrow" disabled={!tab} onMouseDown={(e) => e.stopPropagation()} onClick={() => setViewMenu((v) => !v)} aria-label="Choose view">▾</button>
-      {viewMenu && tab && (
-        <div className="rb-menu" onMouseDown={(e) => e.stopPropagation()}>
-          {views.map((v) => (
-            <button key={v.view} className={v.view === tab.view ? "current" : ""} onClick={() => { setViewMenu(false); actions.setView(v.view); }}>
-              {v.label}
-            </button>
-          ))}
-        </div>
-      )}
+      <button
+        className="rb-split-arrow"
+        disabled={!tab}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          const r = (e.currentTarget.parentElement ?? e.currentTarget).getBoundingClientRect();
+          setViewMenu((m) => (m ? null : { left: r.left, top: r.bottom + 2 }));
+        }}
+        aria-label="Choose view"
+        aria-expanded={!!viewMenu}
+      >
+        ▾
+      </button>
+      {viewMenu &&
+        tab &&
+        createPortal(
+          <div className="rb-menu" role="menu" style={{ left: viewMenu.left, top: viewMenu.top }} onMouseDown={(e) => e.stopPropagation()}>
+            {views.map((v) => (
+              <button
+                key={v.view}
+                role="menuitem"
+                className={v.view === tab.view ? "current" : ""}
+                onClick={() => {
+                  setViewMenu(null);
+                  actions.setView(v.view);
+                }}
+              >
+                {VIEW_ICONS_SMALL[v.view]} {v.label}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 
