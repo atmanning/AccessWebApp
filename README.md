@@ -129,8 +129,13 @@ indexes, AutoNumber values, single-field relationships with referential integrit
 and union queries run as-is; action queries (append, update, delete, make-table) and crosstabs come across as SQL
 you can read but not run yet. A database exported from this app round-trips completely, including its queries.
 
+**Calculated fields** become a saved query named *<Table> with Calculated Fields* that returns every field of the
+table plus each calculated field as an expression (one calculated field may use another). Use it in forms, reports
+and other queries where you used the calculated fields. Its results are editable, and the calculated columns update
+as soon as you change a field they use.
+
 Not imported (each one is listed in the notes shown after the import): forms, reports, macros, modules, linked
-tables, and Attachment, OLE Object, multi-value and calculated fields. Password-protected databases need the
+tables, and Attachment, OLE Object and multi-value fields. Password-protected databases need the
 password removed first (Access: File → Info → Decrypt Database). Uploads are limited to 100 MB and about
 200,000 records.
 

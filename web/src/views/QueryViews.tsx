@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { NAME_PATTERN, QUERY_TYPE_LABELS, TOTAL_OPTIONS, type QueryColumn, type QueryDef, type QueryType } from "../../../shared/model";
+import { NAME_PATTERN, QUERY_TYPE_LABELS, TOTAL_OPTIONS, type QueryColumn, type QueryDef, type QueryType, type TableDef } from "../../../shared/model";
 import { runQuery, type ResultSet } from "../engine/engine";
 import { previewAction } from "../engine/actions";
 import { loadLinkedTables } from "../engine/linked";
@@ -24,6 +24,9 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(true);
   const grid = useRef<DatasheetHandle>(null);
+  // Linked tables fetched for this run, reused when recalculating after an edit.
+  const linkedRef = useRef<TableDef[]>([]);
+  const recalc = useRef(false);
 
   // Like Access, results are fetched when the query opens (or on Refresh All) and edits update
   // them in place, so a record you change doesn't vanish just because it no longer matches.
@@ -36,6 +39,7 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
     loadLinkedTables(ws.doc, ws.projectId, query.sql)
       .then(({ tables, notes }) => {
         linkedNotes = notes;
+        linkedRef.current = tables;
         return action
           ? previewAction(ws.doc, query.sql, query.id, tables)
           : runQuery(ws.doc, query.sql, { excludeQueryId: query.id, editable: true, extraTables: tables });
@@ -115,8 +119,44 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
       });
       return { ...prev, rows };
     });
+    // Calculated columns (e.g. [FirstName] & " " & [LastName]) are refreshed once the edit is saved.
+    if (edit.columns.some((m) => !m)) recalc.current = true;
     return null;
   };
+
+  // After an edit, rerun the query and refresh the calculated cells of the records already shown,
+  // keeping them in place (Access recalculates a record when it's saved, without requerying).
+  useEffect(() => {
+    if (!recalc.current || !result?.edit?.ok) return;
+    recalc.current = false;
+    let cancelled = false;
+    runQuery(ws.doc, query.sql, { excludeQueryId: query.id, editable: true, extraTables: linkedRef.current })
+      .then((fresh) => {
+        if (cancelled || !fresh.edit?.ok || fresh.columns.length !== result.columns.length) return;
+        const freshIds = (fresh.edit as Extract<NonNullable<ResultSet["edit"]>, { ok: true }>).rowIds;
+        const byKey = new Map(fresh.rows.map((r, i) => [freshIds[i].join("|"), r]));
+        setResult((prev) => {
+          if (!prev?.edit?.ok) return prev;
+          const e = prev.edit;
+          const rows = prev.rows.map((r, i) => {
+            const f = byKey.get(e.rowIds[i].join("|"));
+            if (!f) return r;
+            let copy: typeof r | null = null;
+            e.columns.forEach((m, ci) => {
+              if (!m && f[ci] !== r[ci]) (copy ??= [...r])[ci] = f[ci];
+            });
+            return copy ?? r;
+          });
+          return { ...prev, rows };
+        });
+      })
+      .catch(() => {
+        /* the results keep their old values; Refresh All recalculates */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ws.doc]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onDeleteRows = async (rows: number[]) => {
     if (!edit || !result) return;

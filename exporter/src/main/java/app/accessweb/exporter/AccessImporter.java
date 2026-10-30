@@ -24,6 +24,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -57,6 +61,7 @@ public final class AccessImporter {
         Set<String> skipped = new HashSet<>();
         Set<String> importedTables = new HashSet<>();
         int rowBudget = maxRows;
+        List<JSONObject> calculatedQueries = new ArrayList<>();
 
         try (Database db = new DatabaseBuilder(file).setReadOnly(true).open()) {
             db.setDateTimeType(DateTimeType.LOCAL_DATE_TIME);
@@ -82,7 +87,17 @@ public final class AccessImporter {
                 List<Column> kept = new ArrayList<>();
                 List<String> types = new ArrayList<>();
                 JSONArray cols = new JSONArray();
+                // Calculated fields: name -> Access expression. They become columns of a saved query.
+                Map<String, String> calculated = new LinkedHashMap<>();
                 for (Column col : table.getColumns()) {
+                    if (col.isCalculated()) {
+                        String expr = str(col.getProperties().getValue(PropertyMap.EXPRESSION_PROP));
+                        skipped.add(name + "." + col.getName());
+                        if (expr != null) {
+                            calculated.put(col.getName(), expr);
+                            continue;
+                        }
+                    }
                     JSONObject c = describeColumn(col, pkCols.contains(col.getName()));
                     if (c == null) {
                         skipped.add(name + "." + col.getName());
@@ -119,6 +134,7 @@ public final class AccessImporter {
                 t.put("rows", rows);
                 tables.put(t);
                 importedTables.add(name);
+                if (!calculated.isEmpty()) calculatedQueries.add(calculatedQuery(name, calculated, warnings));
             }
 
             for (Relationship rel : db.getRelationships()) {
@@ -141,6 +157,8 @@ public final class AccessImporter {
                 r.put("enforce", rel.hasReferentialIntegrity());
                 relationships.put(r);
             }
+
+            for (JSONObject q : calculatedQueries) queries.put(q);
 
             try {
                 for (Query q : db.getQueries()) {
@@ -169,6 +187,38 @@ public final class AccessImporter {
         doc.put("queries", queries);
         doc.put("warnings", new JSONArray(warnings));
         return doc;
+    }
+
+    /**
+     * Builds "<Table> with Calculated Fields": every field of the table plus its calculated fields as
+     * expressions, so forms, reports and queries can use it in place of the table (the usual Access
+     * pattern). A calculated field may use another one, so those references are expanded.
+     */
+    static JSONObject calculatedQuery(String table, Map<String, String> calculated, List<String> warnings) {
+        Map<String, String> expanded = new LinkedHashMap<>();
+        for (Map.Entry<String, String> e : calculated.entrySet()) {
+            String expr = e.getValue();
+            for (int pass = 0; pass < 5; pass++) {
+                String before = expr;
+                for (Map.Entry<String, String> other : calculated.entrySet()) {
+                    if (other.getKey().equals(e.getKey())) continue;
+                    expr = Pattern.compile("\\[" + Pattern.quote(other.getKey()) + "\\]", Pattern.CASE_INSENSITIVE)
+                            .matcher(expr).replaceAll(Matcher.quoteReplacement("(" + other.getValue() + ")"));
+                }
+                if (expr.equals(before)) break;
+            }
+            expanded.put(e.getKey(), expr);
+        }
+        String quoted = "[" + table.replace("]", "") + "]";
+        StringBuilder sql = new StringBuilder("SELECT ").append(quoted).append(".*");
+        for (Map.Entry<String, String> e : expanded.entrySet()) {
+            sql.append(", ").append(e.getValue()).append(" AS [").append(e.getKey().replace("]", "")).append("]");
+        }
+        sql.append("\nFROM ").append(quoted).append(";");
+        String queryName = table + " with Calculated Fields";
+        warnings.add("Calculated fields in '" + table + "' (" + String.join(", ", calculated.keySet())
+                + ") are columns of the new query '" + queryName + "'. Use that query wherever you used the table's calculated fields.");
+        return new JSONObject().put("name", queryName).put("sql", sql.toString());
     }
 
     /** Maps an Access column to our field description, or null when the type isn't supported. */
