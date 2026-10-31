@@ -1,0 +1,37 @@
+# systemd unit for Access Web. Install: see docs/INSTALL-LINUX.md
+#   sudo cp deploy/linux/access-web.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now access-web
+[Unit]
+Description=Access Web (web-based Microsoft Access look-alike)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=accessweb
+Group=accessweb
+WorkingDirectory=/opt/access-web
+EnvironmentFile=/etc/access-web.env
+ExecStart=/usr/bin/node /opt/access-web/server/dist/server/src/index.js
+Restart=on-failure
+RestartSec=5
+# Give in-flight saves a moment to finish on stop.
+TimeoutStopSec=20
+
+# Hardening: the app may write only to its data folder (and its own /tmp).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/access-web
+StateDirectory=access-web
+StateDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target

@@ -50,6 +50,10 @@ large hiring pool and long-term support:
 
 ## Running it
 
+**Step-by-step guides:** [run it on your own PC](docs/INSTALL-LOCAL.md) (Windows, macOS, Linux desktop: a
+local web server you open in your browser, no internet needed) and
+[install it on a Linux server](docs/INSTALL-LINUX.md) (systemd service, nginx + HTTPS, backups).
+
 ### Docker (recommended)
 
 ```bash
@@ -99,6 +103,7 @@ NODE_ENV=production SECURE_COOKIES=false PORT=3000 npm start
 | `EXPORT_TIMEOUT_MS` | `60000` | Per-export time limit |
 | `EXPORT_CONCURRENCY` | `2` | Exports that may run at once |
 | `EXPORT_MAX_HEAP` | `512m` | Java heap per export; use `256m` on a 512 MB machine |
+| `HOST` | all interfaces | Address to listen on; `127.0.0.1` accepts connections from this computer only (the local launchers and the Linux guide use it) |
 | `STATIC_DIR` | `web/dist` | Built web app to serve |
 | `CONNECTION_SECRET` | key file in `DATA_DIR` | Key that encrypts saved MySQL passwords (AES-256-GCM). If unset, a random key is created in `DATA_DIR/connection.key`. Changing it makes saved passwords unreadable (re-enter them) |
 | `ALLOW_PRIVATE_DB_HOSTS` | `false` | Allow MySQL connections to private/internal addresses (localhost, 10.x, 192.168.x, cloud metadata). Leave off on a public server |

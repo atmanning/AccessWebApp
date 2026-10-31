@@ -42,7 +42,10 @@ const app = createApp({
   trustProxy: env.TRUST_PROXY === "true",
 });
 
-const server = app.listen(port, () => console.log(`Access Web listening on http://localhost:${port}`));
+// HOST=127.0.0.1 accepts connections from this computer only (the local launchers set it).
+const host = env.HOST?.trim() || undefined;
+const onListening = () => console.log(`Access Web listening on http://${host && host !== "0.0.0.0" ? host : "localhost"}:${port}`);
+const server = host ? app.listen(port, host, onListening) : app.listen(port, onListening);
 const shutdown = () => server.close(() => { db.close(); process.exit(0); });
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
