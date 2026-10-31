@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useLayout } from "../ui/layout";
 import { createPortal } from "react-dom";
 import {
   DeleteIcon,
@@ -134,6 +135,27 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
   // Where to draw the View menu. It's rendered at the page level (portal) so the ribbon
   // and navigation pane can't clip or cover it.
   const [viewMenu, setViewMenu] = useState<{ left: number; top: number } | null>(null);
+  // Phone layout: only the tab row shows; tapping a tab drops its commands down over the page
+  // (like Access's collapsed ribbon), and choosing a command puts them away again.
+  const { compact } = useLayout();
+  const [open, setOpen] = useState(false);
+  const ribbonRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!compact || !open) return;
+    const away = (e: PointerEvent) => {
+      const t = e.target as HTMLElement;
+      if (!ribbonRef.current?.contains(t) && !t.closest(".rb-menu")) setOpen(false);
+    };
+    window.addEventListener("pointerdown", away);
+    return () => window.removeEventListener("pointerdown", away);
+  }, [compact, open]);
+  useEffect(() => setOpen(false), [compact, tab?.key]);
+  const pickTab = (id: RibbonTab) => {
+    if (!compact) return setActive(id);
+    if (active === id && open) return setOpen(false);
+    setActive(id);
+    setOpen(true);
+  };
 
   // Like Access, jump to the contextual Design tab when entering Design View.
   useEffect(() => {
@@ -190,6 +212,7 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
                 className={v.view === tab.view ? "current" : ""}
                 onClick={() => {
                   setViewMenu(null);
+                  setOpen(false);
                   actions.setView(v.view);
                 }}
               >
@@ -203,7 +226,7 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
   );
 
   return (
-    <div className="ribbon">
+    <div className={`ribbon ${compact ? "compact" : ""} ${compact && open ? "open" : ""}`} ref={ribbonRef}>
       <div className="ribbon-tabs" role="tablist">
         <button className="ribbon-file" onClick={actions.openBackstage}>File</button>
         {(
@@ -214,17 +237,25 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
             ["tools", "Database Tools"],
           ] as const
         ).map(([id, label]) => (
-          <button key={id} role="tab" aria-selected={active === id} className={active === id ? "active" : ""} onClick={() => setActive(id)}>
+          <button key={id} role="tab" aria-selected={active === id} className={active === id && (!compact || open) ? "active" : ""} onClick={() => pickTab(id)}>
             {label}
           </button>
         ))}
         {designContext && (
-          <button role="tab" aria-selected={active === "design"} className={`contextual ${active === "design" ? "active" : ""}`} onClick={() => setActive("design")}>
+          <button role="tab" aria-selected={active === "design"} className={`contextual ${active === "design" && (!compact || open) ? "active" : ""}`} onClick={() => pickTab("design")}>
             {designContext === "table" ? "Table Design" : "Query Design"}
           </button>
         )}
       </div>
-      <div className="ribbon-body">
+      {(!compact || open) && (
+      <div
+        className={`ribbon-body ${compact ? "dropdown" : ""}`}
+        onClick={(e) => {
+          // Phone layout: a command was chosen, so put the ribbon away.
+          const b = (e.target as HTMLElement).closest("button");
+          if (compact && b && !b.disabled && !b.classList.contains("rb-split-arrow")) setOpen(false);
+        }}
+      >
         {active === "home" && (
           <>
             <Group label="Views">{viewButton}</Group>
@@ -352,6 +383,7 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
           </>
         )}
       </div>
+      )}
     </div>
   );
 }

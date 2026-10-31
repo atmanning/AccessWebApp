@@ -3,6 +3,7 @@ import type { CellValue, Field } from "../../../shared/model";
 import { editText, formatValue, isNumericType } from "../engine/values";
 import { acceptsDateText, dateShortcut, insertAtCaret, nowText, type DateShortcut } from "../ui/dateKeys";
 import { FindIcon } from "../ui/icons";
+import { useLayout } from "../ui/layout";
 
 export interface DatasheetColumn {
   key: string;
@@ -44,12 +45,18 @@ export interface DatasheetHandle {
   selectedRowCount: () => number;
 }
 
-const ROW_H = 24;
+/** Row height: taller on touch screens so a finger can pick a row. */
+const ROW_H_DESKTOP = 24;
+const ROW_H_TOUCH = 36;
 const OVERSCAN = 10;
 
 type Cell = { r: number; c: number }; // r is a display index; r === displayCount means the new-record row
 
 export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Datasheet(p, ref) {
+  const { touch } = useLayout();
+  const ROW_H = touch ? ROW_H_TOUCH : ROW_H_DESKTOP;
+  // Touch: tapping the cell that's already selected starts editing (instead of double-click).
+  const wasActive = useRef(false);
   const [sort, setSort] = useState<{ col: number; dir: "ASC" | "DESC" } | null>(null);
   const [filter, setFilter] = useState("");
   // An empty table starts in the first field you can type in, like Access.
@@ -306,25 +313,27 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
   }, [editing !== null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Column resizing: drag a header edge; double-click it to fit the contents (like Access).
-  const startResize = (e: React.MouseEvent, key: string) => {
+  const startResize = (e: React.PointerEvent, key: string) => {
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
     const th = (e.target as HTMLElement).parentElement!;
     const startW = th.getBoundingClientRect().width;
     let moved = false;
-    const move = (ev: MouseEvent) => {
+    const move = (ev: PointerEvent) => {
       moved = true;
       setWidths((w) => ({ ...w, [key]: Math.round(Math.max(40, Math.min(2000, startW + ev.clientX - startX))) }));
     };
     const up = () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
       // Read after React has applied the last move.
       if (moved) setTimeout(() => p.onWidthsChange?.(widthsRef.current), 0);
     };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
   };
 
   const bestFit = (c: number) => {
@@ -386,7 +395,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
                   <span
                     className="col-resizer"
                     title="Drag to resize; double-click to fit"
-                    onMouseDown={(e) => startResize(e, col.key)}
+                    onPointerDown={(e) => startResize(e, col.key)}
                     onDoubleClick={(e) => {
                       e.stopPropagation();
                       bestFit(c);
@@ -450,6 +459,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
                           <input
                             ref={editorRef}
                             className="cell-editor"
+                            enterKeyHint="next"
                             value={editing.text}
                             aria-label={col.label}
                             onChange={(e) => {
@@ -473,14 +483,16 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
                         key={col.key}
                         className={cls}
                         onMouseDown={(e) => {
+                          wasActive.current = active;
                           if (active) return;
                           e.preventDefault();
                           moveTo(r, c);
                           scroller.current?.focus();
                         }}
-                        onDoubleClick={() => startEdit()}
+                        onDoubleClick={() => !touch && startEdit()}
                         onClick={() => {
                           if (active && type === "YesNo") toggle();
+                          else if (touch && active && wasActive.current) startEdit();
                         }}
                       >
                         {type === "YesNo" ? (

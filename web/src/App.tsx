@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { useLayoutAttributes } from "./ui/layout";
+import { LayoutPicker } from "./ui/LayoutPicker";
 import type { ProjectRecord, ProjectSummary, UserInfo } from "../../shared/model";
 import { TEMPLATES, type TemplateId } from "../../shared/templates";
 import { api } from "./api";
@@ -17,6 +19,7 @@ export default function App() {
 }
 
 function Root() {
+  useLayoutAttributes();
   const [user, setUser] = useState<UserInfo | null | undefined>(undefined);
   const [project, setProject] = useState<ProjectRecord | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
@@ -237,6 +240,7 @@ function Home({
           <div>{user.name}</div>
           <div className="small">{user.email}</div>
         </div>
+        <LayoutPicker className="home-layout" />
         <button onClick={onSignOut}>Sign out</button>
       </nav>
       <main className="home-main">
@@ -305,10 +309,10 @@ function ProjectTable(props: {
       <thead>
         <tr>
           <th>Name</th>
-          {props.shared && <th>Owner</th>}
+          {props.shared && <th className="col-minor">Owner</th>}
           {props.shared && <th>Access</th>}
-          <th>Tables</th>
-          <th>Date modified</th>
+          <th className="col-minor">Tables</th>
+          <th className="col-minor">Date modified</th>
           <th />
         </tr>
       </thead>
@@ -320,10 +324,10 @@ function ProjectTable(props: {
                 <AccessIcon size={18} /> {p.name}
               </button>
             </td>
-            {props.shared && <td>{p.ownerName}</td>}
+            {props.shared && <td className="col-minor">{p.ownerName}</td>}
             {props.shared && <td><span className={`role-badge ${p.role}`}>{ROLE_LABEL[p.role]}</span></td>}
-            <td>{p.tableCount}</td>
-            <td>
+            <td className="col-minor">{p.tableCount}</td>
+            <td className="col-minor">
               {new Date(p.updatedAt).toLocaleString()}
               {p.updatedByName && <span className="muted small"> by {p.updatedByName}</span>}
             </td>

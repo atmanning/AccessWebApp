@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLayout } from "../ui/layout";
 import { NAME_PATTERN, QUERY_TYPE_LABELS, TOTAL_OPTIONS, type QueryColumn, type QueryDef, type QueryType, type TableDef } from "../../../shared/model";
 import { runQuery, type ResultSet } from "../engine/engine";
 import { previewAction } from "../engine/actions";
@@ -321,6 +322,7 @@ const SORT_OPTIONS: ComboOption<QueryColumn["sort"]>[] = [
 const EMPTY_COL: QueryColumn = { table: "", field: "", show: true, sort: "", criteria: "" };
 
 export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: string }) {
+  const { touch } = useLayout();
   const ws = useWorkspace();
   const dialogs = useDialogs();
   const runAction = useRunAction();
@@ -468,27 +470,29 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
     setSelectedCol(target);
   };
 
-  const startColResize = (e: React.MouseEvent, i: number) => {
+  const startColResize = (e: React.PointerEvent, i: number) => {
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
     const startW = widthOf(i);
     let w = startW;
-    const move = (ev: MouseEvent) => {
+    const move = (ev: PointerEvent) => {
       w = Math.round(Math.max(60, Math.min(600, startW + ev.clientX - startX)));
       setLiveWidths((lw) => ({ ...lw, [i]: w }));
     };
     const up = () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
       setLiveWidths((lw) => {
         const { [i]: _, ...rest } = lw;
         return i < used ? rest : lw; // empty columns keep the width for this session only
       });
       if (i < used && w !== startW) setCol(i, { width: w });
     };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
   };
 
   const colClass = (i: number) => (i === selectedCol ? "qd-col-selected" : "");
@@ -517,9 +521,9 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
                 </button>
               </div>
               <ul>
-                <li onDoubleClick={() => addField(t, "*")} title="Double-click to add all fields">*</li>
+                <li onClick={() => touch && addField(t, "*")} onDoubleClick={() => !touch && addField(t, "*")} title={touch ? "Tap to add all fields" : "Double-click to add all fields"}>*</li>
                 {table?.fields.map((f) => (
-                  <li key={f.id} onDoubleClick={() => addField(t, f.name)} title="Double-click to add to the grid">
+                  <li key={f.id} onClick={() => touch && addField(t, f.name)} onDoubleClick={() => !touch && addField(t, f.name)} title={touch ? "Tap to add to the grid" : "Double-click to add to the grid"}>
                     {f.primaryKey && <KeyIcon size={11} />} {f.name}
                   </li>
                 )) ?? <li className="muted">(table deleted)</li>}
@@ -613,7 +617,15 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
                     setDropAt(null);
                   }}
                 >
-                  <span className="qd-resizer" onMouseDown={(e) => startColResize(e, i)} title="Drag to resize" />
+                  {/* Touch screens can't drag columns: move the selected one with these buttons. */}
+                  {touch && i === selectedCol && c.field && (
+                    <span className="qd-move">
+                      <button aria-label="Move column left" disabled={i === 0} onClick={(e) => (e.stopPropagation(), moveColumn(i, i - 1))}>◀</button>
+                      <button aria-label="Remove column" onClick={(e) => (e.stopPropagation(), setCol(i, { field: "", table: "" }), setSelectedCol(null))}>✕</button>
+                      <button aria-label="Move column right" disabled={i >= used - 1} onClick={(e) => (e.stopPropagation(), moveColumn(i, i + 2))}>▶</button>
+                    </span>
+                  )}
+                  <span className="qd-resizer" onPointerDown={(e) => startColResize(e, i)} title="Drag to resize" />
                 </td>
               ))}
             </tr>
@@ -799,6 +811,7 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
 }
 
 function ShowTableDialog(props: { existing: string[]; onClose: () => void; onAdd: (names: string[]) => void }) {
+  const { touch } = useLayout();
   const ws = useWorkspace();
   const [picked, setPicked] = useState<string[]>([]);
   const tables = ws.doc.tables.map((t) => t.name);
@@ -830,7 +843,7 @@ function ShowTableDialog(props: { existing: string[]; onClose: () => void; onAdd
             role="option"
             aria-selected={picked.includes(t)}
             className={`list-item ${picked.includes(t) ? "selected" : ""} ${props.existing.includes(t) ? "muted" : ""}`}
-            onClick={(e) => setPicked((p) => (e.ctrlKey || e.metaKey ? (p.includes(t) ? p.filter((x) => x !== t) : [...p, t]) : [t]))}
+            onClick={(e) => setPicked((p) => (e.ctrlKey || e.metaKey || touch ? (p.includes(t) ? p.filter((x) => x !== t) : [...p, t]) : [t]))}
             onDoubleClick={() => props.onAdd([t])}
           >
             <TableIcon /> {t}
@@ -838,7 +851,7 @@ function ShowTableDialog(props: { existing: string[]; onClose: () => void; onAdd
         ))}
         {!tables.length && <div className="muted pad">There are no tables yet.</div>}
       </div>
-      <p className="muted small">Ctrl+click to pick several. Related tables are joined automatically using your relationships.</p>
+      <p className="muted small">{touch ? "Tap to pick one or more." : "Ctrl+click to pick several."} Related tables are joined automatically using your relationships.</p>
     </Modal>
   );
 }

@@ -360,18 +360,6 @@ select.grid-input { padding: 0 2px; }
   body { overflow: visible; }
 }
 
-/* ---------- small screens ---------- */
-@media (max-width: 760px) {
-  .nav-pane:not(.collapsed) { position: absolute; z-index: 40; height: calc(100% - 150px); box-shadow: 4px 0 12px rgba(0, 0, 0, 0.2); }
-  .title-text { padding: 0 90px; }
-  .title-user { display: none; }
-  .home-nav { width: 64px; }
-  .home-nav button, .home-user, .home-brand span { font-size: 0; padding: 10px; }
-  .home-main { padding: 16px; }
-  .props-columns { flex-direction: column; }
-  .props-table { width: 100%; }
-}
-
 /* Icon buttons inside dialogs shouldn't get the dialog push-button look. */
 .modal .icon-btn { min-width: 0; border: 1px solid transparent; background: none; padding: 4px; }
 .modal .icon-btn:hover { background: #e81123; color: #fff; border-color: transparent; }
@@ -511,3 +499,131 @@ select.grid-input { padding: 0 2px; }
 .otherdb-objects { height: 200px; overflow: auto; border: 1px solid var(--border-strong); border-top: 0; background: #fff; }
 .otherdb-objects .list-item .muted { margin-left: auto; }
 .otherdb-row { display: flex; gap: 6px; align-items: center; }
+
+/* =====================================================================================
+   Phones and touch screens. <html> gets data-compact (small screen: phone layout) and
+   data-touch (finger input) from ui/layout.ts; people can override it on the File screen.
+   ===================================================================================== */
+
+/* ---------- touch: bigger targets, no long-press callouts ---------- */
+[data-touch] .rb-small, [data-touch] .context-menu button { min-height: 36px; }
+[data-touch] .nav-item { min-height: 40px; -webkit-touch-callout: none; user-select: none; }
+[data-touch] .nav-group-head { min-height: 36px; }
+[data-touch] .datasheet th, [data-touch] .datasheet td { height: 36px; }
+[data-touch] .col-resizer { width: 16px; right: -8px; touch-action: none; }
+[data-touch] .qd-resizer { width: 16px; touch-action: none; }
+[data-touch] .rel-box { touch-action: none; }
+[data-touch] .rel-box li { cursor: pointer; }
+[data-touch] .rel-box li.rel-picked { background: var(--select-strong); color: #fff; }
+[data-touch] .record-nav { height: 40px; }
+[data-touch] .record-nav button { height: 32px; min-width: 32px; font-size: 13px; }
+[data-touch] .doc-tab { padding-top: 8px; padding-bottom: 8px; }
+[data-touch] .tab-close { opacity: 1; padding: 6px; }
+[data-touch] .list-item { min-height: 40px; }
+[data-touch] .qd-tables li { padding: 6px 4px; }
+.qd-move { position: absolute; left: 2px; right: 10px; top: 0; bottom: 0; display: flex; justify-content: space-between; align-items: center; z-index: 2; }
+.qd-move button { min-width: 28px; height: 24px; padding: 0; border: 1px solid var(--border-strong); background: #fff; border-radius: 2px; font-size: 11px; }
+.qd-sel { position: relative; }
+
+/* ---------- compact: phone layout ---------- */
+[data-compact] body { font-size: 14px; }
+/* iOS zooms into inputs smaller than 16px, which throws the layout off. */
+[data-compact] input, [data-compact] select, [data-compact] textarea { font-size: 16px; }
+[data-compact] .cell-editor { font-size: 16px; }
+
+/* Title bar: menu button, database name, Share. */
+[data-compact] .title-bar { height: 44px; padding: 0 4px; }
+[data-compact] .title-text { position: static; flex: 1; text-align: left; padding: 0 6px; font-size: 15px; font-weight: 600; pointer-events: auto; }
+[data-compact] .title-user { display: none; }
+[data-compact] .title-share { margin: 0 4px 0 0; padding: 6px 10px; font-size: 13px; }
+[data-compact] .qat .icon-btn { padding: 8px; }
+.nav-burger svg { filter: none !important; color: #fff; }
+
+/* Ribbon: tab row only; a tab drops its commands down over the page. */
+[data-compact] .ribbon { position: relative; z-index: 45; border-bottom: none; }
+[data-compact] .ribbon-tabs { height: 38px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; align-items: stretch; padding: 0; }
+[data-compact] .ribbon-tabs::-webkit-scrollbar { display: none; }
+[data-compact] .ribbon-tabs button { height: auto; flex-shrink: 0; padding: 0 14px; font-size: 14px; white-space: nowrap; }
+[data-compact] .ribbon-body.dropdown { position: absolute; left: 0; right: 0; top: 38px; height: auto; max-height: 60vh; flex-wrap: wrap; overflow: auto; background: var(--chrome); box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25); padding: 6px 4px 2px; row-gap: 6px; }
+[data-compact] .rb-group { border-right: none; border-bottom: 1px solid var(--border); padding-bottom: 2px; }
+[data-compact] .rb-big { min-width: 64px; height: 64px; font-size: 12px; }
+[data-compact] .rb-small { font-size: 13px; }
+
+/* Navigation pane: a drawer over the page. */
+[data-compact] .main-area { position: relative; }
+[data-compact] .nav-pane.drawer { position: absolute; left: 0; top: 0; bottom: 0; width: min(86vw, 320px); z-index: 40; box-shadow: 6px 0 18px rgba(0, 0, 0, 0.25); }
+.nav-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.3); z-index: 39; }
+[data-compact] .nav-pane .nav-item { font-size: 15px; padding-top: 8px; padding-bottom: 8px; }
+[data-compact] .nav-search input { padding: 8px; }
+
+/* Context menu: a sheet at the bottom of the screen. */
+.context-menu.sheet { left: 0 !important; right: 0; bottom: 0; top: auto !important; border-radius: 10px 10px 0 0; padding: 6px 0 calc(6px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.25); z-index: 120; }
+.context-menu.sheet button { min-height: 48px; font-size: 16px; padding: 0 20px; }
+.context-menu.sheet .menu-title { padding: 10px 20px 6px; font-weight: 600; color: var(--muted); font-size: 13px; }
+.context-menu.sheet .menu-cancel { justify-content: center; color: var(--accent); border-top: 1px solid var(--border); margin-top: 4px; }
+
+/* Documents */
+[data-compact] .doc-tabs { scrollbar-width: none; }
+[data-compact] .doc-tab { font-size: 14px; max-width: 60vw; }
+[data-compact] .doc-tab span { overflow: hidden; text-overflow: ellipsis; }
+[data-compact] .status-bar { height: auto; min-height: 36px; flex-wrap: wrap; gap: 6px; padding: 4px 8px calc(4px + env(safe-area-inset-bottom)); }
+[data-compact] .status-msg { flex: 1 1 100%; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; order: 2; }
+[data-compact] .save-state { font-size: 11px; order: 1; }
+[data-compact] .status-views { order: 1; margin-left: auto; }
+[data-compact] .status-views button { height: 28px; font-size: 13px; padding: 0 10px; }
+[data-compact] .rn-label, [data-compact] .rn-filter { display: none; }
+[data-compact] .rn-search { flex: 1; min-width: 0; }
+[data-compact] .rn-search input { width: 100%; }
+[data-compact] .rn-pos { width: 76px; }
+[data-compact] .form-detail { grid-template-columns: 1fr; gap: 2px 0; padding: 12px; }
+[data-compact] .form-row label { margin-top: 8px; }
+[data-compact] .form-row .control, [data-compact] .form-row input, [data-compact] .form-row select { width: 100%; box-sizing: border-box; min-height: 36px; }
+[data-compact] .form-header { padding: 10px 12px; }
+[data-compact] .props-columns { flex-direction: column; }
+[data-compact] .props-table { width: 100%; }
+[data-compact] .console-split { grid-template-columns: 1fr; grid-template-rows: 40% 60%; }
+
+/* Dialogs fill the screen width and scroll inside. */
+[data-compact] .modal-backdrop { padding: 8px; align-items: end; }
+[data-compact] .modal { width: 100% !important; max-height: calc(100dvh - 16px); border-radius: 8px 8px 0 0; }
+[data-compact] .modal-title { padding: 10px 8px 10px 14px; font-size: 15px; }
+[data-compact] .modal-footer { flex-wrap: wrap; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
+[data-compact] .modal-footer button { min-height: 40px; flex: 1 1 auto; }
+[data-compact] .modal-footer .spacer { display: none; }
+[data-compact] .conn-form { grid-template-columns: 1fr !important; }
+
+/* Start page and File screen: menu across the top. */
+[data-compact] .home, [data-compact] .backstage { flex-direction: column; }
+[data-compact] .home-nav, [data-compact] .backstage-nav { width: auto; flex-direction: row; align-items: center; padding: 0 4px; overflow-x: auto; flex-shrink: 0; min-height: 48px; }
+[data-compact] .home-nav button, [data-compact] .backstage-nav button { padding: 12px 12px; white-space: nowrap; flex-shrink: 0; }
+[data-compact] .home-brand { padding: 0 8px; font-size: 16px; }
+[data-compact] .home-user { display: none; }
+[data-compact] .home-nav .spacer, [data-compact] .backstage-nav .spacer { flex: 1; }
+[data-compact] .home-main, [data-compact] .backstage-main { padding: 16px 12px; }
+[data-compact] .home-main h1 { font-size: 22px; }
+[data-compact] .template-row { gap: 10px; }
+[data-compact] .template-tile { width: calc(50% - 5px); }
+[data-compact] .template-art { height: 90px; }
+[data-compact] .recent-table .col-minor { display: none; }
+[data-compact] .recent-table td { padding: 10px 6px; }
+[data-compact] .recent-actions button { min-height: 34px; }
+[data-compact] .info-cards { flex-direction: column; }
+[data-compact] .auth-card { padding: 24px 20px; }
+
+/* Layout picker (File screen and start page). */
+.layout-picker { display: flex; align-items: center; gap: 8px; padding: 8px 24px; font-size: 13px; color: #fff; }
+.layout-picker select { background: rgba(255, 255, 255, 0.15); color: #fff; border: 1px solid rgba(255, 255, 255, 0.5); border-radius: 2px; padding: 2px 4px; }
+.layout-picker select option { color: #000; }
+[data-compact] .layout-picker { padding: 0 8px; flex-shrink: 0; }
+[data-compact] .layout-picker span { display: none; }
+.context-menu.sheet .menu-shortcut { display: none; }
+/* Native-feeling taps: no grey/blue flash over whatever was tapped. */
+[data-touch] * { -webkit-tap-highlight-color: transparent; }
+[data-compact] .layout-picker select { max-width: 150px; }
+/* Query grid: keep the pinned row labels above the cells scrolling under them. */
+.qd-grid th { z-index: 3; }
+[data-touch] .qd-selectors td.qd-sel, [data-touch] .qd-selectors th { height: 32px; }
+[data-touch] .qd-grid td { height: 32px; }
+[data-touch] .qd-grid select, [data-touch] .qd-grid input:not([type="checkbox"]) { height: 31px; }
+[data-touch] .qd-grid-wrap { height: 250px; }
+[data-touch] .qd-move button { height: 26px; min-width: 30px; font-size: 12px; }

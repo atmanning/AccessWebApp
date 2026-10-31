@@ -259,6 +259,9 @@ export const PasteIcon = svg(
   </>,
 );
 
+/** Three lines: opens the navigation drawer on phones. */
+export const MenuIcon = svg(<path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />);
+
 /** Two stacked databases: another database in this app. */
 export const OtherDbIcon = svg(
   <>

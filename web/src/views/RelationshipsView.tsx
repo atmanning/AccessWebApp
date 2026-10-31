@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import type { Field, Relationship, TableDef } from "../../../shared/model";
 import { Modal, useDialogs } from "../ui/dialogs";
 import { KeyIcon } from "../ui/icons";
+import { useLayout } from "../ui/layout";
 import { useCommands, useWorkspace } from "../workspace/context";
 import { newId } from "../workspace/docOps";
 
@@ -22,6 +23,8 @@ export function RelationshipsView({ tabKey }: { tabKey: string }) {
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
   const [selected, setSelected] = useState<string | null>(null);
   const [editing, setEditing] = useState<Draft | null>(null);
+  const { touch } = useLayout();
+  const [picked, setPicked] = useState<{ table: string; field: string } | null>(null);
   const dragField = useRef<{ table: string; field: string } | null>(null);
 
   const tables = ws.doc.tables;
@@ -35,20 +38,22 @@ export function RelationshipsView({ tabKey }: { tabKey: string }) {
     return { x: side === "left" ? l.x : l.x + BOX_W, y: l.y + HEAD_H + idx * ROW_H + ROW_H / 2 };
   };
 
-  const startDrag = (e: React.MouseEvent, id: string) => {
+  const startDrag = (e: React.PointerEvent, id: string) => {
     if ((e.target as HTMLElement).closest("li")) return;
     e.preventDefault();
     const start = layout.get(id)!;
     const sx = e.clientX;
     const sy = e.clientY;
-    const move = (ev: MouseEvent) =>
+    const move = (ev: PointerEvent) =>
       setPositions((p) => ({ ...p, [id]: { x: Math.max(0, start.x + ev.clientX - sx), y: Math.max(0, start.y + ev.clientY - sy) } }));
     const up = () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
     };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
   };
 
   const remove = async (id: string) => {
@@ -90,7 +95,7 @@ export function RelationshipsView({ tabKey }: { tabKey: string }) {
             const d = `M${a.x} ${a.y} h${dx} L${b.x - dx} ${b.y} h${dx}`;
             const sel = selected === r.id;
             return (
-              <g key={r.id} className={`rel-line ${sel ? "selected" : ""}`} onClick={() => setSelected(r.id)} onDoubleClick={() => setEditing({ ...r })}>
+              <g key={r.id} className={`rel-line ${sel ? "selected" : ""}`} onClick={() => (setSelected(r.id), touch && setEditing({ ...r }))} onDoubleClick={() => setEditing({ ...r })}>
                 <path d={d} className="hit" />
                 <path d={d} className="stroke" />
                 {r.enforce && (
@@ -106,14 +111,27 @@ export function RelationshipsView({ tabKey }: { tabKey: string }) {
         {tables.map((t) => {
           const l = layout.get(t.id)!;
           return (
-            <div key={t.id} className="rel-box" style={{ left: l.x, top: l.y, width: BOX_W }} onMouseDown={(e) => startDrag(e, t.id)}>
+            <div key={t.id} className="rel-box" style={{ left: l.x, top: l.y, width: BOX_W }} onPointerDown={(e) => startDrag(e, t.id)}>
               <div className="rel-box-title" style={{ height: HEAD_H }}>{t.name}</div>
               <ul>
                 {t.fields.map((f) => (
                   <li
                     key={f.id}
                     style={{ height: ROW_H }}
-                    draggable
+                    className={picked?.table === t.id && picked.field === f.id ? "rel-picked" : undefined}
+                    // Touch screens can't drag fields: tap one field, then a field in another table.
+                    onClick={() => {
+                      if (!touch) return;
+                      if (!picked || picked.table === t.id) {
+                        setPicked(picked?.field === f.id ? null : { table: t.id, field: f.id });
+                        ws.setStatus(picked?.field === f.id ? "" : `Now tap the matching field in another table to relate it to '${f.name}'.`);
+                        return;
+                      }
+                      setPicked(null);
+                      ws.setStatus("");
+                      setEditing({ fromTable: picked.table, fromField: picked.field, toTable: t.id, toField: f.id, enforce: true });
+                    }}
+                    draggable={!touch}
                     onDragStart={(e) => {
                       dragField.current = { table: t.id, field: f.id };
                       e.dataTransfer.setData("text/plain", f.name);
@@ -126,7 +144,7 @@ export function RelationshipsView({ tabKey }: { tabKey: string }) {
                       if (!from || from.table === t.id) return;
                       setEditing({ fromTable: from.table, fromField: from.field, toTable: t.id, toField: f.id, enforce: true });
                     }}
-                    title="Drag onto a field in another table to relate them"
+                    title={touch ? "Tap, then tap a field in another table to relate them" : "Drag onto a field in another table to relate them"}
                   >
                     {f.primaryKey && <KeyIcon size={11} />} {f.name}
                   </li>
@@ -139,14 +157,22 @@ export function RelationshipsView({ tabKey }: { tabKey: string }) {
       </div>
       </div>
       <div className="rel-help muted small">
-        Drag a field (usually the primary key) onto the matching field in another table to create a relationship. Click a line to select it; press Delete to remove it, double-click to edit.
+        {touch
+          ? "Tap a field (usually the primary key), then the matching field in another table, to relate them. Tap a line to edit or delete it. Drag a table by its title to move it."
+          : "Drag a field (usually the primary key) onto the matching field in another table to create a relationship. Click a line to select it; press Delete to remove it, double-click to edit."}
       </div>
-      {editing && <EditRelationshipDialog draft={editing} onClose={() => setEditing(null)} />}
+      {editing && (
+        <EditRelationshipDialog
+          draft={editing}
+          onClose={() => setEditing(null)}
+          onDelete={editing.id ? () => (setEditing(null), void remove(editing.id!)) : undefined}
+        />
+      )}
     </div>
   );
 }
 
-function EditRelationshipDialog({ draft, onClose }: { draft: Draft; onClose: () => void }) {
+function EditRelationshipDialog({ draft, onClose, onDelete }: { draft: Draft; onClose: () => void; onDelete?: () => void }) {
   const ws = useWorkspace();
   const [d, setD] = useState(draft);
   const [error, setError] = useState<string | null>(null);
@@ -201,6 +227,8 @@ function EditRelationshipDialog({ draft, onClose }: { draft: Draft; onClose: () 
       width={520}
       footer={
         <>
+          {onDelete && <button className="danger" onClick={onDelete}>Delete</button>}
+          {onDelete && <span className="spacer" />}
           <button className="primary" onClick={save}>{d.id ? "OK" : "Create"}</button>
           <button onClick={onClose}>Cancel</button>
         </>

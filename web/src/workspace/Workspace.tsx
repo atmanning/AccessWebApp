@@ -1,11 +1,13 @@
 import { produce } from "immer";
+import { LayoutPicker } from "../ui/LayoutPicker";
+import { useLayout, useLongPress } from "../ui/layout";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConnectionInfo, ObjectKind, ProjectDoc, ProjectRecord, RemoteTableInfo, UserInfo } from "../../../shared/model";
 import { api, ApiError } from "../api";
 import { Modal, showImportWarnings, useDialogs } from "../ui/dialogs";
 import { dateShortcut, insertAtCaret, isTextBox, nowText } from "../ui/dateKeys";
 import { mergeProjects } from "../../../shared/exchange";
-import { AccessIcon, BackIcon, CloseIcon, OBJECT_ICONS, RedoIcon, RelationshipsIcon, SaveIcon, UndoIcon, ConsoleIcon } from "../ui/icons";
+import { MenuIcon, AccessIcon, BackIcon, CloseIcon, OBJECT_ICONS, RedoIcon, RelationshipsIcon, SaveIcon, UndoIcon, ConsoleIcon } from "../ui/icons";
 import { FormReportDesign, FormView, ReportView } from "../views/FormReportViews";
 import { QueryDatasheet, QueryDesignView, QuerySqlView } from "../views/QueryViews";
 import { RelationshipsView } from "../views/RelationshipsView";
@@ -56,6 +58,10 @@ export function Workspace(props: {
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection>(null);
   const [navCollapsed, setNavCollapsed] = useState(false);
+  // Phone layout: the navigation pane is a drawer that closes once something is opened.
+  const { compact } = useLayout();
+  const compactRef = useRef(compact);
+  compactRef.current = compact;
   const [status, setStatusState] = useState<{ message: string; kind: StatusKind }>({ message: "Ready", kind: "info" });
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [backstage, setBackstage] = useState(false);
@@ -178,6 +184,7 @@ export function Workspace(props: {
     });
     setActiveKey(key);
     setBackstage(false);
+    if (compactRef.current) setNavCollapsed(true);
     if (kind !== "relationships" && kind !== "console") setSelection({ kind, id });
   }, []);
 
@@ -509,13 +516,19 @@ export function Workspace(props: {
       <div className="app-shell">
         <header className="title-bar">
           <div className="qat">
-            <AccessIcon size={18} />
-            <button className="icon-btn light" title="Save (Ctrl+S)" onClick={save} aria-label="Save"><SaveIcon size={14} /></button>
+            {compact ? (
+              <button className="icon-btn light nav-burger" onClick={() => setNavCollapsed((c) => !c)} aria-label={navCollapsed ? "Show objects" : "Hide objects"} aria-expanded={!navCollapsed}>
+                <MenuIcon size={18} />
+              </button>
+            ) : (
+              <AccessIcon size={18} />
+            )}
+            {!compact && <button className="icon-btn light" title="Save (Ctrl+S)" onClick={save} aria-label="Save"><SaveIcon size={14} /></button>}
             <button className="icon-btn light" title="Undo (Ctrl+Z)" onClick={undo} aria-label="Undo"><UndoIcon size={14} /></button>
             <button className="icon-btn light" title="Redo (Ctrl+Y)" onClick={redo} aria-label="Redo"><RedoIcon size={14} /></button>
           </div>
           <div className="title-text">
-            {name} : Database{readOnly ? " (Read-Only)" : ""} - Access Web
+            {compact ? <>{name}{readOnly ? " (Read-Only)" : ""}</> : <>{name} : Database{readOnly ? " (Read-Only)" : ""} - Access Web</>}
           </div>
           {role === "owner" ? (
             <button className="title-share" onClick={() => setSharing(true)} title="Share this database with other people">
@@ -853,6 +866,7 @@ function Backstage(props: {
         <button onClick={props.onExport}>Export to Access</button>
         <button onClick={props.onClose}>Close</button>
         <div className="spacer" />
+        <LayoutPicker className="backstage-layout" />
         <button onClick={props.onSignOut}>Sign out</button>
       </nav>
       <main className="backstage-main">

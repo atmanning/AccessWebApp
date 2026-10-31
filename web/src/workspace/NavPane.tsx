@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { isAppLink, QUERY_TYPE_LABELS, type LinkedTable, type ObjectKind } from "../../../shared/model";
 import { isActionType } from "../engine/statements";
 import { useDialogs } from "../ui/dialogs";
+import { useLayout, useLongPress } from "../ui/layout";
 import { ChevronIcon, FindIcon, OBJECT_ICONS } from "../ui/icons";
 import { tabKey, useWorkspace } from "./context";
 import { deleteObject, dependents, findObject, KIND_LABEL, KIND_PLURAL, objectsOf, renameObject, validateObjectName } from "./docOps";
@@ -86,10 +87,19 @@ export function NavPane(props: {
   const [closedGroups, setClosedGroups] = useState<Set<ObjectKind>>(new Set());
   const [menu, setMenu] = useState<{ x: number; y: number; kind: ObjectKind; id: string } | null>(null);
   const [renaming, setRenaming] = useState<{ kind: ObjectKind; id: string } | null>(null);
+  const { compact, touch } = useLayout();
+  const press = useLongPress();
+  const menuOpenedAt = useRef(0);
+  const openMenu = (x: number, y: number, kind: ObjectKind, id: string) => {
+    menuOpenedAt.current = Date.now();
+    props.onSelect({ kind, id });
+    setMenu({ x, y, kind, id });
+  };
 
   useEffect(() => {
     if (!menu) return;
-    const close = () => setMenu(null);
+    // Ignore the mouse event some phones send when a long press ends.
+    const close = () => Date.now() - menuOpenedAt.current > 400 && setMenu(null);
     window.addEventListener("mousedown", close);
     window.addEventListener("blur", close);
     return () => {
@@ -160,6 +170,7 @@ export function NavPane(props: {
     props.onSelect(null);
   };
 
+  if (props.collapsed && compact) return null;
   if (props.collapsed) {
     return (
       <aside className="nav-pane collapsed" aria-label="Navigation Pane">
@@ -190,8 +201,10 @@ export function NavPane(props: {
     : [];
 
   return (
+    <>
+    {compact && <div className="nav-backdrop" onClick={props.onToggle} aria-hidden="true" />}
     <aside
-      className="nav-pane"
+      className={`nav-pane ${compact ? "drawer" : ""}`}
       aria-label="Navigation Pane"
       onKeyDown={(e) => {
         // Ctrl+V pastes anywhere in the pane (also when nothing is selected).
@@ -248,12 +261,20 @@ export function NavPane(props: {
                         tabIndex={0}
                         title={kind === "linked" ? linkTitle(ws.doc.linkedTables?.find((l) => l.id === id)) : undefined}
                         className={`nav-item ${selected ? "selected" : ""} ${ws.activeKey === tabKey(kind, id) ? "active" : ""}`}
-                        onClick={() => props.onSelect({ kind, id })}
-                        onDoubleClick={() => !isRenaming && openItem(kind, id)}
+                        {...(touch && !isRenaming ? press.bind((x, y) => openMenu(x, y, kind, id)) : {})}
+                        onClick={() => {
+                          // Touch screens: a tap opens (double-tapping is awkward); long-press shows the menu.
+                          if (touch && !isRenaming) {
+                            if (!press.wasLongPress()) void openItem(kind, id);
+                            return;
+                          }
+                          props.onSelect({ kind, id });
+                        }}
+                        onDoubleClick={() => !touch && !isRenaming && openItem(kind, id)}
                         onContextMenu={(e) => {
                           e.preventDefault();
-                          props.onSelect({ kind, id });
-                          setMenu({ x: e.clientX, y: e.clientY, kind, id });
+                          if (Date.now() - menuOpenedAt.current < 600) return; // already opened by the long press
+                          openMenu(e.clientX, e.clientY, kind, id);
                         }}
                         onKeyDown={(e) => {
                           if (isRenaming) return;
@@ -285,7 +306,14 @@ export function NavPane(props: {
         })}
       </div>
       {menu && (
-        <div className="context-menu" style={{ left: menu.x, top: menu.y }} onMouseDown={(e) => e.stopPropagation()} role="menu">
+        <div
+          className={`context-menu ${compact ? "sheet" : ""}`}
+          // Keep it on screen. (On phones it's a sheet at the bottom instead.)
+          style={compact ? undefined : { left: Math.max(0, Math.min(menu.x, window.innerWidth - 230)), top: Math.max(0, Math.min(menu.y, window.innerHeight - menuItems.length * 28 - 12)) }}
+          onMouseDown={(e) => e.stopPropagation()}
+          role="menu"
+        >
+          {compact && <div className="menu-title">{findObject(ws.doc, menu.kind, menu.id)?.name}</div>}
           {menuItems.map((item) => (
             <button
               key={item.label}
@@ -299,8 +327,14 @@ export function NavPane(props: {
               {"shortcut" in item && <span className="menu-shortcut">{item.shortcut}</span>}
             </button>
           ))}
+          {compact && (
+            <button role="menuitem" className="menu-cancel" onClick={() => setMenu(null)}>
+              Cancel
+            </button>
+          )}
         </div>
       )}
     </aside>
+    </>
   );
 }
