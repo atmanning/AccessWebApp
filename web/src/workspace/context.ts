@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect } from "react";
-import type { ConnectionInfo, ObjectKind, ProjectDoc, QueryType } from "../../../shared/model";
+import type { ConnectionInfo, FormControlType, FormTheme, ObjectKind, ProjectDoc, QueryType } from "../../../shared/model";
 
 /** "console" tabs are the MySQL SQL console; their id is the connection id. */
 export type TabKind = ObjectKind | "relationships" | "console";
@@ -33,6 +33,25 @@ export interface ViewCommands {
   queryType?: QueryType;
   toggleTotals?: () => void;
   totals?: boolean;
+  /** Form Design View: toolbox, panes, themes and arranging controls. */
+  formDesign?: FormDesignCommands;
+}
+
+export interface FormDesignCommands {
+  tool: FormControlType | null;
+  setTool: (t: FormControlType | null) => void;
+  selectionCount: number;
+  align: (edge: "left" | "right" | "top" | "bottom") => void;
+  sameSize: (dim: "width" | "height") => void;
+  order: (where: "front" | "back") => void;
+  theme: FormTheme;
+  setTheme: (t: FormTheme) => void;
+  fieldList: boolean;
+  toggleFieldList: () => void;
+  propertySheet: boolean;
+  togglePropertySheet: () => void;
+  relayout: (style: "stacked" | "columns") => void;
+  remove: () => void;
 }
 
 export type StatusKind = "info" | "error";

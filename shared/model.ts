@@ -129,12 +129,98 @@ export type QueryDef = z.infer<typeof querySchema>;
 export const sourceSchema = z.object({ kind: z.enum(["table", "query"]), id });
 export type SourceRef = z.infer<typeof sourceSchema>;
 
+/** Controls a form can hold, as the designer's toolbox offers them. */
+export const FORM_CONTROL_TYPES = ["label", "textbox", "combobox", "listbox", "checkbox", "button", "rectangle", "line"] as const;
+export type FormControlType = (typeof FORM_CONTROL_TYPES)[number];
+export const FORM_SECTIONS = ["header", "detail", "footer"] as const;
+export type FormSection = (typeof FORM_SECTIONS)[number];
+/** What a command button does when clicked. */
+export const BUTTON_ACTIONS = [
+  "none",
+  "firstRecord",
+  "previousRecord",
+  "nextRecord",
+  "lastRecord",
+  "newRecord",
+  "saveRecord",
+  "deleteRecord",
+  "openForm",
+  "openReport",
+  "closeForm",
+] as const;
+export type ButtonAction = (typeof BUTTON_ACTIONS)[number];
+export const FORM_THEMES = ["office", "modern", "slate", "ocean", "forest", "sunset", "midnight"] as const;
+export type FormTheme = (typeof FORM_THEMES)[number];
+
+const px = (min: number, max: number) => z.number().int().min(min).max(max);
+const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+
+export const formControlSchema = z.object({
+  id,
+  type: z.enum(FORM_CONTROL_TYPES),
+  name: nameSchema,
+  section: z.enum(FORM_SECTIONS),
+  x: px(0, 4000),
+  y: px(0, 4000),
+  w: px(1, 4000),
+  h: px(1, 4000),
+  /** Control Source: the record source field it shows and edits. */
+  field: z.string().max(64).optional(),
+  /** Label, button and check box text. */
+  caption: z.string().max(500).optional(),
+  /** Built-in label of a bound control, and where it goes. */
+  label: z.string().max(200).optional(),
+  labelPos: z.enum(["top", "left", "none"]).optional(),
+  labelWidth: px(20, 1000).optional(),
+  placeholder: z.string().max(200).optional(),
+  multiline: z.boolean().optional(),
+  locked: z.boolean().optional(),
+  hidden: z.boolean().optional(),
+  fontSize: px(8, 72).optional(),
+  bold: z.boolean().optional(),
+  italic: z.boolean().optional(),
+  align: z.enum(["left", "center", "right"]).optional(),
+  color: hexColor.optional(),
+  backColor: hexColor.optional(),
+  borderColor: hexColor.optional(),
+  borderWidth: px(0, 12).optional(),
+  radius: px(0, 60).optional(),
+  /** Combo and list boxes: a typed list ("A;B;C") or a table / query to look values up in. */
+  rowSourceType: z.enum(["values", "table", "query"]).optional(),
+  rowSource: z.string().max(4000).optional(),
+  /** Column whose value is saved, and the column people see (table / query row sources). */
+  boundColumn: z.string().max(64).optional(),
+  displayColumn: z.string().max(64).optional(),
+  /** Buttons: what they do, and which form or report they open. */
+  action: z.enum(BUTTON_ACTIONS).optional(),
+  target: id.optional(),
+  /** Button look (primary/secondary/outline/danger), or "switch" for a check box drawn as a switch. */
+  variant: z.enum(["primary", "secondary", "outline", "danger", "switch"]).optional(),
+});
+export type FormControl = z.infer<typeof formControlSchema>;
+
+export const formLayoutSchema = z.object({
+  width: px(160, 4000),
+  sections: z.object({ header: px(0, 2000), detail: px(16, 4000), footer: px(0, 2000) }),
+  theme: z.enum(FORM_THEMES),
+  controls: z.array(formControlSchema).max(1000),
+  /** Record navigation bar under the form (on unless false). */
+  navigationButtons: z.boolean().optional(),
+  allowEdits: z.boolean().optional(),
+  allowAdditions: z.boolean().optional(),
+  allowDeletions: z.boolean().optional(),
+});
+export type FormLayout = z.infer<typeof formLayoutSchema>;
+
 export const formSchema = z.object({
   id,
   name: nameSchema,
   title: z.string().max(200),
   source: sourceSchema,
+  /** Fields the form shows. With a layout, kept in step with its bound controls. */
   columns: z.array(z.string()).max(255),
+  /** Designed layout. Forms made before the designer get one generated from `columns`. */
+  layout: formLayoutSchema.optional(),
 });
 export type FormDef = z.infer<typeof formSchema>;
 

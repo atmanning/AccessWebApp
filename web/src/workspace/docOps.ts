@@ -124,6 +124,22 @@ export function renameField(doc: ProjectDoc, table: TableDef, fieldId: string, n
       o.columns = o.columns.map((c) => (c === old ? name : c));
       if ("groupBy" in o && o.groupBy === old) o.groupBy = name;
       if ("sortBy" in o && o.sortBy === old) o.sortBy = name;
+      if ("layout" in o && o.layout) {
+        for (const c of o.layout.controls) {
+          if (c.field === old) {
+            if (c.label === old) c.label = name;
+            if (c.type === "checkbox" && c.caption === old) c.caption = name;
+            c.field = name;
+          }
+        }
+      }
+    }
+    // Combo and list boxes that look values up in this table.
+    for (const c of ("layout" in o && o.layout?.controls) || []) {
+      if (c.rowSourceType === "table" && c.rowSource === table.id) {
+        if (c.boundColumn === old) c.boundColumn = name;
+        if (c.displayColumn === old) c.displayColumn = name;
+      }
     }
   }
   for (const q of doc.queries) {

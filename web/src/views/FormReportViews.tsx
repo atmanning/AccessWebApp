@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CellValue, Field, FormDef, ReportDef, SourceRef } from "../../../shared/model";
+import type { CellValue, FormDef, ReportDef, SourceRef } from "../../../shared/model";
 import { readSource, type ResultSet } from "../engine/engine";
-import { editText, formatValue, isNumericType } from "../engine/values";
+import { formatValue, isNumericType } from "../engine/values";
 import { ComboBox } from "../ui/ComboBox";
-import { acceptsDateText } from "../ui/dateKeys";
 import { useCommands, useWorkspace } from "../workspace/context";
-import { useTableEditing } from "../workspace/useTableEditing";
 
 /** Loads a form/report's record source; tables are read synchronously so edits show instantly. */
-function useSource(source: SourceRef) {
+export function useSource(source: SourceRef) {
   const ws = useWorkspace();
   const [queryResult, setQueryResult] = useState<{ data?: ResultSet; error?: string }>({});
   const table = source.kind === "table" ? ws.doc.tables.find((t) => t.id === source.id) : undefined;
@@ -38,140 +36,6 @@ function useSource(source: SourceRef) {
     return table ? { data: tableData, table } : { error: "The table this object is based on was deleted." };
   }
   return { ...queryResult, table: undefined };
-}
-
-export function FormView({ form, tabKey }: { form: FormDef; tabKey: string }) {
-  const ws = useWorkspace();
-  const { data, error, table } = useSource(form.source);
-  const editing = useTableEditing(table);
-  const [pos, setPos] = useState(0);
-  const [isNew, setIsNew] = useState(false);
-  const [fieldError, setFieldError] = useState<{ col: string; msg: string } | null>(null);
-  const count = data?.rows.length ?? 0;
-
-  useEffect(() => {
-    if (pos >= count && count > 0 && !isNew) setPos(count - 1);
-  }, [count, pos, isNew]);
-
-  const go = (n: number) => {
-    setIsNew(false);
-    setFieldError(null);
-    setPos(Math.max(0, Math.min(count - 1, n)));
-  };
-  const goNew = () => {
-    if (!table) {
-      ws.setStatus("This form shows a query, so records can't be added here.", "error");
-      return;
-    }
-    setFieldError(null);
-    setIsNew(true);
-  };
-
-  useCommands(tabKey, {
-    newRecord: goNew,
-    deleteRecord: async () => {
-      if (!table || isNew || !count) return;
-      if (await editing.deleteRows([pos])) setPos((p) => Math.max(0, Math.min(p, count - 2)));
-    },
-  });
-
-  if (error) return <div className="query-error"><strong>This form can't open.</strong><p>{error}</p></div>;
-  if (!data) return <div className="empty-view">Loading…</div>;
-
-  const colIdx = (name: string) => data.columns.findIndex((c) => c.toLowerCase() === name.toLowerCase());
-  const row = isNew ? null : data.rows[pos];
-
-  const save = (field: Field, input: string | boolean) => {
-    const err = editing.commit(isNew ? "new" : pos, field.id, input);
-    if (err) {
-      setFieldError({ col: field.name, msg: err });
-      ws.setStatus(err, "error");
-      return;
-    }
-    setFieldError(null);
-    if (isNew) {
-      setIsNew(false);
-      setPos(count); // the record that was just added
-    }
-  };
-
-  return (
-    <div className="form-view">
-      <div className="form-surface">
-        <div className="form-header">
-          <h2>{form.title || form.name}</h2>
-        </div>
-        <div className="form-detail" key={isNew ? "new" : `${pos}`}>
-          {form.columns.map((name) => {
-            const i = colIdx(name);
-            if (i < 0) {
-              return (
-                <div className="form-row" key={name}>
-                  <label>{name}</label>
-                  <div className="control error-text">#Name?</div>
-                </div>
-              );
-            }
-            const field = data.fields[i];
-            const value: CellValue = row ? row[i] : null;
-            const readOnly = ws.readOnly || !table || !field || field.type === "AutoNumber";
-            const id = `fc-${form.id}-${i}`;
-            const err = fieldError?.col === name ? fieldError.msg : null;
-            return (
-              <div className="form-row" key={name}>
-                <label htmlFor={id}>{name}</label>
-                {field?.type === "YesNo" ? (
-                  <input
-                    id={id}
-                    type="checkbox"
-                    className="control-check"
-                    checked={value === true || value === 1}
-                    disabled={readOnly}
-                    onChange={(e) => field && save(field, e.target.checked)}
-                  />
-                ) : readOnly ? (
-                  <div id={id} className={`control readonly ${isNumericType(field?.type) ? "num" : ""}`}>
-                    {isNew && field?.type === "AutoNumber" ? "(New)" : formatValue(field, value)}
-                  </div>
-                ) : field!.type === "LongText" ? (
-                  <textarea
-                    id={id}
-                    data-accepts-date="true"
-                    className={`control ${err ? "has-error" : ""}`}
-                    defaultValue={editText(field!, value)}
-                    rows={3}
-                    onBlur={(e) => e.target.value !== editText(field!, value) && save(field!, e.target.value)}
-                  />
-                ) : (
-                  <input
-                    id={id}
-                    data-accepts-date={String(acceptsDateText(field!.type))}
-                    className={`control ${err ? "has-error" : ""} ${isNumericType(field!.type) ? "num" : ""}`}
-                    defaultValue={editText(field!, value)}
-                    placeholder={field!.type === "DateTime" ? "m/d/yyyy" : undefined}
-                    onBlur={(e) => e.target.value !== editText(field!, value) && save(field!, e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-                  />
-                )}
-                {err && <div className="field-error inline">{err}</div>}
-              </div>
-            );
-          })}
-          {!form.columns.length && <div className="muted">This form has no fields. Open Design View to add some.</div>}
-        </div>
-      </div>
-      <div className="record-nav">
-        <span className="rn-label">Record:</span>
-        <button onClick={() => go(0)} disabled={!count} title="First record">⏮</button>
-        <button onClick={() => go(isNew ? count - 1 : pos - 1)} disabled={!isNew && pos <= 0} title="Previous record">◀</button>
-        <span className="rn-pos static">{isNew ? `${count + 1} of ${count + 1}` : `${count ? pos + 1 : 0} of ${count}`}</span>
-        <button onClick={() => go(pos + 1)} disabled={isNew || pos >= count - 1} title="Next record">▶</button>
-        <button onClick={() => go(count - 1)} disabled={!count} title="Last record">⏭</button>
-        <button onClick={goNew} disabled={!table} title="New (blank) record">▶*</button>
-        {!table && <span className="rn-filter">Read-only (query)</span>}
-      </div>
-    </div>
-  );
 }
 
 export function ReportView({ report, tabKey }: { report: ReportDef; tabKey: string }) {

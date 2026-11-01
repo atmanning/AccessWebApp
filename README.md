@@ -20,7 +20,7 @@ downloaded as a real Microsoft Access **.accdb** file.
 | Data types | AutoNumber, Short Text, Long Text, Number (Byte/Integer/Long/Single/Double), Currency, Date/Time, Yes/No |
 | Validation | Types, field sizes, primary keys, *No Duplicates* indexes, required-field reminders, referential integrity |
 | Queries | **Select, Make Table, Append, Update, Delete and Crosstab** queries, chosen on the Query Design tab, each with Access's extra grid rows (Total, Crosstab, Append To, Update To, Delete). **Totals (Σ)** adds Group By, Sum, Avg, Min, Max, Count, StDev, Var, First, Last and Where. Design grid: Show Table, automatic joins from relationships, select a column by its grey bar to drag, resize, Ctrl+←/→ or Delete it. SQL View for any of these, including SQL typed by hand or imported from Access. Datasheet View previews what an action query will change; **Run** applies it after a confirmation (Ctrl+Z undoes it), skipping and reporting records that would break keys, required fields or relationships, like Access. Select query results are **editable** when Access would allow it |
-| Forms | Single-record form with record navigator; edits write back to the table |
+| Forms | **Form designer**: drag controls (label, text box, combo box, list box, check box or switch, button, rectangle, line) from the toolbox or fields from the field list onto the header, detail or footer; move, resize, align, size and layer them with snap-to-grid; edit everything in the Property Sheet (control source, label position, fonts, colours, borders, rounded corners, combo/list row sources from a value list, table or query, button actions such as next record, new, save, delete, open form/report, close). Seven themes (Office, Modern, Slate, Ocean, Forest, Sunset, Midnight), Stacked or Two Columns auto-layout, copy/paste/duplicate controls, every change undoable. Form View shows one record at a time with Enter moving to the next field; edits write back to the table; on phones the controls stack in one column |
 | Reports | Grouped, sorted print layout with group and grand totals; Print |
 | Relationships | Draggable table boxes, drag a field onto another to relate, Enforce Referential Integrity, 1–∞ lines |
 | Other databases | External Data → **Import Objects** / **Link Objects**: pick one of your databases or one shared with you, then its tables and queries. *Import* copies them (definition and data, or definition only, plus relationships between them), renaming anything whose name is taken and updating imported queries to match. *Link* shows the source's current data read-only, for tables and select queries; links work in local queries too, and stop working (with a clear message) if the source is unshared or deleted |
@@ -191,7 +191,8 @@ server/        Express API: auth, projects, export (TypeScript)
 web/           React app (TypeScript)
   src/engine/      Access-SQL translator, in-browser SQLite query runner, value parsing/formatting
   src/workspace/   Shell: ribbon, navigation pane, tabs, autosave, undo, CSV import
-  src/views/       Datasheet, Table Design, Query Design/SQL, Forms, Reports, Relationships
+  src/views/       Datasheet, Table Design, Query Design/SQL, Reports, Relationships
+  src/forms/       Form designer, Form View, form controls, themes and layouts
   test/            Query engine tests
 exporter/      Java CLI using Jackcess: JSON on stdin -> .accdb, and --import .accdb/.mdb -> JSON
 ```
@@ -219,7 +220,7 @@ npm run typecheck
 - Linked tables (MySQL, or tables and queries from other databases here) are read-only. Links to other databases
   open only for people who can open the source database. Linked tables don't appear in the Show Table list of the query designer (use SQL View), aren't
   included in .accdb exports, and local queries read at most 10,000 rows from each. Use Import Tables for more.
-- Forms and reports are generated layouts (choose fields, order, grouping) rather than free-form drag-and-drop designers.
+- Reports are generated layouts (choose fields, order, grouping) rather than a free-form designer. Forms show one record at a time (no continuous forms or subforms yet), text boxes show fields rather than calculated expressions, and forms based on queries are read-only.
 - No macros, VBA, attachments, lookup fields, or multi-value fields.
 - Each database is stored as one JSON document; this is comfortable up to tens of thousands of records per database.
   Bigger datasets would call for storing rows in their own table.

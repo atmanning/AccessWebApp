@@ -36,6 +36,23 @@ import {
 import { viewsFor, type Tab, type ViewCommands, type ViewName } from "./context";
 import { QUERY_TYPES, QUERY_TYPE_LABELS, type QueryType } from "../../../shared/model";
 import { QUERY_TYPE_ICONS } from "./queryKinds";
+import { FORM_CONTROL_TYPES, FORM_THEMES } from "../../../shared/model";
+import { CONTROL_LABELS, THEMES } from "../forms/formLayout";
+import {
+  AlignBottomIcon,
+  AlignLeftIcon,
+  AlignRightIcon,
+  AlignTopIcon,
+  BackIcon,
+  ColumnsIcon,
+  CONTROL_ICONS,
+  FieldListIcon,
+  FrontIcon,
+  PropertySheetIcon,
+  SameHeightIcon,
+  SameWidthIcon,
+  StackedIcon,
+} from "../forms/formIcons";
 
 const QUERY_TYPE_HELP: Record<QueryType, string> = {
   select: "Select: show records",
@@ -106,9 +123,9 @@ function Big(props: { icon: ReactNode; label: string; onClick?: () => void; titl
   );
 }
 
-function Small(props: { icon: ReactNode; label: string; onClick?: () => void; title?: string }) {
+function Small(props: { icon: ReactNode; label: string; onClick?: () => void; title?: string; pressed?: boolean }) {
   return (
-    <button className="rb-small" onClick={props.onClick} disabled={!props.onClick} title={props.title ?? props.label}>
+    <button className={`rb-small ${props.pressed ? "pressed" : ""}`} onClick={props.onClick} disabled={!props.onClick} title={props.title ?? props.label} aria-pressed={props.pressed}>
       {props.icon}
       <span>{props.label}</span>
     </button>
@@ -130,7 +147,9 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
       ? "table"
       : tab?.kind === "query" && (tab.view === "design" || tab.view === "sql")
         ? "query"
-        : null;
+        : tab?.kind === "form" && tab.view === "design"
+          ? "form"
+          : null;
   const [active, setActive] = useState<RibbonTab>("home");
   // Where to draw the View menu. It's rendered at the page level (portal) so the ribbon
   // and navigation pane can't clip or cover it.
@@ -243,7 +262,7 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
         ))}
         {designContext && (
           <button role="tab" aria-selected={active === "design"} className={`contextual ${active === "design" && (!compact || open) ? "active" : ""}`} onClick={() => pickTab("design")}>
-            {designContext === "table" ? "Table Design" : "Query Design"}
+            {designContext === "table" ? "Table Design" : designContext === "query" ? "Query Design" : "Form Design"}
           </button>
         )}
       </div>
@@ -353,6 +372,68 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
             </Group>
           </>
         )}
+        {active === "design" && designContext === "form" && c.formDesign && (() => {
+          const f = c.formDesign;
+          const many = f.selectionCount > 1;
+          const chunks = [FORM_CONTROL_TYPES.slice(0, 3), FORM_CONTROL_TYPES.slice(3, 6), FORM_CONTROL_TYPES.slice(6)];
+          return (
+            <>
+              <Group label="Views">{viewButton}</Group>
+              <Group label="Themes">
+                <div className="rb-themes">
+                  {FORM_THEMES.map((t) => (
+                    <button
+                      key={t}
+                      className={`rb-theme ${f.theme === t ? "pressed" : ""}`}
+                      aria-pressed={f.theme === t}
+                      title={`${THEMES[t].label} theme`}
+                      onClick={() => f.setTheme(t)}
+                      style={{ background: THEMES[t].canvas }}
+                    >
+                      <span className="rb-theme-head" style={{ background: THEMES[t].header === "#ffffff" ? THEMES[t].accent : THEMES[t].header }} />
+                      <span className="rb-theme-name" style={{ color: THEMES[t].canvas === "#0b1020" ? "#e5e7eb" : "#333" }}>{THEMES[t].label}</span>
+                    </button>
+                  ))}
+                </div>
+              </Group>
+              <Group label="Controls">
+                {chunks.map((chunk, i) => (
+                  <div className="rb-stack" key={i}>
+                    {chunk.map((t) => {
+                      const Icon = CONTROL_ICONS[t];
+                      return <Small key={t} icon={<Icon />} label={CONTROL_LABELS[t]} pressed={f.tool === t} onClick={() => f.setTool(t)} title={`${CONTROL_LABELS[t]}: click, then click or drag on the form`} />;
+                    })}
+                  </div>
+                ))}
+              </Group>
+              <Group label="Tools">
+                <Big icon={<FieldListIcon size={32} />} label="Add Existing Fields" pressed={f.fieldList} onClick={f.toggleFieldList} title="Show or hide the toolbox and field list" />
+                <Big icon={<PropertySheetIcon size={32} />} label="Property Sheet" pressed={f.propertySheet} onClick={f.togglePropertySheet} />
+              </Group>
+              <Group label="Layout">
+                <Big icon={<StackedIcon size={32} />} label="Stacked" onClick={() => f.relayout("stacked")} title="Arrange the fields in one column" />
+                <Big icon={<ColumnsIcon size={32} />} label="Two Columns" onClick={() => f.relayout("columns")} title="Arrange the fields in two columns" />
+              </Group>
+              <Group label="Arrange">
+                <div className="rb-stack">
+                  <Small icon={<AlignLeftIcon />} label="Align Left" onClick={many ? () => f.align("left") : undefined} />
+                  <Small icon={<AlignRightIcon />} label="Align Right" onClick={many ? () => f.align("right") : undefined} />
+                  <Small icon={<SameWidthIcon />} label="Same Width" onClick={many ? () => f.sameSize("width") : undefined} title="Make the selected controls as wide as the widest" />
+                </div>
+                <div className="rb-stack">
+                  <Small icon={<AlignTopIcon />} label="Align Top" onClick={many ? () => f.align("top") : undefined} />
+                  <Small icon={<AlignBottomIcon />} label="Align Bottom" onClick={many ? () => f.align("bottom") : undefined} />
+                  <Small icon={<SameHeightIcon />} label="Same Height" onClick={many ? () => f.sameSize("height") : undefined} title="Make the selected controls as tall as the tallest" />
+                </div>
+                <div className="rb-stack">
+                  <Small icon={<FrontIcon />} label="Bring to Front" onClick={f.selectionCount ? () => f.order("front") : undefined} />
+                  <Small icon={<BackIcon />} label="Send to Back" onClick={f.selectionCount ? () => f.order("back") : undefined} />
+                  <Small icon={<DeleteIcon />} label="Delete" onClick={f.selectionCount ? f.remove : undefined} />
+                </div>
+              </Group>
+            </>
+          );
+        })()}
         {active === "design" && designContext === "query" && (
           <>
             <Group label="Results">

@@ -8,7 +8,10 @@ import { Modal, showImportWarnings, useDialogs } from "../ui/dialogs";
 import { dateShortcut, insertAtCaret, isTextBox, nowText } from "../ui/dateKeys";
 import { mergeProjects } from "../../../shared/exchange";
 import { MenuIcon, AccessIcon, BackIcon, CloseIcon, OBJECT_ICONS, RedoIcon, RelationshipsIcon, SaveIcon, UndoIcon, ConsoleIcon } from "../ui/icons";
-import { FormReportDesign, FormView, ReportView } from "../views/FormReportViews";
+import { FormReportDesign, ReportView } from "../views/FormReportViews";
+import { FormRunView } from "../forms/FormRunView";
+import { FormDesigner } from "../forms/FormDesigner";
+import { autoLayout } from "../forms/formLayout";
 import { QueryDatasheet, QueryDesignView, QuerySqlView } from "../views/QueryViews";
 import { RelationshipsView } from "../views/RelationshipsView";
 import { TableDatasheet } from "../views/TableDatasheet";
@@ -270,12 +273,17 @@ export function Workspace(props: {
     const id = newId(kind === "form" ? "fm" : "rp");
     update((d) => {
       const name = uniqueObjectName(d, kind, src.name);
-      if (kind === "form") d.forms.push({ id, name, title: src.name, source, columns });
-      else d.reports.push({ id, name, title: src.name, source, columns });
+      if (kind === "form") {
+        // Table forms get their designed layout now; query forms get one from the query's fields when first opened.
+        const t = source.kind === "table" ? d.tables.find((x) => x.id === source.id) : undefined;
+        const layout = t ? autoLayout(src.name, t.fields.map((f) => ({ name: f.name, field: f }))) : undefined;
+        d.forms.push({ id, name, title: src.name, source, columns, ...(layout ? { layout } : {}) });
+      } else d.reports.push({ id, name, title: src.name, source, columns });
     });
-    // Query columns are only known after running it; let design view fill them in.
-    openObject(kind, id, source.kind === "query" ? "design" : undefined);
-    if (source.kind === "query") setStatus(`Tick the fields to show on the ${kind}, then switch to ${kind === "form" ? "Form" : "Report"} View.`);
+    // Query columns are only known after running it; let report design view fill them in.
+    openObject(kind, id, source.kind === "query" && kind === "report" ? "design" : undefined);
+    if (source.kind === "query" && kind === "report") setStatus("Tick the fields to show on the report, then switch to Report View.");
+    else if (kind === "form") setStatus("Form created. Switch to Design View to move fields, add buttons and pick a theme.");
   };
 
   const createFormOrReport = (kind: "form" | "report") => {
@@ -732,7 +740,9 @@ export function Workspace(props: {
 function signature(c: ViewCommands | undefined): string {
   if (!c) return "";
   const present = Object.entries(c).filter(([, v]) => typeof v === "function").map(([k]) => k).sort();
-  return JSON.stringify([present, c.queryType ?? null, c.totals ?? null]);
+  const f = c.formDesign;
+  const form = f ? [f.tool, f.selectionCount, f.theme, f.fieldList, f.propertySheet] : null;
+  return JSON.stringify([present, c.queryType ?? null, c.totals ?? null, form]);
 }
 
 function liveCommands(all: Map<string, ViewCommands>, key: string | null): ViewCommands {
@@ -745,6 +755,20 @@ function liveCommands(all: Map<string, ViewCommands>, key: string | null): ViewC
         return typeof latest === "function" ? latest(...args) : undefined;
       };
     }
+  }
+  // Form Design: the state the ribbon shows, with handlers that call the view's latest ones.
+  if (current.formDesign) {
+    const fd: Record<string, unknown> = {};
+    for (const [name, value] of Object.entries(current.formDesign)) {
+      fd[name] =
+        typeof value === "function"
+          ? (...args: unknown[]) => {
+              const latest = key ? (all.get(key)?.formDesign as Record<string, unknown> | undefined)?.[name] : undefined;
+              return typeof latest === "function" ? latest(...args) : undefined;
+            }
+          : value;
+    }
+    live.formDesign = fd;
   }
   return live as ViewCommands;
 }
@@ -771,7 +795,7 @@ function TabContent({ tab, refreshKey }: { tab: Tab; refreshKey: number }) {
     }
     case "form": {
       const f = ws.doc.forms.find((x) => x.id === tab.id)!;
-      return tab.view === "design" ? <FormReportDesign key={key} kind="form" obj={f} /> : <FormView key={key} form={f} tabKey={tab.key} />;
+      return tab.view === "design" ? <FormDesigner key={key} form={f} tabKey={tab.key} /> : <FormRunView key={key} form={f} tabKey={tab.key} />;
     }
     case "report": {
       const r = ws.doc.reports.find((x) => x.id === tab.id)!;
