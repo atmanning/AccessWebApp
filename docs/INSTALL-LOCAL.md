@@ -22,7 +22,9 @@ There are two ways to install it:
 Open **PowerShell** and run (each `winget` line installs one tool; accept the prompts):
 
 ```powershell
-winget install --id OpenJS.NodeJS.LTS -e
+# Node.js 24: the "LTS" package is now Node 26, which the app's SQLite part has no ready-made build for yet.
+winget show --id OpenJS.NodeJS.LTS --versions   # pick the newest 24.x.y from the list
+winget install --id OpenJS.NodeJS.LTS -e --version 24.x.y
 winget install --id EclipseAdoptium.Temurin.21.JDK -e
 winget install --id Git.Git -e
 ```
@@ -151,7 +153,7 @@ Notes for Docker:
 
 | Problem | Fix |
 | --- | --- |
-| `npm ci` fails building **better-sqlite3** (`gyp ERR! find VS`, "missing any VC++ toolset") | Your Node.js is newer than the ready-made SQLite builds (for example Node 26), so npm tried to compile it. Install **Node.js 24 LTS** instead: `winget uninstall OpenJS.NodeJS` (or uninstall Node.js in *Settings → Apps*), then `winget install --id OpenJS.NodeJS.LTS -e`. Open a **new** PowerShell, check `node --version` shows v24, delete the `node_modules` folder, and run `npm ci` again. (Alternatively keep your Node and add the **Desktop development with C++** workload in the Visual Studio Installer.) |
+| `npm ci` fails building **better-sqlite3** (`gyp ERR! find VS`, "missing any VC++ toolset") | Your Node.js is newer than the ready-made SQLite builds (for example Node 26), so npm tried to compile it. Install **Node.js 24 LTS** instead: `winget uninstall OpenJS.NodeJS` (or uninstall Node.js in *Settings → Apps*), then install 24 with `winget install --id OpenJS.NodeJS.LTS -e --version 24.x.y` (`winget show --id OpenJS.NodeJS.LTS --versions` lists them), or the Windows installer (.msi) from <https://nodejs.org/dist/latest-v24.x/>. Open a **new** PowerShell, check `node --version` shows v24, delete the `node_modules` folder, and run `npm ci` again. (Alternatively keep your Node and add the **Desktop development with C++** workload in the Visual Studio Installer.) |
 | `mvn` / `java` not recognized | Open a **new** PowerShell window after installing; check the Maven `bin` folder is on *Path*. |
 | "Port 3000 is already in use" / `EADDRINUSE` | Another program uses it: change `PORT` in `start-local.cmd`. |
 | Can't sign in (page reloads to the sign-in screen) | Make sure you started it with `start-local.cmd`/`start-local.sh`, which turn off https-only cookies for `http://localhost`. |
