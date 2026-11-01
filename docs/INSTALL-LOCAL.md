@@ -37,7 +37,7 @@ Then install **Maven** (it builds the part that reads and writes `.accdb` files)
 **Close PowerShell and open a new one**, then check everything is found:
 
 ```powershell
-node --version    # v22 or newer
+node --version    # v22 or v24 (LTS); v25+ may not have ready-made builds yet
 java --version    # 21 or newer
 mvn --version     # 3.6.3 or newer
 git --version
@@ -151,7 +151,7 @@ Notes for Docker:
 
 | Problem | Fix |
 | --- | --- |
-| `npm ci` fails building **better-sqlite3** | Use a current Node.js **LTS** release (22 or 24) — it downloads a ready-made build. Very new non-LTS Node versions may need Visual Studio Build Tools. |
+| `npm ci` fails building **better-sqlite3** (`gyp ERR! find VS`, "missing any VC++ toolset") | Your Node.js is newer than the ready-made SQLite builds (for example Node 26), so npm tried to compile it. Install **Node.js 24 LTS** instead: `winget uninstall OpenJS.NodeJS` (or uninstall Node.js in *Settings → Apps*), then `winget install --id OpenJS.NodeJS.LTS -e`. Open a **new** PowerShell, check `node --version` shows v24, delete the `node_modules` folder, and run `npm ci` again. (Alternatively keep your Node and add the **Desktop development with C++** workload in the Visual Studio Installer.) |
 | `mvn` / `java` not recognized | Open a **new** PowerShell window after installing; check the Maven `bin` folder is on *Path*. |
 | "Port 3000 is already in use" / `EADDRINUSE` | Another program uses it: change `PORT` in `start-local.cmd`. |
 | Can't sign in (page reloads to the sign-in screen) | Make sure you started it with `start-local.cmd`/`start-local.sh`, which turn off https-only cookies for `http://localhost`. |
