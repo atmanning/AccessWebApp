@@ -27,12 +27,16 @@ winget install --id EclipseAdoptium.Temurin.21.JDK -e
 winget install --id Git.Git -e
 ```
 
-Then install **Maven** (it builds the part that reads and writes `.accdb` files):
+Then install **Maven** (it builds the part that reads and writes `.accdb` files). Paste this into the same
+PowerShell window; it downloads Maven, unpacks it into your user folder and adds it to your *Path*:
 
-1. Download the **Binary zip archive** (`apache-maven-3.9.x-bin.zip`) from <https://maven.apache.org/download.cgi>.
-2. Extract it to `C:\Tools` so you have `C:\Tools\apache-maven-3.9.x\bin`.
-3. Start menu → *Edit the system environment variables* → **Environment Variables…** → under *User variables*
-   select **Path** → **Edit** → **New** → paste `C:\Tools\apache-maven-3.9.x\bin` (your actual folder name) → OK.
+```powershell
+$v = "3.9.11"
+Invoke-WebRequest "https://archive.apache.org/dist/maven/maven-3/$v/binaries/apache-maven-$v-bin.zip" -OutFile "$env:TEMP\maven.zip"
+Expand-Archive "$env:TEMP\maven.zip" -DestinationPath "$env:LOCALAPPDATA\Programs" -Force
+$bin = "$env:LOCALAPPDATA\Programs\apache-maven-$v\bin"
+[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";$bin", "User")
+```
 
 **Close PowerShell and open a new one**, then check everything is found:
 
