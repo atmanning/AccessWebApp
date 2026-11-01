@@ -18,6 +18,7 @@ import {
   RefreshIcon,
   RelationshipsIcon,
   ReportIcon,
+  RowHeightIcon,
   RunIcon,
   ShowTableIcon,
   SortAscIcon,
@@ -301,6 +302,7 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
               <div className="rb-stack">
                 <Small icon={<NewRecordIcon />} label="New" onClick={c.newRecord} />
                 <Small icon={<DeleteIcon />} label="Delete" onClick={c.deleteRecord} />
+                {c.rowHeight && <Small icon={<RowHeightIcon />} label="Row Height" onClick={c.rowHeight} />}
               </div>
             </Group>
             <Group label="Find">

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLayout } from "../ui/layout";
 import { NAME_PATTERN, QUERY_TYPE_LABELS, TOTAL_OPTIONS, type QueryColumn, type QueryDef, type QueryType, type TableDef } from "../../../shared/model";
 import { runQuery, type ResultSet } from "../engine/engine";
 import { previewAction } from "../engine/actions";
 import { loadLinkedTables } from "../engine/linked";
 import { isActionType } from "../engine/statements";
-import { designProblem, designSql, type QueryDesign } from "../engine/queryDesign";
+import { designJoins, designProblem, designSql, type QueryDesign } from "../engine/queryDesign";
 import { ComboBox, type ComboOption } from "../ui/ComboBox";
 import { Modal, useDialogs } from "../ui/dialogs";
 import { KeyIcon, TableIcon } from "../ui/icons";
@@ -15,7 +15,7 @@ import { useRunAction } from "../workspace/useRunAction";
 import { QUERY_TYPE_ICONS, typeOfQuery } from "../workspace/queryKinds";
 import { parseInput } from "../engine/values";
 import { exportCsv } from "../workspace/csv";
-import { Datasheet, type DatasheetHandle } from "./Datasheet";
+import { Datasheet, MAX_ROW_H, MIN_ROW_H, type DatasheetHandle } from "./Datasheet";
 
 /** Runs a query and shows the results read-only. */
 export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: string }) {
@@ -179,9 +179,38 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
     }
   };
 
+  // Row height is saved with the query; view-only users can still change it for this visit.
+  const dialogs = useDialogs();
+  const [viewerRowH, setViewerRowH] = useState<number | undefined | null>(null);
+  const rowHeight = ws.readOnly && viewerRowH !== null ? viewerRowH : query.rowHeight;
+  const saveRowHeight = (h: number | undefined) => {
+    if (ws.readOnly) return setViewerRowH(h);
+    ws.update((d) => {
+      const q = d.queries.find((x) => x.id === query.id);
+      if (!q) return;
+      if (h === undefined) delete q.rowHeight;
+      else q.rowHeight = h;
+    });
+  };
+  const askRowHeight = async () => {
+    const v = await dialogs.prompt(
+      "Row Height",
+      `Row Height in pixels (${MIN_ROW_H}–${MAX_ROW_H}). Leave it blank for the standard height.`,
+      rowHeight ? String(rowHeight) : "",
+      (t) => {
+        if (!t.trim()) return null;
+        const n = Number(t);
+        return Number.isInteger(n) && n >= MIN_ROW_H && n <= MAX_ROW_H ? null : `Enter a whole number from ${MIN_ROW_H} to ${MAX_ROW_H}.`;
+      },
+    );
+    if (v === null) return;
+    saveRowHeight(v.trim() ? Number(v) : undefined);
+  };
+
   const runAction = useRunAction();
   useCommands(tabKey, {
     run: () => void runAction(query),
+    rowHeight: () => void askRowHeight(),
     sortAsc: () => grid.current?.sort("ASC"),
     sortDesc: () => grid.current?.sort("DESC"),
     removeSort: () => grid.current?.sort(null),
@@ -214,6 +243,8 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
       emptyMessage="The query returned no records."
       onStatus={ws.setStatus}
       savedWidths={savedWidths}
+      rowHeight={rowHeight}
+      onRowHeightChange={saveRowHeight}
       onWidthsChange={(w) => {
         if (ws.readOnly) return;
         // Stored by column name so they survive changes to the query's SQL.
@@ -412,6 +443,31 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
     if (!sqlDiverged && design.tables.length === 0 && ws.doc.tables.length) setShowTables(true);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ---- Join lines between the field lists, like Access draws them ----
+  const lastPointer = useRef("mouse");
+  const tablesRef = useRef<HTMLDivElement>(null);
+  const joins = useMemo(() => designJoins(ws.doc, design.tables).joins, [ws.doc, design.tables]);
+  const [lines, setLines] = useState<JoinLine[]>([]);
+  const [lineBox, setLineBox] = useState({ w: 0, h: 0 });
+  useLayoutEffect(() => {
+    const box = tablesRef.current;
+    if (!box) return;
+    const measure = () => {
+      setLineBox({ w: box.scrollWidth, h: box.scrollHeight });
+      setLines(measureJoinLines(box, joins));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(box);
+    box.querySelectorAll(".field-list").forEach((el) => ro.observe(el));
+    // Scrolling the pane or a field list moves the fields; scroll events don't bubble, so capture.
+    box.addEventListener("scroll", measure, true);
+    return () => {
+      ro.disconnect();
+      box.removeEventListener("scroll", measure, true);
+    };
+  }, [joins, sqlDiverged]);
+
   if (sqlDiverged) {
     return (
       <div className="query-error">
@@ -497,13 +553,28 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
 
   const colClass = (i: number) => (i === selectedCol ? "qd-col-selected" : "");
 
+  // A field is added to the grid by double-clicking it, or by tapping it with a finger. The kind
+  // of pointer is read from the event itself, so a touchscreen laptop used with a mouse still
+  // needs a double-click.
+  const fieldProps = (t: string, field: string) => ({
+    onPointerDown: (e: React.PointerEvent) => (lastPointer.current = e.pointerType),
+    onClick: () => lastPointer.current === "touch" && addField(t, field),
+    onDoubleClick: () => lastPointer.current !== "touch" && addField(t, field),
+    title: touch ? "Tap to add to the grid" : "Double-click to add to the grid",
+  });
+
   return (
     <div className="query-design">
-      <div className="qd-tables">
+      <div
+        className="qd-tables"
+        ref={tablesRef}
+        onDoubleClick={(e) => e.target === e.currentTarget && setShowTables(true)}
+        title={design.tables.length ? "Double-click an empty area to show more tables" : undefined}
+      >
         {design.tables.map((t) => {
           const table = ws.doc.tables.find((x) => x.name === t);
           return (
-            <div className="field-list" key={t}>
+            <div className="field-list" key={t} data-qd-table={t}>
               <div className="field-list-title">
                 <span>{t}</span>
                 <button
@@ -521,9 +592,9 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
                 </button>
               </div>
               <ul>
-                <li onClick={() => touch && addField(t, "*")} onDoubleClick={() => !touch && addField(t, "*")} title={touch ? "Tap to add all fields" : "Double-click to add all fields"}>*</li>
+                <li {...fieldProps(t, "*")} title={touch ? "Tap to add all fields" : "Double-click to add all fields"}>*</li>
                 {table?.fields.map((f) => (
-                  <li key={f.id} onClick={() => touch && addField(t, f.name)} onDoubleClick={() => !touch && addField(t, f.name)} title={touch ? "Tap to add to the grid" : "Double-click to add to the grid"}>
+                  <li key={f.id} data-qd-field={f.name} {...fieldProps(t, f.name)}>
                     {f.primaryKey && <KeyIcon size={11} />} {f.name}
                   </li>
                 )) ?? <li className="muted">(table deleted)</li>}
@@ -531,6 +602,11 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
             </div>
           );
         })}
+        {design.tables.length > 0 && (
+          <button className="qd-add-table" onClick={() => setShowTables(true)} title="Add more tables to the query">
+            <TableIcon /> Show Table…
+          </button>
+        )}
         {!design.tables.length && (
           <div className="qd-empty">
             <button onClick={() => setShowTables(true)}>
@@ -538,6 +614,20 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
             </button>
           </div>
         )}
+        <svg className="qd-join-lines" width={lineBox.w} height={lineBox.h} aria-hidden="true">
+          {lines.map((l) => (
+            <g key={l.id}>
+              <title>{l.title}</title>
+              <path d={l.d} />
+              {l.enforce && (
+                <>
+                  <text x={l.oneX} y={l.oneY}>1</text>
+                  <text x={l.manyX} y={l.manyY}>∞</text>
+                </>
+              )}
+            </g>
+          ))}
+        </svg>
       </div>
       <div className={`qd-info ${problem ? "warn" : ""}`}>
         <QueryTypeIcon type={type} />
@@ -808,6 +898,62 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
       )}
     </div>
   );
+}
+
+interface JoinLine {
+  id: string;
+  d: string;
+  title: string;
+  enforce: boolean;
+  oneX: number;
+  oneY: number;
+  manyX: number;
+  manyY: number;
+}
+
+/**
+ * Works out where to draw each join line: from the joined field in one field list to the field in
+ * the other, leaving from the facing sides. A field scrolled out of its list is pinned to the
+ * list's top or bottom edge, as in Access.
+ */
+function measureJoinLines(box: HTMLElement, joins: ReturnType<typeof designJoins>["joins"]): JoinLine[] {
+  const origin = box.getBoundingClientRect();
+  const relX = (x: number) => x - origin.left + box.scrollLeft;
+  const relY = (y: number) => y - origin.top + box.scrollTop;
+  const listOf = (table: string) => [...box.querySelectorAll<HTMLElement>("[data-qd-table]")].find((el) => el.dataset.qdTable === table);
+  const anchor = (table: string, field: string) => {
+    const list = listOf(table);
+    if (!list) return null;
+    const li = [...list.querySelectorAll<HTMLElement>("[data-qd-field]")].find((el) => el.dataset.qdField === field);
+    const ul = list.querySelector("ul");
+    const lr = list.getBoundingClientRect();
+    if (!li || !ul) return null;
+    const ur = ul.getBoundingClientRect();
+    const r = li.getBoundingClientRect();
+    const y = Math.max(ur.top + 2, Math.min(ur.bottom - 2, r.top + r.height / 2));
+    return { left: relX(lr.left), right: relX(lr.right), mid: relX(lr.left + lr.width / 2), y: relY(y) };
+  };
+  const out: JoinLine[] = [];
+  for (const j of joins) {
+    const a = anchor(j.fromTable, j.fromField);
+    const b = anchor(j.toTable, j.toField);
+    if (!a || !b) continue;
+    const ltr = a.mid <= b.mid;
+    const ax = ltr ? a.right : a.left;
+    const bx = ltr ? b.left : b.right;
+    const dx = ltr ? 16 : -16;
+    out.push({
+      id: j.relationshipId,
+      d: `M${ax} ${a.y} h${dx} L${bx - dx} ${b.y} h${dx}`,
+      title: `${j.fromTable}.${j.fromField} = ${j.toTable}.${j.toField}`,
+      enforce: j.enforce,
+      oneX: ax + (ltr ? 3 : -10),
+      oneY: a.y - 4,
+      manyX: bx + (ltr ? -12 : 3),
+      manyY: b.y - 4,
+    });
+  }
+  return out;
 }
 
 function ShowTableDialog(props: { existing: string[]; onClose: () => void; onAdd: (names: string[]) => void }) {

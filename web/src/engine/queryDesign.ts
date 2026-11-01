@@ -19,15 +19,28 @@ export function criteriaToSql(column: string, criteria: string, field?: Field): 
   return `${column} = "${c.replace(/"/g, '""')}"`;
 }
 
-function fromClause(doc: ProjectDoc, tableNames: string[]): string {
-  if (!tableNames.length) return "";
-  const byName = (n: string) => doc.tables.find((t) => t.name === n);
-  let sql = br(tableNames[0]);
-  const joined = new Set([tableNames[0]]);
+/** A join Design View makes between two of its tables, from a relationship (drawn as a line). */
+export interface DesignJoin {
+  relationshipId: string;
+  fromTable: string;
+  fromField: string;
+  toTable: string;
+  toField: string;
+  /** Referential integrity is enforced: the line shows 1 and ∞ like Access. */
+  enforce: boolean;
+}
+
+/**
+ * Works out how the tables in the design are joined: each table after the first joins to an
+ * earlier one through a relationship. Tables with no relationship to the others are left unjoined.
+ */
+export function designJoins(doc: ProjectDoc, tableNames: string[]): { joins: DesignJoin[]; unjoined: string[] } {
+  const joins: DesignJoin[] = [];
   const unjoined: string[] = [];
-  let joins = 0;
+  if (!tableNames.length) return { joins, unjoined };
+  const joined = new Set([tableNames[0]]);
   for (const name of tableNames.slice(1)) {
-    const t = byName(name);
+    const t = doc.tables.find((x) => x.name === name);
     const rel = t
       ? doc.relationships.find((r) => {
           const other = r.fromTable === t.id ? r.toTable : r.toTable === t.id ? r.fromTable : null;
@@ -35,19 +48,30 @@ function fromClause(doc: ProjectDoc, tableNames: string[]): string {
           return otherT && joined.has(otherT.name);
         })
       : undefined;
-    if (!t || !rel) {
+    const from = rel && doc.tables.find((x) => x.id === rel.fromTable);
+    const to = rel && doc.tables.find((x) => x.id === rel.toTable);
+    const ff = rel && from?.fields.find((f) => f.id === rel.fromField);
+    const tf = rel && to?.fields.find((f) => f.id === rel.toField);
+    if (!t || !rel || !from || !to || !ff || !tf) {
       unjoined.push(name);
       continue;
     }
-    const from = doc.tables.find((x) => x.id === rel.fromTable)!;
-    const to = doc.tables.find((x) => x.id === rel.toTable)!;
-    const ff = from.fields.find((f) => f.id === rel.fromField)!;
-    const tf = to.fields.find((f) => f.id === rel.toField)!;
-    if (joins > 0) sql = `(${sql})`;
-    sql += ` INNER JOIN ${br(name)} ON ${br(from.name)}.${br(ff.name)} = ${br(to.name)}.${br(tf.name)}`;
+    joins.push({ relationshipId: rel.id, fromTable: from.name, fromField: ff.name, toTable: to.name, toField: tf.name, enforce: rel.enforce });
     joined.add(name);
-    joins++;
   }
+  return { joins, unjoined };
+}
+
+function fromClause(doc: ProjectDoc, tableNames: string[]): string {
+  if (!tableNames.length) return "";
+  const { joins, unjoined } = designJoins(doc, tableNames);
+  let sql = br(tableNames[0]);
+  joins.forEach((j, i) => {
+    if (i > 0) sql = `(${sql})`;
+    // The table being added is whichever end of the relationship isn't joined yet.
+    const added = tableNames.indexOf(j.fromTable) > tableNames.indexOf(j.toTable) ? j.fromTable : j.toTable;
+    sql += ` INNER JOIN ${br(added)} ON ${br(j.fromTable)}.${br(j.fromField)} = ${br(j.toTable)}.${br(j.toField)}`;
+  });
   return [sql, ...unjoined.map(br)].join(", ");
 }
 

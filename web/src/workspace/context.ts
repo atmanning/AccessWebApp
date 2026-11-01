@@ -28,6 +28,8 @@ export interface ViewCommands {
   print?: () => void;
   exportText?: () => void;
   addRelationship?: () => void;
+  /** Datasheet: set the height of every row (Home > Records > Row Height). */
+  rowHeight?: () => void;
   /** Query Design: switch query type, and the current type / Totals state for the ribbon. */
   setQueryType?: (type: QueryType) => void;
   queryType?: QueryType;

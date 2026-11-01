@@ -7,7 +7,7 @@ vi.mock("sql.js/dist/sql-wasm.wasm?url", async () => {
 
 import { translateAccessSql, parseAccessDate } from "../src/engine/accessSql";
 import { runQuery } from "../src/engine/engine";
-import { designToSql, criteriaToSql } from "../src/engine/queryDesign";
+import { designToSql, criteriaToSql, designJoins } from "../src/engine/queryDesign";
 import { buildTemplate } from "../../shared/templates";
 
 describe("Access SQL translation", () => {
@@ -36,6 +36,17 @@ describe("query design", () => {
       { table: "Orders", field: "Amount", show: true, sort: "", criteria: ">40" },
     ]);
     expect(sql).toContain("INNER JOIN [Orders] ON [Customers].[CustomerID] = [Orders].[CustomerID]");
+  });
+  it("reports the joins to draw, in either table order", () => {
+    const doc = buildTemplate("contacts");
+    for (const order of [["Customers", "Orders"], ["Orders", "Customers"]]) {
+      const { joins, unjoined } = designJoins(doc, order);
+      expect(unjoined).toEqual([]);
+      expect(joins).toHaveLength(1);
+      expect(joins[0]).toMatchObject({ fromTable: "Customers", fromField: "CustomerID", toTable: "Orders", toField: "CustomerID" });
+      const sql = designToSql(doc, order, [{ table: order[0], field: "*", show: true, sort: "", criteria: "" }]);
+      expect(sql).toContain(`FROM [${order[0]}] INNER JOIN [${order[1]}] ON [Customers].[CustomerID] = [Orders].[CustomerID]`);
+    }
   });
 });
 

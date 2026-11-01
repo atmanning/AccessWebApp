@@ -72,6 +72,13 @@ export const NewRecordIcon = svg(
   </>,
 );
 export const DeleteIcon = svg(<path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="#c42b1c" strokeWidth="2" strokeLinecap="round" />);
+export const RowHeightIcon = svg(
+  <>
+    <rect x="1.5" y="2.5" width="9" height="11" fill="#fff" stroke="#777" />
+    <path d="M1.5 6.5h9M1.5 10h9" stroke="#999" />
+    <path d="M13 2.5v11M11.3 4.2L13 2.5l1.7 1.7M11.3 11.8L13 13.5l1.7-1.7" stroke="#3b6ea5" strokeWidth="1.2" fill="none" />
+  </>,
+);
 export const SortAscIcon = svg(
   <>
     <text x="1" y="7" fontSize="6" fontWeight="700" fill="#333">A</text>

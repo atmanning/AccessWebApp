@@ -123,6 +123,8 @@ export const querySchema = z.object({
     .optional(),
   /** Saved datasheet column widths in pixels, by result column name. */
   columnWidths: z.record(z.string(), z.number().int().min(20).max(2000)).optional(),
+  /** Saved datasheet row height in pixels (unset = standard height). */
+  rowHeight: z.number().int().min(16).max(300).optional(),
 });
 export type QueryDef = z.infer<typeof querySchema>;
 

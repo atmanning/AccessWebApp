@@ -31,6 +31,10 @@ export interface DatasheetProps {
   savedWidths?: Record<string, number>;
   /** Called after the user resizes a column (drag, or double-click to best fit). */
   onWidthsChange?: (widths: Record<string, number>) => void;
+  /** Saved row height in pixels for every row (unset = standard height). */
+  rowHeight?: number;
+  /** Called after the user drags a row border; undefined means back to standard height. */
+  onRowHeightChange?: (height: number | undefined) => void;
   /** Highlight cells that need attention (e.g. required but empty). */
   cellWarning?: (row: number, col: number) => boolean;
   emptyMessage?: string;
@@ -49,12 +53,20 @@ export interface DatasheetHandle {
 const ROW_H_DESKTOP = 24;
 const ROW_H_TOUCH = 36;
 const OVERSCAN = 10;
+export const MIN_ROW_H = 16;
+export const MAX_ROW_H = 300;
 
 type Cell = { r: number; c: number }; // r is a display index; r === displayCount means the new-record row
 
 export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Datasheet(p, ref) {
   const { touch } = useLayout();
-  const ROW_H = touch ? ROW_H_TOUCH : ROW_H_DESKTOP;
+  const standardH = touch ? ROW_H_TOUCH : ROW_H_DESKTOP;
+  // Row height being dragged (live), else the saved one, else the standard height.
+  const [dragH, setDragH] = useState<number | null>(null);
+  const ROW_H = dragH ?? p.rowHeight ?? standardH;
+  const customH = dragH !== null || p.rowHeight !== undefined;
+  // Rows taller than about two lines wrap their text, like Access.
+  const tall = ROW_H >= 34 && ROW_H > standardH;
   // Touch: tapping the cell that's already selected starts editing (instead of double-click).
   const wasActive = useRef(false);
   const [sort, setSort] = useState<{ col: number; dir: "ASC" | "DESC" } | null>(null);
@@ -336,6 +348,32 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
     window.addEventListener("pointercancel", up);
   };
 
+  /** Dragging the bottom edge of any record selector sets the height of every row. */
+  const startRowResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startY = e.clientY;
+    const startH = ROW_H;
+    let h = startH;
+    const move = (ev: PointerEvent) => {
+      h = Math.round(Math.max(MIN_ROW_H, Math.min(MAX_ROW_H, startH + ev.clientY - startY)));
+      setDragH(h);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      setDragH(null);
+      if (h !== startH) {
+        p.onRowHeightChange?.(h === standardH ? undefined : h);
+        p.onStatus?.(`Row height: ${h} pixels.`);
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
   const bestFit = (c: number) => {
     const col = p.columns[c];
     const canvas = document.createElement("canvas").getContext("2d")!;
@@ -373,7 +411,10 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
         onKeyDown={onKeyDown}
         onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
       >
-        <table className="datasheet" style={{ width: "max-content" }}>
+        <table
+          className={`datasheet ${customH ? "custom-h" : ""} ${tall ? "tall" : ""}`}
+          style={{ width: "max-content", ...(customH ? ({ "--ds-row-h": `${ROW_H}px` } as React.CSSProperties) : {}) }}
+        >
           <colgroup>
             <col style={{ width: 22 }} />
             {p.columns.map((col) => (
@@ -442,6 +483,18 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
                     }}
                   >
                     {newRow ? "*" : current ? (editing ? "✎" : "▶") : ""}
+                    {p.onRowHeightChange && (
+                      <span
+                        className="row-resizer"
+                        title="Drag to change the row height; double-click for standard height"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onPointerDown={startRowResize}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          if (p.rowHeight !== undefined) p.onRowHeightChange?.(undefined);
+                        }}
+                      />
+                    )}
                   </td>
                   {p.columns.map((col, c) => {
                     const active = current && c === cell.c;
@@ -499,6 +552,8 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
                           <input type="checkbox" tabIndex={-1} readOnly checked={v === true || v === 1} className="cell-check" />
                         ) : newRow ? (
                           <span className="placeholder">{p.newRowPlaceholder?.(c) ?? ""}</span>
+                        ) : tall ? (
+                          <div className="cell-wrap">{formatValue(col.field, v)}</div>
                         ) : (
                           formatValue(col.field, v)
                         )}
