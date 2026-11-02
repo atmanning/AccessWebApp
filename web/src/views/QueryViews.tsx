@@ -449,11 +449,23 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
   const joins = useMemo(() => designJoins(ws.doc, design.tables).joins, [ws.doc, design.tables]);
   const [lines, setLines] = useState<JoinLine[]>([]);
   const [lineBox, setLineBox] = useState({ w: 0, h: 0 });
+  // A field list being moved or resized (shown live, saved on release as one undo step).
+  const [boxDrag, setBoxDrag] = useState<{ table: string; box: QdBox } | null>(null);
+  // Design grid height while its splitter is dragged.
+  const [gridLive, setGridLive] = useState<number | null>(null);
   useLayoutEffect(() => {
     const box = tablesRef.current;
     if (!box) return;
     const measure = () => {
-      setLineBox({ w: box.scrollWidth, h: box.scrollHeight });
+      // The canvas reaches past the furthest field list (not from scrollWidth, which includes
+      // the lines' own drawing and would never shrink).
+      let w = 0;
+      let h = 0;
+      box.querySelectorAll<HTMLElement>(".field-list").forEach((el) => {
+        w = Math.max(w, el.offsetLeft + el.offsetWidth);
+        h = Math.max(h, el.offsetTop + el.offsetHeight);
+      });
+      setLineBox({ w: Math.max(box.clientWidth, w + 40), h: Math.max(box.clientHeight, h + 24) });
       setLines(measureJoinLines(box, joins));
     };
     measure();
@@ -466,7 +478,7 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
       ro.disconnect();
       box.removeEventListener("scroll", measure, true);
     };
-  }, [joins, sqlDiverged]);
+  }, [joins, sqlDiverged, boxDrag, design.boxes, design.tables]);
 
   if (sqlDiverged) {
     return (
@@ -553,6 +565,90 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
 
   const colClass = (i: number) => (i === selectedCol ? "qd-col-selected" : "");
 
+  // ---- Arranging the field lists: drag a title bar to move, an edge or corner to resize ----
+  const boxOf = (t: string, i: number): QdBox => {
+    if (boxDrag?.table === t) return boxDrag.box;
+    return design.boxes?.[t] ?? { x: QD_PAD + i * (QD_BOX_W + QD_GAP), y: QD_PAD };
+  };
+  const rightEdge = () => Math.max(0, ...design.tables.map((t, i) => boxOf(t, i).x + (boxOf(t, i).w ?? QD_BOX_W)));
+  /** Saves every table's position, so lists that were never moved don't shift when another is removed. */
+  const saveBoxes = (dz: QueryDesign, changed?: { table: string; box: QdBox }) => {
+    const next: NonNullable<QueryDesign["boxes"]> = {};
+    dz.tables.forEach((t, i) => {
+      const b = changed?.table === t ? changed.box : (dz.boxes?.[t] ?? { x: QD_PAD + i * (QD_BOX_W + QD_GAP), y: QD_PAD });
+      next[t] = { x: Math.round(b.x), y: Math.round(b.y), ...(b.w ? { w: Math.round(b.w) } : {}), ...(b.h ? { h: Math.round(b.h) } : {}) };
+    });
+    dz.boxes = next;
+  };
+  const startBoxDrag = (e: React.PointerEvent, t: string, i: number, mode: "move" | "e" | "s" | "se") => {
+    if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const start = boxOf(t, i);
+    const list = (e.currentTarget as HTMLElement).closest(".field-list");
+    const startH = start.h ?? list?.querySelector("ul")?.clientHeight ?? 120;
+    const startW = start.w ?? QD_BOX_W;
+    const sx = e.clientX;
+    const sy = e.clientY;
+    let box = start;
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - sx;
+      const dy = ev.clientY - sy;
+      if (!moved && Math.abs(dx) + Math.abs(dy) < 3) return;
+      moved = true;
+      box =
+        mode === "move"
+          ? { ...start, x: Math.max(0, start.x + dx), y: Math.max(0, start.y + dy) }
+          : {
+              ...start,
+              ...(mode !== "s" ? { w: Math.max(100, Math.min(800, startW + dx)) } : {}),
+              ...(mode !== "e" ? { h: Math.max(40, Math.min(1200, startH + dy)) } : {}),
+            };
+      setBoxDrag({ table: t, box });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      if (moved) setDesign((dz) => saveBoxes(dz, { table: t, box }));
+      setBoxDrag(null);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
+  /** The splitter above the grid: drag to share the space between the tables and the grid. */
+  const startGridResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const grid = gridRef.current;
+    const pane = tablesRef.current;
+    if (!grid || !pane) return;
+    const startH = grid.offsetHeight;
+    const max = startH + pane.offsetHeight - 60;
+    const sy = e.clientY;
+    let h = startH;
+    const move = (ev: PointerEvent) => {
+      h = Math.round(Math.max(80, Math.min(max, startH - (ev.clientY - sy))));
+      setGridLive(h);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      if (h !== startH)
+        setDesign((dz) => {
+          dz.gridHeight = h;
+        });
+      setGridLive(null);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+  const gridHeight = gridLive ?? design.gridHeight;
+
   // A field is added to the grid by double-clicking it, or by tapping it with a finger. The kind
   // of pointer is read from the event itself, so a touchscreen laptop used with a mouse still
   // needs a double-click.
@@ -568,14 +664,20 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
       <div
         className="qd-tables"
         ref={tablesRef}
-        onDoubleClick={(e) => e.target === e.currentTarget && setShowTables(true)}
-        title={design.tables.length ? "Double-click an empty area to show more tables" : undefined}
+        onDoubleClick={(e) => (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains("qd-canvas-size")) && setShowTables(true)}
+        title={design.tables.length ? "Drag a table's title bar to move it. Double-click an empty area to show more tables." : undefined}
       >
-        {design.tables.map((t) => {
+        {design.tables.map((t, i) => {
           const table = ws.doc.tables.find((x) => x.name === t);
+          const b = boxOf(t, i);
           return (
-            <div className="field-list" key={t} data-qd-table={t}>
-              <div className="field-list-title">
+            <div
+              className={`field-list ${boxDrag?.table === t ? "qd-dragging" : ""}`}
+              key={t}
+              data-qd-table={t}
+              style={{ left: b.x, top: b.y, width: b.w ?? QD_BOX_W }}
+            >
+              <div className="field-list-title" onPointerDown={(e) => startBoxDrag(e, t, i, "move")} title="Drag to move">
                 <span>{t}</span>
                 <button
                   className="icon-btn"
@@ -585,13 +687,14 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
                     setDesign((dz) => {
                       dz.tables = dz.tables.filter((x) => x !== t);
                       dz.columns = dz.columns.filter((c) => c.table !== t);
+                      if (dz.boxes) delete dz.boxes[t];
                     })
                   }
                 >
                   ×
                 </button>
               </div>
-              <ul>
+              <ul style={b.h ? { height: b.h, maxHeight: "none" } : undefined}>
                 <li {...fieldProps(t, "*")} title={touch ? "Tap to add all fields" : "Double-click to add all fields"}>*</li>
                 {table?.fields.map((f) => (
                   <li key={f.id} data-qd-field={f.name} {...fieldProps(t, f.name)}>
@@ -599,11 +702,15 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
                   </li>
                 )) ?? <li className="muted">(table deleted)</li>}
               </ul>
+              <span className="qd-box-resize e" onPointerDown={(e) => startBoxDrag(e, t, i, "e")} aria-hidden="true" />
+              <span className="qd-box-resize s" onPointerDown={(e) => startBoxDrag(e, t, i, "s")} aria-hidden="true" />
+              <span className="qd-box-resize se" onPointerDown={(e) => startBoxDrag(e, t, i, "se")} aria-hidden="true" />
             </div>
           );
         })}
+        <div className="qd-canvas-size" style={{ width: lineBox.w, height: lineBox.h }} />
         {design.tables.length > 0 && (
-          <button className="qd-add-table" onClick={() => setShowTables(true)} title="Add more tables to the query">
+          <button className="qd-add-table" style={{ left: rightEdge() + 40, top: QD_PAD }} onClick={() => setShowTables(true)} title="Add more tables to the query">
             <TableIcon /> Show Table…
           </button>
         )}
@@ -629,6 +736,19 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
           ))}
         </svg>
       </div>
+      <div
+        className="qd-splitter"
+        role="separator"
+        aria-orientation="horizontal"
+        title="Drag to resize the design grid; double-click for the standard size"
+        onPointerDown={startGridResize}
+        onDoubleClick={() =>
+          design.gridHeight !== undefined &&
+          setDesign((dz) => {
+            delete dz.gridHeight;
+          })
+        }
+      />
       <div className={`qd-info ${problem ? "warn" : ""}`}>
         <QueryTypeIcon type={type} />
         <strong>{QUERY_TYPE_LABELS[type]} query</strong>
@@ -639,6 +759,7 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
       <div
         className="qd-grid-wrap"
         ref={gridRef}
+        style={gridHeight ? { height: gridHeight } : undefined}
         tabIndex={-1}
         onKeyDown={(e) => {
           if (selectedCol === null || selectedCol >= used || (e.target as HTMLElement) !== gridRef.current) return;
@@ -891,7 +1012,17 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
           onClose={() => setShowTables(false)}
           onAdd={(names) =>
             setDesign((dz) => {
-              for (const n of names) if (!dz.tables.includes(n)) dz.tables.push(n);
+              const placed = !!dz.boxes;
+              let x = rightEdge() + QD_GAP;
+              for (const n of names) {
+                if (dz.tables.includes(n)) continue;
+                dz.tables.push(n);
+                // Once the lists have been arranged, a new one goes to the right of the rest.
+                if (placed) {
+                  dz.boxes![n] = { x: dz.tables.length === 1 ? QD_PAD : x, y: QD_PAD };
+                  x += QD_BOX_W + QD_GAP;
+                }
+              }
             })
           }
         />
@@ -899,6 +1030,12 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
     </div>
   );
 }
+
+/** Field list layout in the upper pane of Design View. */
+type QdBox = NonNullable<QueryDesign["boxes"]>[string];
+const QD_BOX_W = 160;
+const QD_GAP = 64;
+const QD_PAD = 14;
 
 interface JoinLine {
   id: string;

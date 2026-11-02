@@ -93,6 +93,10 @@ export function renameObject(doc: ProjectDoc, kind: ObjectKind, id: string, name
       if (!q.design) continue;
       q.design.tables = q.design.tables.map((t) => (t === old ? name : t));
       for (const c of q.design.columns) if (c.table === old) c.table = name;
+      if (q.design.boxes?.[old]) {
+        q.design.boxes[name] = q.design.boxes[old];
+        delete q.design.boxes[old];
+      }
     }
   }
 }

@@ -119,6 +119,21 @@ export const querySchema = z.object({
       totals: z.boolean().optional(),
       /** Make Table: the new table's name. Append: the table records are added to. */
       target: z.string().max(64).optional(),
+      /** Where each table's field list sits in the upper pane, by table name (unset = in a row). */
+      boxes: z
+        .record(
+          z.string(),
+          z.object({
+            x: z.number().int().min(0).max(10_000),
+            y: z.number().int().min(0).max(10_000),
+            w: z.number().int().min(100).max(800).optional(),
+            /** Height of the field list (unset = fit the fields, up to a limit). */
+            h: z.number().int().min(40).max(1200).optional(),
+          }),
+        )
+        .optional(),
+      /** Height of the design grid in pixels (unset = standard). */
+      gridHeight: z.number().int().min(80).max(2000).optional(),
     })
     .optional(),
   /** Saved datasheet column widths in pixels, by result column name. */

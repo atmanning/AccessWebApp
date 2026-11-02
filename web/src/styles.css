@@ -254,14 +254,23 @@ select.grid-input { padding: 0 2px; }
 .sql-editor { flex: 1; border: none; resize: none; padding: 10px 12px; font-family: Consolas, "Cascadia Mono", Menlo, monospace; font-size: 13px; line-height: 1.5; outline: none; }
 .sql-hint { padding: 5px 10px; background: var(--chrome); border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
 .query-design { display: flex; flex-direction: column; height: 100%; }
-.qd-tables { position: relative; flex: 1; min-height: 140px; background: #f0f0f0; display: flex; gap: 64px; padding: 14px; overflow: auto; align-items: flex-start; border-bottom: 4px solid var(--border); }
+.qd-tables { position: relative; flex: 1; min-height: 100px; background: #f0f0f0; display: flex; padding: 14px; overflow: auto; }
+.qd-canvas-size { position: absolute; left: 0; top: 0; pointer-events: auto; }
+.qd-splitter { flex-shrink: 0; height: 5px; background: var(--border); cursor: ns-resize; touch-action: none; }
+.qd-splitter:hover { background: var(--border-strong); }
 .qd-empty { margin: auto; }
 .qd-empty button { display: inline-flex; gap: 6px; align-items: center; }
-.qd-tables .field-list { position: relative; z-index: 1; }
+.qd-tables .field-list { position: absolute; z-index: 1; }
+.qd-tables .field-list.qd-dragging { z-index: 3; box-shadow: 2px 4px 12px rgba(0, 0, 0, 0.2); }
+.qd-tables .field-list-title { cursor: move; touch-action: none; user-select: none; }
+.qd-box-resize { position: absolute; z-index: 1; touch-action: none; }
+.qd-box-resize.e { top: 0; right: -3px; width: 6px; bottom: 0; cursor: ew-resize; }
+.qd-box-resize.s { left: 0; right: 0; bottom: -3px; height: 6px; cursor: ns-resize; }
+.qd-box-resize.se { right: -4px; bottom: -4px; width: 10px; height: 10px; cursor: nwse-resize; }
 .qd-join-lines { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 2; overflow: visible; }
 .qd-join-lines path { fill: none; stroke: #333; stroke-width: 1.5; }
 .qd-join-lines text { font-size: 11px; font-weight: 700; fill: #333; }
-.qd-add-table { flex-shrink: 0; align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; border: 1px dashed var(--border-strong); background: transparent; padding: 8px 12px; color: #555; }
+.qd-add-table { position: absolute; z-index: 1; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; border: 1px dashed var(--border-strong); background: transparent; padding: 8px 12px; color: #555; }
 .qd-add-table:hover { background: #fff; color: inherit; }
 .field-list { width: 160px; background: #fff; border: 1px solid var(--border-strong); box-shadow: 1px 2px 4px rgba(0, 0, 0, 0.1); flex-shrink: 0; }
 .field-list-title { background: var(--chrome-2); padding: 2px 4px 2px 8px; display: flex; justify-content: space-between; align-items: center; font-weight: 600; border-bottom: 1px solid var(--border); }
@@ -627,3 +636,5 @@ select.grid-input { padding: 0 2px; }
 [data-touch] .qd-grid select, [data-touch] .qd-grid input:not([type="checkbox"]) { height: 31px; }
 [data-touch] .qd-grid-wrap { height: 250px; }
 [data-touch] .qd-move button { height: 26px; min-width: 30px; font-size: 12px; }
+[data-touch] .qd-box-resize.se { width: 22px; height: 22px; right: -8px; bottom: -8px; }
+[data-touch] .qd-splitter { height: 12px; }
