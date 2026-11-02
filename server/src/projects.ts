@@ -26,6 +26,7 @@ interface ProjectRow {
   updated_at: string;
   link_access: LinkAccess;
   updated_by: string | null;
+  public_view: number;
 }
 
 /** A project row joined with what the summary needs. */
@@ -53,6 +54,7 @@ const shareSchema = z.object({
   permission: z.enum(["view", "edit"]),
 });
 const linkSchema = z.object({ linkAccess: z.enum(["none", "view", "edit"]) });
+const publicSchema = z.object({ publicView: z.boolean() });
 const copySchema = z.object({ name: nameSchema });
 
 export const httpError = (status: number, message: string) => Object.assign(new Error(message), { status });
@@ -266,14 +268,14 @@ export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise
   // ---- Sharing (owner only) ---------------------------------------------------------------
 
   const shareSettings = (projectId: string): ShareSettings => {
-    const row = db.prepare("SELECT link_access FROM projects WHERE id = ?").get(projectId) as { link_access: LinkAccess };
+    const row = db.prepare("SELECT link_access, public_view FROM projects WHERE id = ?").get(projectId) as { link_access: LinkAccess; public_view: number };
     const shares = db
       .prepare(
         `SELECT u.id AS userId, u.email, u.name, s.permission FROM project_shares s JOIN users u ON u.id = s.user_id
          WHERE s.project_id = ? ORDER BY u.name COLLATE NOCASE`,
       )
       .all(projectId) as ShareSettings["shares"];
-    return { linkAccess: row.link_access, shares };
+    return { linkAccess: row.link_access, publicView: !!row.public_view, shares };
   };
 
   router.get("/:id/shares", (req, res) => {
@@ -314,5 +316,40 @@ export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise
     res.json(shareSettings(row.id));
   });
 
+  /** Public viewing: anyone on the internet with the link, without an account. */
+  router.put("/:id/public-access", (req, res) => {
+    const { row } = load(req.params.id, req.user!.id, "owner");
+    const { publicView } = publicSchema.parse(req.body);
+    db.prepare("UPDATE projects SET public_view = ? WHERE id = ?").run(publicView ? 1 : 0, row.id);
+    res.json(shareSettings(row.id));
+  });
+
+  return router;
+}
+
+/**
+ * Databases published for public viewing, readable without signing in. Only the database itself
+ * is served: no export, copy, connections or linked data (those routes still need an account
+ * with access). Unpublished and unknown ids both return 404.
+ */
+export function publicRouter(db: DB) {
+  const router = Router();
+  const loadPublic = (id: string) => {
+    const row = db.prepare(`${SELECT_PROJECT} WHERE p.id = ? AND p.public_view = 1`).get(id) as ProjectListRow | undefined;
+    if (!row) throw httpError(404, "This database isn't shared publicly.");
+    return row;
+  };
+  router.get("/:id", (req, res) => {
+    const row = loadPublic(req.params.id);
+    const doc = JSON.parse(row.doc) as ProjectDoc;
+    res.setHeader("Cache-Control", "no-store");
+    // Editors' names aren't public.
+    const { updatedByName: _, ...summary } = summarize(row, "view", doc);
+    res.json({ project: { ...summary, doc, publicView: true } satisfies ProjectRecord });
+  });
+  router.get("/:id/revision", (req, res) => {
+    const row = loadPublic(req.params.id);
+    res.json({ revision: row.revision, updatedByName: null, updatedAt: row.updated_at });
+  });
   return router;
 }

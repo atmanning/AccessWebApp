@@ -270,6 +270,33 @@ describe("sharing", () => {
     expect((await stranger.get("/api/projects")).body.shared).toHaveLength(0);
   });
 
+  it("publishes for public viewing without an account, with no export or copy", async () => {
+    const anon = request(app);
+    expect((await anon.get(`/api/public/${id}`)).status).toBe(404);
+    expect((await json(editor).put(`/api/projects/${id}/public-access`, { publicView: true })).status).toBe(403);
+    const on = await json(owner).put(`/api/projects/${id}/public-access`, { publicView: true });
+    expect(on.body.publicView).toBe(true);
+
+    const pub = await anon.get(`/api/public/${id}`);
+    expect(pub.status).toBe(200);
+    expect(pub.body.project).toMatchObject({ id, role: "view", publicView: true });
+    expect(pub.body.project.updatedByName).toBeUndefined();
+    expect(pub.body.project.doc.tables.length).toBeGreaterThan(0);
+    expect((await anon.get(`/api/public/${id}/revision`)).body.revision).toBeGreaterThan(0);
+
+    // Everything else still needs an account with access.
+    expect((await anon.get(`/api/projects/${id}`)).status).toBe(401);
+    expect((await anon.get(`/api/projects/${id}/export.accdb`)).status).toBe(401);
+    expect((await stranger.get(`/api/projects/${id}`)).status).toBe(404);
+    expect((await stranger.get(`/api/projects/${id}/export.accdb`)).status).toBe(404);
+    expect((await stranger.post(`/api/projects/${id}/copy`).send({ name: "Mine" })).status).toBe(404);
+    expect((await stranger.get(`/api/projects/${id}/connections`)).status).toBe(404);
+    expect((await anon.put(`/api/projects/${id}`).send({ baseRevision: 1, name: "x" })).status).toBe(401);
+
+    await json(owner).put(`/api/projects/${id}/public-access`, { publicView: false });
+    expect((await anon.get(`/api/public/${id}`)).status).toBe(404);
+  });
+
   it("lets anyone with access save a copy, and non-owners only remove it from their list", async () => {
     const copy = await viewer.post(`/api/projects/${id}/copy`).send({ name: "My Copy" });
     expect(copy.status).toBe(201);

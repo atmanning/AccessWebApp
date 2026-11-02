@@ -72,17 +72,17 @@ export interface RibbonActions {
   createQueryDesign: () => void;
   createForm: () => void;
   createReport: () => void;
-  importText: () => void;
-  importAccess: () => void;
+  importText?: () => void;
+  importAccess?: () => void;
   copy?: () => void;
   paste?: () => void;
-  mysqlConnections: () => void;
+  mysqlConnections?: () => void;
   mysqlLink?: () => void;
   mysqlImport?: () => void;
   mysqlConsole?: () => void;
   otherDbImport?: () => void;
   otherDbLink?: () => void;
-  exportAccess: () => void;
+  exportAccess?: () => void;
   openRelationships: () => void;
   refresh: () => void;
 }

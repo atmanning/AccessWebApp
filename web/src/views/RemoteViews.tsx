@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isAppLink, type CellValue, type ConnectionInfo, type Field, type LinkedTable, type RemoteRows, type SqlRunResult } from "../../../shared/model";
 import { api } from "../api";
-import { loadAppLink, type AppLinkData } from "../engine/linked";
+import { isPublicViewing, loadAppLink, PUBLIC_LINK_MESSAGE, type AppLinkData } from "../engine/linked";
 import { ComboBox } from "../ui/ComboBox";
 import { useCommands, useWorkspace } from "../workspace/context";
 import { exportCsv } from "../workspace/csv";
@@ -118,6 +118,11 @@ function MySqlLinkedView({ link: anyLink, tabKey }: { link: LinkedTable; tabKey:
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    if (isPublicViewing()) {
+      setError(PUBLIC_LINK_MESSAGE);
+      setLoading(false);
+      return;
+    }
     api.remoteRows(ws.projectId, link.connectionId, link.remoteTable, offset, PAGE).then(
       (r) => {
         if (cancelled) return;
@@ -157,6 +162,14 @@ function MySqlLinkedView({ link: anyLink, tabKey }: { link: LinkedTable; tabKey:
     exportText: () => page && exportCsv(link.name, page.columns, page.rows, page.fields.map((f) => f ?? undefined)),
   });
 
+  if (isPublicViewing()) {
+    return (
+      <div className="query-error">
+        <strong>{PUBLIC_LINK_MESSAGE}</strong>
+        <p>This table is linked from a MySQL server, which only people the owner shares the database with can read.</p>
+      </div>
+    );
+  }
   if (!connection && ws.connections) {
     return (
       <div className="query-error">

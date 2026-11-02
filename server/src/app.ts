@@ -6,7 +6,7 @@ import path from "node:path";
 import { ZodError } from "zod";
 import type { DB } from "./db.js";
 import { authRouter, loadUser } from "./auth.js";
-import { projectsRouter, type ImportAccess } from "./projects.js";
+import { projectsRouter, publicRouter, type ImportAccess } from "./projects.js";
 import { connectionsRouter, type ConnectionsOptions } from "./connections.js";
 import type { ProjectDoc } from "../../shared/model.js";
 
@@ -58,6 +58,7 @@ export function createApp(opts: AppOptions) {
   app.use("/api/auth", authRouter(opts.db, { secureCookies: opts.secureCookies }));
   app.use("/api/projects/:id/connections", connectionsRouter(opts.db, opts.connections));
   app.use("/api/projects", projectsRouter(opts.db, opts.exportAccdb, opts.importAccess));
+  app.use("/api/public", publicRouter(opts.db));
   app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
 
   if (opts.staticDir && fs.existsSync(opts.staticDir)) {

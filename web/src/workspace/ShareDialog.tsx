@@ -113,13 +113,31 @@ export function ShareDialog(props: { projectId: string; projectName: string; own
             <option value="edit">Anyone with an account who has the link can edit</option>
           </select>
         </div>
+        <label className="share-public">
+          <input
+            type="checkbox"
+            checked={!!settings?.publicView}
+            disabled={busy || !settings}
+            onChange={(e) => {
+              const on = e.target.checked;
+              run(() => api.setPublicView(props.projectId, on));
+            }}
+          />
+          <span>
+            <strong>Public: anyone on the internet with the link can view</strong>
+            <span className="small muted">
+              No account or sign-in needed. Public viewers can browse tables and run queries, forms and reports, but can't change,
+              export, copy or save a copy. Linked tables aren't shown to them.
+            </span>
+          </span>
+        </label>
         <div className="share-url">
           <input className="text-input" readOnly value={link} onFocus={(e) => e.target.select()} aria-label="Link to this database" />
           <button onClick={copyLink}>{copied ? "Copied" : "Copy link"}</button>
         </div>
         <p className="small muted">
           People you add see this database under Shared with me. Editors can change everything in it; only you can share, rename or
-          delete it. Anyone with access can export it or save their own copy.
+          delete it. People you add, and people with an account who use the link, can export it or save their own copy.
         </p>
       </div>
     </Modal>

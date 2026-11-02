@@ -343,11 +343,15 @@ export interface ShareEntry {
 
 export interface ShareSettings {
   linkAccess: LinkAccess;
+  /** Anyone on the internet with the link can view it, without signing in (no export or copy). */
+  publicView: boolean;
   shares: ShareEntry[];
 }
 
 export interface ProjectRecord extends ProjectSummary {
   doc: ProjectDoc;
+  /** Opened through its public link: view only, and exporting, copying and linking are off. */
+  publicView?: boolean;
 }
 
 export interface UserInfo {

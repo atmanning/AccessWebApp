@@ -71,6 +71,11 @@ export const api = {
     call<ShareSettings>("PUT", `/api/projects/${id}/shares`, { email, permission }),
   unshare: (id: string, userId: string) => call<ShareSettings>("DELETE", `/api/projects/${id}/shares/${userId}`),
   setLinkAccess: (id: string, linkAccess: LinkAccess) => call<ShareSettings>("PUT", `/api/projects/${id}/link-access`, { linkAccess }),
+  setPublicView: (id: string, publicView: boolean) => call<ShareSettings>("PUT", `/api/projects/${id}/public-access`, { publicView }),
+  /** A database published for public viewing (no sign-in needed). */
+  getPublicProject: (id: string) => call<{ project: ProjectRecord }>("GET", `/api/public/${id}`),
+  getPublicRevision: (id: string) =>
+    call<{ revision: number; updatedByName: string | null; updatedAt: string }>("GET", `/api/public/${id}/revision`),
 
   /** Creates a new database from an Access file. */
   importAccessProject: (file: File, name: string) =>
@@ -87,7 +92,7 @@ export const api = {
   deleteConnection: (pid: string, cid: string) => call<{ ok: true }>("DELETE", `/api/projects/${pid}/connections/${cid}`),
   testConnection: (pid: string, settings: ConnectionInput, connectionId?: string) =>
     call<
-      | { ok: true; version: string; database: string | null; ms: number }
+      | { ok: true; version: string; database: string | null; databases: string[]; ms: number }
       | { ok: false; error: { errno: number | null; sqlState: string | null; message: string } }
     >("POST", `/api/projects/${pid}/connections/test`, { settings, connectionId }),
   remoteTables: (pid: string, cid: string) => call<{ tables: RemoteTableInfo[] }>("GET", `/api/projects/${pid}/connections/${cid}/tables`),

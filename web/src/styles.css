@@ -638,3 +638,7 @@ select.grid-input { padding: 0 2px; }
 [data-touch] .qd-move button { height: 26px; min-width: 30px; font-size: 12px; }
 [data-touch] .qd-box-resize.se { width: 22px; height: 22px; right: -8px; bottom: -8px; }
 [data-touch] .qd-splitter { height: 12px; }
+
+.share-public { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 4px; cursor: pointer; }
+.share-public input { margin-top: 3px; }
+.share-public > span { display: flex; flex-direction: column; gap: 2px; }

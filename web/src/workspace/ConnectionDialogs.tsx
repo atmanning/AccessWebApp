@@ -22,6 +22,8 @@ export function ConnectionDialog(props: { existing?: ConnectionInfo; onClose: ()
   const [showPassword, setShowPassword] = useState(false);
   const [ssl, setSsl] = useState<SslMode>(e?.ssl ?? "off");
   const [test, setTest] = useState<TestState>({ kind: "idle" });
+  // Databases on the server, listed by Test Connection, to pick from.
+  const [databases, setDatabases] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -65,9 +67,12 @@ export function ConnectionDialog(props: { existing?: ConnectionInfo; onClose: ()
     try {
       const r = await api.testConnection(ws.projectId, i, e?.id);
       if (r.ok) {
+        setDatabases(r.databases ?? []);
         setTest({
           kind: "ok",
-          text: `Connection succeeded. Server ${r.version}${r.database ? `, database ${r.database}` : ", no database selected"} (${r.ms} ms).`,
+          text:
+            `Connection succeeded. Server ${r.version}${r.database ? `, database ${r.database}` : ""} (${r.ms} ms).` +
+            (!r.database && r.databases?.length ? ` Choose a database above (${r.databases.length} available) to see its tables.` : ""),
         });
       } else {
         const err = r.error;
@@ -123,7 +128,17 @@ export function ConnectionDialog(props: { existing?: ConnectionInfo; onClose: ()
         </label>
         <label className="wide">
           Database
-          <input className="text-input" value={database} onChange={(x) => setDatabase(x.target.value)} placeholder="Needed to list, link and import tables" />
+          {databases.length > 0 ? (
+            <ComboBox
+              className="text-input"
+              value={database}
+              ariaLabel="Database"
+              options={[...(database && !databases.includes(database) ? [database] : []), ...databases].map((d) => ({ value: d, label: d }))}
+              onChange={setDatabase}
+            />
+          ) : (
+            <input className="text-input" value={database} onChange={(x) => setDatabase(x.target.value)} placeholder="Needed to see its tables (Test Connection lists them)" />
+          )}
         </label>
         <label>
           User name
@@ -163,7 +178,12 @@ export function ConnectionDialog(props: { existing?: ConnectionInfo; onClose: ()
 }
 
 /** External Data > MySQL > Connections: list, add, edit, delete. */
-export function ConnectionsManager(props: { onClose: () => void; onOpenConsole: (c: ConnectionInfo) => void }) {
+export function ConnectionsManager(props: {
+  onClose: () => void;
+  onOpenConsole: (c: ConnectionInfo) => void;
+  /** Show the connection's tables to link or import them. */
+  onTables: (c: ConnectionInfo, mode: "link" | "import") => void;
+}) {
   const ws = useWorkspace();
   const dialogs = useDialogs();
   const [editing, setEditing] = useState<ConnectionInfo | "new" | null>(null);
@@ -222,6 +242,12 @@ export function ConnectionsManager(props: { onClose: () => void; onOpenConsole: 
             <button disabled={ws.readOnly} onClick={() => setEditing("new")}>New…</button>
             <button disabled={!current || ws.readOnly} onClick={() => current && setEditing(current)}>Edit…</button>
             <button disabled={!current || ws.readOnly} onClick={() => current && remove(current)}>Delete</button>
+            <button disabled={!current || ws.readOnly} onClick={() => current && props.onTables(current, "link")} title="Show this connection's tables and link them, to browse and query them here">
+              Link Tables…
+            </button>
+            <button disabled={!current || ws.readOnly} onClick={() => current && props.onTables(current, "import")} title="Show this connection's tables and copy them into this database">
+              Import Tables…
+            </button>
             <button disabled={!current || ws.readOnly} onClick={() => current && props.onOpenConsole(current)}>SQL Console</button>
           </div>
         </div>
@@ -231,10 +257,15 @@ export function ConnectionsManager(props: { onClose: () => void; onOpenConsole: 
           existing={editing === "new" ? undefined : editing}
           onClose={() => setEditing(null)}
           onSaved={async (c) => {
+            const isNew = editing === "new";
             setEditing(null);
             await ws.refreshConnections();
             setSelected(c.id);
             ws.setStatus(`Saved connection ${c.name}.`);
+            // The next step is almost always picking tables, so offer it straight away.
+            if (isNew && c.database && (await dialogs.confirm("Connection saved", `Show the tables in '${c.database}' so you can link or import them?`, { okLabel: "Show Tables" }))) {
+              props.onTables(c, "link");
+            }
           }}
         />
       )}
@@ -245,13 +276,14 @@ export function ConnectionsManager(props: { onClose: () => void; onOpenConsole: 
 /** Pick a connection and some of its tables, to link or to import. */
 export function RemoteTablesDialog(props: {
   mode: "link" | "import";
+  connectionId?: string;
   onClose: () => void;
   onDone: (connection: ConnectionInfo, tables: RemoteTableInfo[]) => Promise<void> | void;
   onNewConnection: () => void;
 }) {
   const ws = useWorkspace();
   const list = ws.connections ?? [];
-  const [cid, setCid] = useState(list[0]?.id ?? "");
+  const [cid, setCid] = useState(props.connectionId ?? list[0]?.id ?? "");
   const [tables, setTables] = useState<RemoteTableInfo[] | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);

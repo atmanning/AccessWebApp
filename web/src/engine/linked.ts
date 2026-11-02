@@ -33,6 +33,20 @@ export interface LinkedLoad {
   notes: string[];
 }
 
+/**
+ * A database opened through its public link can't read its linked tables: those need an account
+ * with access to the MySQL connection or the other database.
+ */
+let publicViewing = false;
+export function setPublicViewing(on: boolean) {
+  publicViewing = on;
+}
+export const isPublicViewing = () => publicViewing;
+export const PUBLIC_LINK_MESSAGE = "Linked tables aren't available in a public view of this database.";
+function checkPublic(name: string) {
+  if (publicViewing) throw new Error(`'${name}': ${PUBLIC_LINK_MESSAGE}`);
+}
+
 /** Source databases fetched during one load, so each is read once. */
 export type SourceCache = Map<string, Promise<ProjectRecord>>;
 
@@ -55,6 +69,7 @@ export interface AppLinkData {
 /** Reads a link to a table or query in another database here, as a table. */
 export async function loadAppLink(link: LinkedTable, cache: SourceCache = new Map(), depth = 0): Promise<AppLinkData> {
   if (!isAppLink(link)) throw new Error("This isn't a link to another database.");
+  checkPublic(link.name);
   const from = link.sourceProjectName ? `'${link.sourceProjectName}'` : "its source database";
   let project: ProjectRecord;
   try {
@@ -98,6 +113,7 @@ export async function loadAppLink(link: LinkedTable, cache: SourceCache = new Ma
 }
 
 async function loadMySqlLink(link: LinkedTable, projectId: string, notes: string[]): Promise<TableDef> {
+  checkPublic(link.name);
   const cid = link.connectionId!;
   const remote = link.remoteTable!;
   const first = await api.remoteRows(projectId, cid, remote, 0, PAGE);

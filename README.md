@@ -11,7 +11,7 @@ downloaded as a real Microsoft Access **.accdb** file.
 | Access feature | Here |
 | --- | --- |
 | Backstage / start screen | Templates (Blank, Contacts & Orders), My databases and Shared with me, rename, delete |
-| Sharing | Share with registered users by email as **Can view** or **Can edit**, or let anyone with an account who has the link view or edit. Viewers can run queries, export, and **Save a copy**; other people's saves appear automatically within seconds |
+| Sharing | Share with registered users by email as **Can view** or **Can edit**, or let anyone with an account who has the link view or edit, or **publish** it so anyone with the link can view it without an account (no export or copy). Viewers can run queries, export, and **Save a copy**; other people's saves appear automatically within seconds |
 | Ribbon | File, Home, Create, External Data, Database Tools, plus contextual *Table Design* / *Query Design* tabs |
 | Navigation Pane | All Access Objects grouped by type, search, double-click to open, right-click Open / Design View / Copy / Paste / Rename / Delete, **F2 renames in place**, F11 to collapse |
 | Copy & paste | **Ctrl+C / Ctrl+V** (or Home → Paste) copies tables, queries, forms and reports, within a database or into another one you open. Tables paste as *Structure Only*, *Structure and Data* or *Append Data to Existing Table*; pasted forms and reports reconnect to their record source by name |
@@ -24,7 +24,7 @@ downloaded as a real Microsoft Access **.accdb** file.
 | Reports | Grouped, sorted print layout with group and grand totals; Print |
 | Relationships | Draggable table boxes, drag a field onto another to relate, Enforce Referential Integrity, 1–∞ lines |
 | Other databases | External Data → **Import Objects** / **Link Objects**: pick one of your databases or one shared with you, then its tables and queries. *Import* copies them (definition and data, or definition only, plus relationships between them), renaming anything whose name is taken and updating imported queries to match. *Link* shows the source's current data read-only, for tables and select queries; links work in local queries too, and stop working (with a clear message) if the source is unshared or deleted |
-| MySQL / MariaDB | External Data → **Connections**: server address (or a `mysql://` URL), port, database, user name, password and SSL, with **Test Connection**. **Link Tables** to browse remote tables (read-only, 500 records a page) and use them in local queries alongside your own tables; **Import Tables** copies tables, keys, indexes and foreign-key relationships with their data; **SQL Console** runs one statement at a time and shows `mysql`-client output (`Query OK…`, `ERROR 1146 (42S02)…`) plus a datasheet for SELECT results |
+| MySQL / MariaDB | External Data → **Connections**: server address (or a `mysql://` URL), port, database, user name, password and SSL, with **Test Connection**. **Test Connection** lists the server's databases to pick from. After saving, choose **Link Tables** (or **Link Tables…** in the Connections list) to see the database's tables; linked tables appear in the Navigation Pane and in Query Design's **Show Table**. **Link Tables** to browse remote tables (read-only, 500 records a page) and use them in local queries alongside your own tables; **Import Tables** copies tables, keys, indexes and foreign-key relationships with their data; **SQL Console** runs one statement at a time and shows `mysql`-client output (`Query OK…`, `ERROR 1146 (42S02)…`) plus a datasheet for SELECT results |
 | External Data | **Import Access databases** (.accdb/.mdb), import CSV/text into a new table (type detection), export a table/query to CSV, **export the database to .accdb** |
 | Phones & tablets | Detected automatically (screen size, touch input, and the browser's mobile hint). **Phones** get a phone layout: the ribbon collapses to its tab row and drops down when you tap a tab, the Navigation Pane becomes a slide-out drawer (☰), dialogs and menus fill the screen, forms stack in one column. **Touch screens** (phones and tablets) get taller rows, tap to open objects, tap a selected cell again to edit it, long-press for the object menu, tap-a-field-then-another to relate tables, and ◀ ✕ ▶ buttons to move query columns. File → **Layout** (or the start page) switches between Automatic, Phone and Desktop |
 | Keyboard | Ctrl+; enters today's date and Ctrl+Shift+; the time (in Date/Time and text fields), double-click a combo box to cycle its choices, Ctrl+Z / Ctrl+Y undo and redo, Ctrl+S saves (it also autosaves) |
@@ -153,6 +153,13 @@ or **Can edit**, and to set general access: *Restricted*, or *Anyone with an acc
 Shared databases appear under **Shared with me**. Only the owner can share, rename or delete; editors can change
 everything inside the database; viewers see it read-only and can run queries, export it, or **Save a copy** of their own.
 Removing a shared database from your list doesn't affect anyone else.
+
+**Public viewing.** Ticking *Public: anyone on the internet with the link can view* lets people open the database's link
+without an account (`GET /api/public/:id`). Public viewers browse tables and run queries, forms and reports, read-only.
+Exporting (.accdb and text), copying objects, **Save a copy**, and importing or linking from it into another database are
+turned off, and the server refuses those requests for anyone who only has public access. MySQL connection details and
+linked tables aren't available to them. Anything shown on screen can still be copied by hand, so don't publish data you
+wouldn't put on a public web page. Unticking it stops the link working for people without access straight away.
 
 Several people can have a database open at once. Each workspace checks every few seconds for other people's saves and
 loads them automatically when it has no unsaved changes of its own. If two people change it at the same moment, the

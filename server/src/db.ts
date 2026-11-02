@@ -72,6 +72,10 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX connections_project ON connections(project_id);
   `,
+  // 4: public viewing: anyone with the link, signed in or not, can view (no export or copy)
+  `
+  ALTER TABLE projects ADD COLUMN public_view INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export function openDatabase(file: string): DB {

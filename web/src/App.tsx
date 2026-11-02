@@ -23,19 +23,43 @@ function Root() {
   const [user, setUser] = useState<UserInfo | null | undefined>(undefined);
   const [project, setProject] = useState<ProjectRecord | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
+  // Not signed in: a database published for public viewing, opened from its link (undefined = still checking).
+  const [guestProject, setGuestProject] = useState<ProjectRecord | null | undefined>(undefined);
+  const [wantsSignIn, setWantsSignIn] = useState(false);
 
   useEffect(() => {
     api.me().then((r) => setUser(r.user), () => setUser(null));
   }, []);
 
+  const linkedId = () => new URLSearchParams(location.search).get("db");
+
+  // Signed out with a database link: it opens without an account if its owner published it.
+  useEffect(() => {
+    if (user !== null) return;
+    const id = linkedId();
+    if (!id) return setGuestProject(null);
+    api.getPublicProject(id).then(
+      (r) => {
+        setGuestProject(r.project);
+        document.title = `${r.project.name} - Access Web`;
+      },
+      () => setGuestProject(null),
+    );
+  }, [user]);
+
   // Keep the open database in the URL so a refresh reopens it.
   useEffect(() => {
     if (!user) return;
-    const id = new URLSearchParams(location.search).get("db");
+    const id = linkedId();
     if (id && !project) {
       api.getProject(id).then(
         (r) => open(r.project),
-        (e) => {
+        async (e) => {
+          // Not shared with this account, but maybe published for anyone to view.
+          if (e.status === 404) {
+            const pub = await api.getPublicProject(id).catch(() => null);
+            if (pub) return open(pub.project);
+          }
           history.replaceState(null, "", "/");
           setLinkError(
             e.status === 404
@@ -59,13 +83,28 @@ function Root() {
     setUser(null);
   };
 
-  if (user === undefined) return <div className="splash"><AccessIcon size={48} /></div>;
-  if (!user) return <AuthScreen onSignedIn={setUser} />;
+  if (user === undefined || (user === null && guestProject === undefined)) return <div className="splash"><AccessIcon size={48} /></div>;
+  if (!user && guestProject && !wantsSignIn) {
+    return (
+      <Workspace
+        key={guestProject.id}
+        project={guestProject}
+        user={GUEST}
+        onClose={() => setWantsSignIn(true)}
+        onSignOut={() => setWantsSignIn(true)}
+        onOpenProject={() => setWantsSignIn(true)}
+      />
+    );
+  }
+  if (!user) return <AuthScreen onSignedIn={setUser} onBack={guestProject ? () => setWantsSignIn(false) : undefined} />;
   if (project) return <Workspace key={project.id} project={project} user={user} onClose={() => open(null)} onSignOut={signOut} onOpenProject={open} />;
   return <Home user={user} onOpen={open} onSignOut={signOut} notice={linkError} onDismissNotice={() => setLinkError(null)} />;
 }
 
-function AuthScreen({ onSignedIn }: { onSignedIn: (u: UserInfo) => void }) {
+/** Shown as the "user" of a public database opened without signing in. */
+const GUEST: UserInfo = { id: "", email: "", name: "Guest" };
+
+function AuthScreen({ onSignedIn, onBack }: { onSignedIn: (u: UserInfo) => void; onBack?: () => void }) {
   const [mode, setMode] = useState<"signin" | "register">("signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -129,6 +168,11 @@ function AuthScreen({ onSignedIn }: { onSignedIn: (u: UserInfo) => void }) {
             {mode === "signin" ? "Create one" : "Sign in"}
           </button>
         </div>
+        {onBack && (
+          <div className="auth-switch">
+            <button type="button" className="link" onClick={onBack}>Back to the database</button>
+          </div>
+        )}
       </form>
     </div>
   );

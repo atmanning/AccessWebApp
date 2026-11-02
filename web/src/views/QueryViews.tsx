@@ -8,7 +8,9 @@ import { isActionType } from "../engine/statements";
 import { designJoins, designProblem, designSql, type QueryDesign } from "../engine/queryDesign";
 import { ComboBox, type ComboOption } from "../ui/ComboBox";
 import { Modal, useDialogs } from "../ui/dialogs";
-import { KeyIcon, TableIcon } from "../ui/icons";
+import { KeyIcon, LinkedTableIcon, TableIcon } from "../ui/icons";
+import { api } from "../api";
+import { isPublicViewing, loadAppLink, PUBLIC_LINK_MESSAGE } from "../engine/linked";
 import { useCommands, useWorkspace } from "../workspace/context";
 import { useRecordEditing } from "../workspace/useTableEditing";
 import { useRunAction } from "../workspace/useRunAction";
@@ -447,6 +449,14 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
   const lastPointer = useRef("mouse");
   const tablesRef = useRef<HTMLDivElement>(null);
   const joins = useMemo(() => designJoins(ws.doc, design.tables).joins, [ws.doc, design.tables]);
+  // Field names of linked tables (MySQL or another database), read from their source.
+  const linkedFields = useLinkedFields(design.tables);
+  const fieldsOf = (t: string): { id: string; name: string; primaryKey?: boolean }[] | undefined => {
+    const local = ws.doc.tables.find((x) => x.name === t);
+    if (local) return local.fields;
+    const l = linkedFields[t.toLowerCase()];
+    return l && "fields" in l ? l.fields : undefined;
+  };
   const [lines, setLines] = useState<JoinLine[]>([]);
   const [lineBox, setLineBox] = useState({ w: 0, h: 0 });
   // A field list being moved or resized (shown live, saved on release as one undo step).
@@ -502,8 +512,8 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
   }
 
   const fieldOptions = design.tables.flatMap((t) => {
-    const table = ws.doc.tables.find((x) => x.name === t);
-    return table ? [{ table: t, field: "*" }, ...table.fields.map((f) => ({ table: t, field: f.name }))] : [];
+    const fields = fieldsOf(t);
+    return fields ? [{ table: t, field: "*" }, ...fields.map((f) => ({ table: t, field: f.name }))] : [];
   });
   const cols = [...design.columns];
   while (cols.length < Math.max(8, design.columns.length + 2)) cols.push(EMPTY_COL);
@@ -669,6 +679,8 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
       >
         {design.tables.map((t, i) => {
           const table = ws.doc.tables.find((x) => x.name === t);
+          const linked = !table ? linkedFields[t.toLowerCase()] : undefined;
+          const fields = table?.fields ?? (linked && "fields" in linked ? linked.fields : undefined);
           const b = boxOf(t, i);
           return (
             <div
@@ -678,7 +690,9 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
               style={{ left: b.x, top: b.y, width: b.w ?? QD_BOX_W }}
             >
               <div className="field-list-title" onPointerDown={(e) => startBoxDrag(e, t, i, "move")} title="Drag to move">
-                <span>{t}</span>
+                <span>
+                  {!table && linked && <LinkedTableIcon size={12} />} {t}
+                </span>
                 <button
                   className="icon-btn"
                   aria-label={`Remove ${t}`}
@@ -696,11 +710,15 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
               </div>
               <ul style={b.h ? { height: b.h, maxHeight: "none" } : undefined}>
                 <li {...fieldProps(t, "*")} title={touch ? "Tap to add all fields" : "Double-click to add all fields"}>*</li>
-                {table?.fields.map((f) => (
+                {fields?.map((f) => (
                   <li key={f.id} data-qd-field={f.name} {...fieldProps(t, f.name)}>
                     {f.primaryKey && <KeyIcon size={11} />} {f.name}
                   </li>
-                )) ?? <li className="muted">(table deleted)</li>}
+                )) ?? (
+                  <li className="muted" title={linked && "error" in linked ? linked.error : undefined}>
+                    {!linked ? "(table deleted)" : "error" in linked ? "(fields unavailable)" : "Loading fields…"}
+                  </li>
+                )}
               </ul>
               <span className="qd-box-resize e" onPointerDown={(e) => startBoxDrag(e, t, i, "e")} aria-hidden="true" />
               <span className="qd-box-resize s" onPointerDown={(e) => startBoxDrag(e, t, i, "s")} aria-hidden="true" />
@@ -1093,11 +1111,50 @@ function measureJoinLines(box: HTMLElement, joins: ReturnType<typeof designJoins
   return out;
 }
 
+type LinkedFieldsState = Record<string, { fields: { id: string; name: string; primaryKey?: boolean }[] } | { error: string } | { loading: true }>;
+const linkedFieldCache = new Map<string, Promise<{ id: string; name: string }[]>>();
+
+/** Reads the field names of the linked tables among `names` (once per link and session). */
+function useLinkedFields(names: string[]): LinkedFieldsState {
+  const ws = useWorkspace();
+  const [state, setState] = useState<LinkedFieldsState>({});
+  const links = (ws.doc.linkedTables ?? []).filter((l) => names.some((n) => n.toLowerCase() === l.name.toLowerCase()) && !ws.doc.tables.some((t) => t.name.toLowerCase() === l.name.toLowerCase()));
+  const key = links.map((l) => l.id).join("|");
+  useEffect(() => {
+    let cancelled = false;
+    for (const link of links) {
+      const k = link.name.toLowerCase();
+      const cacheKey = `${ws.projectId}:${link.id}:${link.remoteTable ?? link.sourceId}`;
+      let p = linkedFieldCache.get(cacheKey);
+      if (!p) {
+        p = isPublicViewing()
+          ? Promise.reject(new Error(PUBLIC_LINK_MESSAGE))
+          : link.connectionId && link.remoteTable
+            ? api.remoteRows(ws.projectId, link.connectionId, link.remoteTable, 0, 1).then((r) => r.columns.map((name, i) => ({ id: `c${i}`, name })))
+            : loadAppLink(link).then((d) => d.table.fields.map((f) => ({ id: f.id, name: f.name })));
+        p.catch(() => linkedFieldCache.delete(cacheKey)); // try again next time
+        linkedFieldCache.set(cacheKey, p);
+      }
+      setState((s) => (s[k] ? s : { ...s, [k]: { loading: true } }));
+      p.then(
+        (fields) => !cancelled && setState((s) => ({ ...s, [k]: { fields } })),
+        (e: Error) => !cancelled && setState((s) => ({ ...s, [k]: { error: e.message } })),
+      );
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [key, ws.projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  return state;
+}
+
 function ShowTableDialog(props: { existing: string[]; onClose: () => void; onAdd: (names: string[]) => void }) {
   const { touch } = useLayout();
   const ws = useWorkspace();
   const [picked, setPicked] = useState<string[]>([]);
-  const tables = ws.doc.tables.map((t) => t.name);
+  const linkedNames = new Set((ws.doc.linkedTables ?? []).map((l) => l.name));
+  // Linked tables (MySQL or other databases) can be queried too, like in Access.
+  const tables = [...ws.doc.tables.map((t) => t.name), ...[...linkedNames].filter((n) => !ws.doc.tables.some((t) => t.name === n)).sort((a, b) => a.localeCompare(b))];
   return (
     <Modal
       title="Show Table"
@@ -1129,12 +1186,12 @@ function ShowTableDialog(props: { existing: string[]; onClose: () => void; onAdd
             onClick={(e) => setPicked((p) => (e.ctrlKey || e.metaKey || touch ? (p.includes(t) ? p.filter((x) => x !== t) : [...p, t]) : [t]))}
             onDoubleClick={() => props.onAdd([t])}
           >
-            <TableIcon /> {t}
+            {linkedNames.has(t) ? <LinkedTableIcon /> : <TableIcon />} {t}
           </div>
         ))}
         {!tables.length && <div className="muted pad">There are no tables yet.</div>}
       </div>
-      <p className="muted small">{touch ? "Tap to pick one or more." : "Ctrl+click to pick several."} Related tables are joined automatically using your relationships.</p>
+      <p className="muted small">{touch ? "Tap to pick one or more." : "Ctrl+click to pick several."} Related tables are joined automatically using your relationships. Linked tables have a link icon.</p>
     </Modal>
   );
 }

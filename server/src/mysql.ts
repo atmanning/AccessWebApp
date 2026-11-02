@@ -166,7 +166,11 @@ export async function testConnection(cfg: ConnectionSettings, allowPrivate: bool
   return withConnection(cfg, allowPrivate, async (c) => {
     const [rows] = await c.query({ sql: "SELECT VERSION() AS v, DATABASE() AS db", timeout: QUERY_TIMEOUT_MS });
     const r = (rows as { v: string; db: string | null }[])[0];
-    return { version: r.v, database: r.db, ms: Date.now() - started };
+    // The databases this user can see, to pick from when none is set.
+    const [dbs] = await c.query({ sql: "SHOW DATABASES", timeout: QUERY_TIMEOUT_MS, rowsAsArray: true });
+    const system = new Set(["information_schema", "mysql", "performance_schema", "sys"]);
+    const databases = (dbs as unknown[][]).map((d) => String(d[0])).filter((d) => !system.has(d.toLowerCase()));
+    return { version: r.v, database: r.db, databases, ms: Date.now() - started };
   });
 }
 

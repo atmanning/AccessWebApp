@@ -39,6 +39,7 @@ import { LinkedTableView, SqlConsoleView } from "../views/RemoteViews";
 import { cleanName } from "../../../shared/exchange";
 import { QUERY_TYPE_ICONS, typeOfQuery } from "./queryKinds";
 import { NavPane, type Selection } from "./NavPane";
+import { setPublicViewing } from "../engine/linked";
 import { Ribbon } from "./Ribbon";
 
 type SaveState = "saved" | "pending" | "saving" | "error" | "conflict";
@@ -54,6 +55,10 @@ export function Workspace(props: {
 }) {
   const role = props.project.role;
   const readOnly = role === "view";
+  // Opened through its public link: view only, with exporting, copying and saving a copy turned off.
+  const publicView = !!props.project.publicView;
+  const guest = !props.user.id;
+  setPublicViewing(publicView);
   const dialogs = useDialogs();
   const [doc, setDoc] = useState<ProjectDoc>(props.project.doc);
   const [name, setName] = useState(props.project.name);
@@ -74,13 +79,21 @@ export function Workspace(props: {
   // Saved MySQL connections for this database (loaded once, refreshed after changes).
   const [connections, setConnections] = useState<ConnectionInfo[] | null>(null);
   const [mysqlDialog, setMysqlDialog] = useState<"manage" | "link" | "import" | "new" | null>(null);
+  // Which connection the Link/Import Tables dialog starts on, and where a new connection leads next.
+  const [mysqlConn, setMysqlConn] = useState<string | undefined>(undefined);
+  const [afterNewConn, setAfterNewConn] = useState<"link" | "import" | null>(null);
+  const showRemoteTables = (mode: "link" | "import", connectionId?: string) => {
+    setMysqlConn(connectionId);
+    setMysqlDialog(mode);
+  };
   const refreshConnections = useCallback(async () => {
+    if (publicView) return setConnections([]); // connection details aren't public
     try {
       setConnections((await api.listConnections(props.project.id)).connections);
     } catch {
       setConnections([]);
     }
-  }, [props.project.id]);
+  }, [props.project.id, publicView]);
   useEffect(() => {
     void refreshConnections();
   }, [refreshConnections]);
@@ -364,7 +377,7 @@ export function Workspace(props: {
   };
 
   const reloadFromServer = async (message = "Reloaded the latest version.") => {
-    const { project } = await api.getProject(props.project.id);
+    const { project } = publicView ? await api.getPublicProject(props.project.id) : await api.getProject(props.project.id);
     revision.current = project.revision;
     savedDoc.current = project.doc;
     docRef.current = project.doc;
@@ -382,7 +395,7 @@ export function Workspace(props: {
     const check = async () => {
       if (document.hidden || saving.current) return;
       try {
-        const r = await api.getRevision(props.project.id);
+        const r = publicView ? await api.getPublicRevision(props.project.id) : await api.getRevision(props.project.id);
         if (stopped || r.revision <= revision.current) return;
         if (docRef.current === savedDoc.current) {
           await reloadFromServer(r.updatedByName ? `Updated with changes from ${r.updatedByName}.` : "Updated with the latest changes.");
@@ -450,6 +463,7 @@ export function Workspace(props: {
   // ---- Copy / paste ----
   const [pasting, setPasting] = useState<ClipItem | null>(null);
   const copySelected = (kind?: ObjectKind, id?: string) => {
+    if (publicView) return setStatus("Copying is turned off for this public database.", "error");
     const target = kind && id ? { kind, id } : selection;
     if (!target) return setStatus("Select a table, query, form or report in the Navigation Pane to copy it.", "error");
     const item = copyObject(docRef.current, props.project.id, target.kind, target.id);
@@ -517,7 +531,8 @@ export function Workspace(props: {
 
   const saveLabel = { saved: "All changes saved", pending: "Unsaved changes", saving: "Saving…", error: "Not saved — will retry", conflict: "Changed elsewhere" }[saveState];
   // Ribbon buttons call the view's latest handler, so they always see current state.
-  const activeCommands = liveCommands(commands.current, activeKey);
+  const live = liveCommands(commands.current, activeKey);
+  const activeCommands = publicView ? { ...live, exportText: undefined, print: live.print } : live;
 
   return (
     <WorkspaceContext.Provider value={wsApi}>
@@ -542,6 +557,12 @@ export function Workspace(props: {
             <button className="title-share" onClick={() => setSharing(true)} title="Share this database with other people">
               Share
             </button>
+          ) : publicView ? (
+            guest && (
+              <button className="title-share" onClick={props.onSignOut} title="Sign in or create an account">
+                Sign in
+              </button>
+            )
           ) : (
             <button className="title-share" onClick={saveCopy} title="Make your own copy of this database">
               Save a copy
@@ -561,17 +582,17 @@ export function Workspace(props: {
             createQueryDesign: createQuery,
             createForm: () => createFormOrReport("form"),
             createReport: () => createFormOrReport("report"),
-            importText: () => setImporting(true),
-            importAccess: () => accessInput.current?.click(),
-            copy: selection ? () => copySelected() : undefined,
+            importText: publicView ? undefined : () => setImporting(true),
+            importAccess: publicView ? undefined : () => accessInput.current?.click(),
+            copy: selection && !publicView ? () => copySelected() : undefined,
             paste: readOnly ? undefined : paste,
-            mysqlConnections: () => setMysqlDialog("manage"),
-            mysqlLink: readOnly ? undefined : () => setMysqlDialog(connections?.length ? "link" : "new"),
-            mysqlImport: readOnly ? undefined : () => setMysqlDialog(connections?.length ? "import" : "new"),
+            mysqlConnections: publicView ? undefined : () => setMysqlDialog("manage"),
+            mysqlLink: readOnly ? undefined : () => (connections?.length ? showRemoteTables("link") : (setAfterNewConn("link"), setMysqlDialog("new"))),
+            mysqlImport: readOnly ? undefined : () => (connections?.length ? showRemoteTables("import") : (setAfterNewConn("import"), setMysqlDialog("new"))),
             mysqlConsole: readOnly ? undefined : () => openConsole(),
             otherDbImport: readOnly ? undefined : () => setOtherDb("import"),
             otherDbLink: readOnly ? undefined : () => setOtherDb("link"),
-            exportAccess,
+            exportAccess: publicView ? undefined : exportAccess,
             openRelationships: () => openObject("relationships", "main"),
             refresh: () => setRefreshKey((k) => k + 1),
           }}
@@ -584,7 +605,14 @@ export function Workspace(props: {
             <button onClick={() => reloadFromServer()}>Reload latest</button>
           </div>
         )}
-        {readOnly && (
+        {publicView && (
+          <div className="message-bar readonly-bar">
+            <strong>Public view.</strong> {props.project.ownerName} published this database for anyone with the link to view. You can
+            browse it and run its queries, forms and reports; exporting and copying are turned off.
+            {guest && <button onClick={props.onSignOut}>Sign in</button>}
+          </div>
+        )}
+        {readOnly && !publicView && (
           <div className="message-bar readonly-bar">
             <strong>Read-only.</strong> {props.project.ownerName} shared this database with you to view. You can run queries and export it.
             <button onClick={saveCopy}>Save a copy</button>
@@ -658,13 +686,16 @@ export function Workspace(props: {
             onBack={() => setBackstage(false)}
             onRename={role === "owner" ? renameDatabase : undefined}
             onShare={role === "owner" ? () => { setBackstage(false); setSharing(true); } : undefined}
-            onCopy={saveCopy}
+            onCopy={publicView ? undefined : saveCopy}
+            guest={guest}
             roleText={
               role === "owner"
                 ? "You own this database."
-                : `${props.project.ownerName} shared this database with you. You can ${role === "edit" ? "view and edit" : "view"} it.`
+                : publicView
+                  ? `${props.project.ownerName} published this database for anyone with the link to view. Exporting and copying are turned off.`
+                  : `${props.project.ownerName} shared this database with you. You can ${role === "edit" ? "view and edit" : "view"} it.`
             }
-            onExport={exportAccess}
+            onExport={publicView ? undefined : exportAccess}
             onClose={async () => {
               await save();
               if (docRef.current !== savedDoc.current && !(await dialogs.confirm("Close", "Some changes haven't been saved yet. Close anyway?", { okLabel: "Close" }))) return;
@@ -678,14 +709,19 @@ export function Workspace(props: {
         )}
         {importing && <ImportCsvDialog onClose={() => setImporting(false)} />}
         {pasting && <PasteDialog item={pasting} onClose={() => setPasting(null)} />}
-        {mysqlDialog === "manage" && <ConnectionsManager onClose={() => setMysqlDialog(null)} onOpenConsole={openConsole} />}
+        {mysqlDialog === "manage" && (
+          <ConnectionsManager onClose={() => setMysqlDialog(null)} onOpenConsole={openConsole} onTables={(c, mode) => showRemoteTables(mode, c.id)} />
+        )}
         {mysqlDialog === "new" && (
           <ConnectionDialog
-            onClose={() => setMysqlDialog(null)}
+            onClose={() => (setMysqlDialog(null), setAfterNewConn(null))}
             onSaved={async (c) => {
-              setMysqlDialog(null);
               await refreshConnections();
               setStatus(`Saved connection ${c.name}.`);
+              // Started from Link Tables or Import Tables: carry on to the table list.
+              if (afterNewConn) showRemoteTables(afterNewConn, c.id);
+              else setMysqlDialog(null);
+              setAfterNewConn(null);
             }}
           />
         )}
@@ -693,7 +729,8 @@ export function Workspace(props: {
           <RemoteTablesDialog
             mode={mysqlDialog}
             onClose={() => setMysqlDialog(null)}
-            onNewConnection={() => setMysqlDialog("new")}
+            connectionId={mysqlConn}
+            onNewConnection={() => (setAfterNewConn(mysqlDialog), setMysqlDialog("new"))}
             onDone={(c, tables) => (mysqlDialog === "link" ? linkTables(c, tables) : importTables(c, tables))}
           />
         )}
@@ -866,9 +903,10 @@ function Backstage(props: {
   onBack: () => void;
   onRename?: () => void;
   onShare?: () => void;
-  onCopy: () => void;
+  onCopy?: () => void;
   roleText: string;
-  onExport: () => void;
+  onExport?: () => void;
+  guest?: boolean;
   onClose: () => void;
   onSignOut: () => void;
 }) {
@@ -886,12 +924,12 @@ function Backstage(props: {
         </button>
         <button className="active">Info</button>
         {props.onShare && <button onClick={props.onShare}>Share</button>}
-        <button onClick={props.onCopy}>Save a copy</button>
-        <button onClick={props.onExport}>Export to Access</button>
-        <button onClick={props.onClose}>Close</button>
+        {props.onCopy && <button onClick={props.onCopy}>Save a copy</button>}
+        {props.onExport && <button onClick={props.onExport}>Export to Access</button>}
+        {!props.guest && <button onClick={props.onClose}>Close</button>}
         <div className="spacer" />
         <LayoutPicker className="backstage-layout" />
-        <button onClick={props.onSignOut}>Sign out</button>
+        <button onClick={props.onSignOut}>{props.guest ? "Sign in" : "Sign out"}</button>
       </nav>
       <main className="backstage-main">
         <h1>Info</h1>
@@ -907,9 +945,10 @@ function Backstage(props: {
             <div className="button-row">
               {props.onRename && <button onClick={props.onRename}>Rename database…</button>}
               {props.onShare && <button onClick={props.onShare}>Share…</button>}
-              <button onClick={props.onCopy}>Save a copy…</button>
+              {props.onCopy && <button onClick={props.onCopy}>Save a copy…</button>}
             </div>
           </div>
+          {props.onExport && (
           <div className="info-card">
             <h3>Export to Microsoft Access</h3>
             <p>
@@ -919,11 +958,16 @@ function Backstage(props: {
             </p>
             <button className="primary" onClick={props.onExport}>Export .accdb</button>
           </div>
+          )}
           <div className="info-card">
             <h3>Account</h3>
-            <p>
-              Signed in as <strong>{props.user.name}</strong> ({props.user.email}). Your databases save automatically to your account.
-            </p>
+            {props.guest ? (
+              <p>You aren't signed in. Sign in or create an account to make and share your own databases.</p>
+            ) : (
+              <p>
+                Signed in as <strong>{props.user.name}</strong> ({props.user.email}). Your databases save automatically to your account.
+              </p>
+            )}
           </div>
         </div>
       </main>
