@@ -19,13 +19,18 @@ There are two ways to install it:
 
 ### 1. Install the tools (once)
 
-Open **PowerShell** and run (each `winget` line installs one tool; accept the prompts):
+Open **PowerShell** (Start → type *PowerShell*) and run these. The first line lets PowerShell run the `npm`
+command (a fresh Windows PC blocks it with *"running scripts is disabled on this system"*); each `winget` line
+installs one tool, and Windows may ask you to allow each installer:
 
 ```powershell
-winget install --id OpenJS.NodeJS.LTS -e
-winget install --id EclipseAdoptium.Temurin.21.JDK -e
-winget install --id Git.Git -e
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force
+winget install --id OpenJS.NodeJS.LTS -e --accept-source-agreements --accept-package-agreements
+winget install --id EclipseAdoptium.Temurin.21.JDK -e --accept-package-agreements
+winget install --id Git.Git -e --accept-package-agreements
 ```
+
+If `winget` isn't recognized, update **App Installer** from the Microsoft Store, then try again.
 
 Then install **Maven** (it builds the part that reads and writes `.accdb` files). Paste this into the same
 PowerShell window; it downloads Maven, unpacks it into your user folder and adds it to your *Path*:
@@ -61,7 +66,12 @@ npm run build
 npm run build:exporter
 ```
 
-Git may open a browser window to sign in to GitHub if the repository is private.
+`npm ci` and `npm run build` print some notices; they've worked when they end without `ERR!`. `npm run
+build:exporter` prints nothing when it works and creates `exporter\target\access-exporter.jar`.
+
+*Without Git:* on the GitHub page choose **Code → Download ZIP**, right-click the file → **Extract All**, and
+use the extracted `AccessWebApp-main` folder instead of `AccessWebApp` here and below (for example
+`cd $HOME\Downloads\AccessWebApp-main\AccessWebApp-main`). Updating then means downloading a new ZIP.
 
 ### 3. Start it
 
@@ -158,6 +168,8 @@ Notes for Docker:
 | `npm ci` fails building **better-sqlite3** (`node-gyp rebuild`, `gyp ERR! find VS`) | The project folder is missing its `.npmrc` file (it holds `ignore-scripts=true`; without it npm 11 tries to compile SQLite instead of using the ready-made build). Get the latest version of the app, or create the file in the project folder with PowerShell: `Set-Content .npmrc "ignore-scripts=true"`. Then delete `node_modules` and run `npm ci` again. Any Node.js 22 or newer works. |
 | `mvn` / `java` not recognized | Open a **new** PowerShell window after installing; check the Maven `bin` folder is on *Path*. |
 | `No compiler is provided in this environment. Perhaps you are running on a JRE rather than a JDK?` | Maven found a Java *runtime* instead of the JDK (usually an older Java with `JAVA_HOME` pointing at it). Install the JDK (`winget install --id EclipseAdoptium.Temurin.21.JDK -e`), set `JAVA_HOME` to its folder (e.g. `C:\Program Files\Eclipse Adoptium\jdk-21…`) and put its `bin` first on *Path*, then open a new PowerShell. `mvn -v` should show that folder as **Java home**. A system-wide `JAVA_HOME` overrides yours: change it under *Edit the system environment variables*. |
+| `npm : File C:\Program Files\nodejs\npm.ps1 cannot be loaded because running scripts is disabled on this system` | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force` in PowerShell (or type `npm.cmd` instead of `npm`). |
+| `winget` isn't recognized | Update **App Installer** from the Microsoft Store, or install the tools from their websites: Node.js LTS (nodejs.org), Temurin JDK 21 (adoptium.net), Git (git-scm.com). |
 | "Port 3000 is already in use" / `EADDRINUSE` | Another program uses it: change `PORT` in `start-local.cmd`. |
 | Can't sign in (page reloads to the sign-in screen) | Make sure you started it with `start-local.cmd`/`start-local.sh`, which turn off https-only cookies for `http://localhost`. |
 | Access import/export says Java or the exporter is missing | Install Java 21+, then run `npm run build:exporter`. |
