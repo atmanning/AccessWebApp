@@ -104,6 +104,7 @@ export function importFromDatabase(
       copy.design.tables = copy.design.tables.map(rn);
       copy.design.columns = copy.design.columns.map((c) => ({ ...c, table: c.table ? rn(c.table) : c.table }));
       if (copy.design.target) copy.design.target = rn(copy.design.target);
+      if (copy.design.joins) copy.design.joins = copy.design.joins.map((j) => ({ ...j, t1: rn(j.t1), t2: rn(j.t2) }));
       if (copy.design.boxes) copy.design.boxes = Object.fromEntries(Object.entries(copy.design.boxes).map(([k, v]) => [rn(k), v]));
     }
     doc.queries.push(copy);

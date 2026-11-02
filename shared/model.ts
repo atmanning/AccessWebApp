@@ -81,15 +81,22 @@ export const QUERY_TYPE_LABELS: Record<QueryType, string> = {
   crosstab: "Crosstab",
 };
 /** Choices in the design grid's Total row, as Access names them. */
-export const TOTAL_OPTIONS = ["Group By", "Sum", "Avg", "Min", "Max", "Count", "StDev", "Var", "First", "Last", "Where"] as const;
+export const TOTAL_OPTIONS = ["Group By", "Sum", "Avg", "Min", "Max", "Count", "StDev", "Var", "First", "Last", "Expression", "Where"] as const;
 export type TotalOption = (typeof TOTAL_OPTIONS)[number];
 
 export const queryColumnSchema = z.object({
   table: z.string(),
-  field: z.string(),
+  /** A field name, "*", or (with `expr`) an Access expression such as [Qty]*[Price]. */
+  field: z.string().max(4000),
+  /** `field` is an expression rather than a field of `table`. */
+  expr: z.boolean().optional(),
+  /** Output name, shown in the grid as Alias: Field (AS in SQL). */
+  alias: z.string().max(64).optional(),
   show: z.boolean(),
   sort: z.enum(["", "ASC", "DESC"]),
   criteria: z.string().max(1000),
+  /** The "or:" criteria rows below Criteria; each row is ANDed across columns, rows are ORed. */
+  or: z.array(z.string().max(1000)).max(20).optional(),
   /** Column width in the design grid, in pixels. */
   width: z.number().int().min(40).max(1000).optional(),
   /** Total row (select queries with Totals on, and crosstabs). */
@@ -131,6 +138,25 @@ export const querySchema = z.object({
             h: z.number().int().min(40).max(1200).optional(),
           }),
         )
+        .optional(),
+      /** Unique Values (SELECT DISTINCT). */
+      distinct: z.boolean().optional(),
+      /**
+       * Joins drawn between the tables. Unset = worked out from relationships (designs made before
+       * joins could be edited); set = exactly these, including outer joins.
+       */
+      joins: z
+        .array(
+          z.object({
+            t1: z.string(),
+            f1: z.string(),
+            t2: z.string(),
+            f2: z.string(),
+            /** inner; left = all records from t1; right = all records from t2. */
+            kind: z.enum(["inner", "left", "right"]),
+          }),
+        )
+        .max(64)
         .optional(),
       /** Height of the design grid in pixels (unset = standard). */
       gridHeight: z.number().int().min(80).max(2000).optional(),

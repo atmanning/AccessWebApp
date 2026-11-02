@@ -268,7 +268,15 @@ select.grid-input { padding: 0 2px; }
 .qd-box-resize.s { left: 0; right: 0; bottom: -3px; height: 6px; cursor: ns-resize; }
 .qd-box-resize.se { right: -4px; bottom: -4px; width: 10px; height: 10px; cursor: nwse-resize; }
 .qd-join-lines { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 2; overflow: visible; }
-.qd-join-lines path { fill: none; stroke: #333; stroke-width: 1.5; }
+.qd-join-lines path.stroke { fill: none; stroke: #333; stroke-width: 1.5; }
+.qd-join-lines path.hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: stroke; cursor: pointer; }
+.qd-join-lines marker path { fill: #333; }
+.qd-join.selected path.stroke { stroke: var(--accent); stroke-width: 3; }
+.join-props-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.join-props-fields strong { display: block; margin-bottom: 6px; }
+.join-props-options { display: flex; flex-direction: column; gap: 8px; }
+.join-props-options label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.join-props-options input { margin-top: 3px; }
 .qd-join-lines text { font-size: 11px; font-weight: 700; fill: #333; }
 .qd-add-table { position: absolute; z-index: 1; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; border: 1px dashed var(--border-strong); background: transparent; padding: 8px 12px; color: #555; }
 .qd-add-table:hover { background: #fff; color: inherit; }
@@ -642,3 +650,6 @@ select.grid-input { padding: 0 2px; }
 .share-public { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 4px; cursor: pointer; }
 .share-public input { margin-top: 3px; }
 .share-public > span { display: flex; flex-direction: column; gap: 2px; }
+
+.qd-unique { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; font-size: 12px; cursor: pointer; }
+.qd-note { color: #555; font-size: 12px; }

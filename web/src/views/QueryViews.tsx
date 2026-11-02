@@ -5,12 +5,10 @@ import { runQuery, type ResultSet } from "../engine/engine";
 import { previewAction } from "../engine/actions";
 import { loadLinkedTables } from "../engine/linked";
 import { isActionType } from "../engine/statements";
-import { designJoins, designProblem, designSql, type QueryDesign } from "../engine/queryDesign";
+import { designJoins, designProblem, designSql, relationshipJoins, type DesignJoin, type JoinKind, type QueryDesign } from "../engine/queryDesign";
 import { ComboBox, type ComboOption } from "../ui/ComboBox";
 import { Modal, useDialogs } from "../ui/dialogs";
-import { KeyIcon, LinkedTableIcon, TableIcon } from "../ui/icons";
-import { api } from "../api";
-import { isPublicViewing, loadAppLink, PUBLIC_LINK_MESSAGE } from "../engine/linked";
+import { KeyIcon, LinkedTableIcon, QueryIcon, TableIcon } from "../ui/icons";
 import { useCommands, useWorkspace } from "../workspace/context";
 import { useRecordEditing } from "../workspace/useTableEditing";
 import { useRunAction } from "../workspace/useRunAction";
@@ -18,6 +16,7 @@ import { QUERY_TYPE_ICONS, typeOfQuery } from "../workspace/queryKinds";
 import { parseInput } from "../engine/values";
 import { exportCsv } from "../workspace/csv";
 import { Datasheet, MAX_ROW_H, MIN_ROW_H, type DatasheetHandle } from "./Datasheet";
+import { readSqlDesign, sourceFieldNames, type SqlReadState } from "./sqlDesignReader";
 
 /** Runs a query and shows the results read-only. */
 export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: string }) {
@@ -368,17 +367,33 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
   const dragFrom = useRef<number | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
-  const design: QueryDesign = query.design ?? { tables: [], columns: [] };
+  // A query last changed in SQL View: read its SQL into the grid (checked against its results).
+  const savedGenerated = useMemo(() => (query.design ? designSql(ws.doc, query.design) : ""), [ws.doc, query.design]);
+  const needsRead = query.mode === "sql" && query.sql.trim() !== savedGenerated.trim();
+  const [read, setRead] = useState<SqlReadState | null>(null);
+  useEffect(() => {
+    if (!needsRead) return setRead(null);
+    let cancelled = false;
+    setRead({ status: "reading" });
+    readSqlDesign(ws.doc, ws.projectId, query).then((r) => !cancelled && setRead(r));
+    return () => {
+      cancelled = true;
+    };
+  }, [needsRead, query.sql]); // eslint-disable-line react-hooks/exhaustive-deps
+  const fromSql = needsRead && read?.status === "ok" ? read.design : null;
+
+  const design: QueryDesign = fromSql ?? query.design ?? { tables: [], columns: [] };
   const type: QueryType = design.type ?? "select";
   const totalsOn = type === "crosstab" || (!!design.totals && (type === "select" || type === "makeTable" || type === "append"));
-  const generated = useMemo(() => designSql(ws.doc, design), [ws.doc, design]);
-  const sqlDiverged = query.mode === "sql" && query.sql.trim() !== generated.trim();
+  const sqlDiverged = needsRead && !fromSql;
   const problem = designProblem(ws.doc, design);
   const appendTable = type === "append" ? ws.doc.tables.find((t) => t.name === design.target) : undefined;
 
   const setDesign = (fn: (dz: QueryDesign) => void) =>
     ws.update((d) => {
       const q = d.queries.find((x) => x.id === query.id)!;
+      // The first change to a design read from SQL starts from that design.
+      if (fromSql) q.design = structuredClone(fromSql);
       q.design ??= { tables: [], columns: [] };
       fn(q.design);
       q.design.columns = q.design.columns.filter((c) => c.field);
@@ -447,8 +462,13 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
 
   // ---- Join lines between the field lists, like Access draws them ----
   const lastPointer = useRef("mouse");
+  // The join line that's selected (Delete removes it) and the one open in Join Properties.
+  const [selectedJoin, setSelectedJoin] = useState<string | null>(null);
+  const [joinProps, setJoinProps] = useState<DesignJoin | null>(null);
+  // The field being dragged onto another table's field to join them.
+  const dragField = useRef<{ table: string; field: string } | null>(null);
   const tablesRef = useRef<HTMLDivElement>(null);
-  const joins = useMemo(() => designJoins(ws.doc, design.tables).joins, [ws.doc, design.tables]);
+  const joins = useMemo(() => designJoins(ws.doc, design.tables, design.joins).joins, [ws.doc, design.tables, design.joins]);
   // Field names of linked tables (MySQL or another database), read from their source.
   const linkedFields = useLinkedFields(design.tables);
   const fieldsOf = (t: string): { id: string; name: string; primaryKey?: boolean }[] | undefined => {
@@ -491,10 +511,12 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
   }, [joins, sqlDiverged, boxDrag, design.boxes, design.tables]);
 
   if (sqlDiverged) {
+    if (!read || read.status === "reading") return <div className="empty-view">Reading the SQL into Design View…</div>;
     return (
       <div className="query-error">
-        <strong>This query was changed in SQL View.</strong>
-        <p>Design View can't show SQL that was typed by hand. You can keep working in SQL View, or rebuild the query in the design grid (your SQL edits will be replaced).</p>
+        <strong>Design View can't show this query's SQL yet.</strong>
+        <p>{read.status === "failed" ? read.reason : ""}</p>
+        <p>You can keep working in SQL View, or start again in the design grid (your SQL will be replaced).</p>
         <div className="button-row">
           <button className="primary" onClick={() => ws.setTabView(tabKey, "sql")}>Go to SQL View</button>
           <button
@@ -515,6 +537,10 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
     const fields = fieldsOf(t);
     return fields ? [{ table: t, field: "*" }, ...fields.map((f) => ({ table: t, field: f.name }))] : [];
   });
+  /** Count(*): a * column that's a total, which can be sorted and given criteria. */
+  const isStarTotal = (c: QueryColumn) => totalsOn && !!c.total && c.total !== "Group By" && c.total !== "Where";
+  // "or:" criteria rows: the ones in use plus one empty row to type in.
+  const orRows = Array.from({ length: Math.min(20, 1 + Math.max(0, ...design.columns.map((c) => c.or?.length ?? 0))) }, (_, r) => r);
   const cols = [...design.columns];
   while (cols.length < Math.max(8, design.columns.length + 2)) cols.push(EMPTY_COL);
 
@@ -659,6 +685,39 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
   };
   const gridHeight = gridLive ?? design.gridHeight;
 
+  // ---- Joins: drag a field onto a field in another table; click a line, then Delete; double-click for Join Properties ----
+  /** A design that relies on relationships gets its joins written out the first time one is changed. */
+  const ownJoins = (dz: QueryDesign) =>
+    (dz.joins ??= relationshipJoins(ws.doc, dz.tables).map((j) => ({ t1: j.fromTable, f1: j.fromField, t2: j.toTable, f2: j.toField, kind: "inner" as const })));
+  const sameJoin = (x: NonNullable<QueryDesign["joins"]>[number], j: Pick<DesignJoin, "fromTable" | "fromField" | "toTable" | "toField">) =>
+    (x.t1 === j.fromTable && x.f1 === j.fromField && x.t2 === j.toTable && x.f2 === j.toField) ||
+    (x.t1 === j.toTable && x.f1 === j.toField && x.t2 === j.fromTable && x.f2 === j.fromField);
+  const addJoin = (from: { table: string; field: string }, to: { table: string; field: string }) => {
+    if (from.table === to.table || from.field === "*" || to.field === "*") return;
+    const j = { fromTable: from.table, fromField: from.field, toTable: to.table, toField: to.field };
+    if (joins.some((x) => sameJoin({ t1: x.fromTable, f1: x.fromField, t2: x.toTable, f2: x.toField, kind: x.kind }, j))) {
+      return ws.setStatus("Those fields are already joined.");
+    }
+    setDesign((dz) => {
+      ownJoins(dz).push({ t1: from.table, f1: from.field, t2: to.table, f2: to.field, kind: "inner" });
+    });
+    ws.setStatus(`Joined ${from.table}.${from.field} to ${to.table}.${to.field}. Double-click the line to change the join type.`);
+  };
+  const removeJoin = (j: DesignJoin) => {
+    setDesign((dz) => {
+      dz.joins = ownJoins(dz).filter((x) => !sameJoin(x, j));
+    });
+    setSelectedJoin(null);
+  };
+  const setJoinKind = (j: DesignJoin, kind: JoinKind) =>
+    setDesign((dz) => {
+      const x = ownJoins(dz).find((y) => sameJoin(y, j));
+      if (!x) return;
+      // Stored relative to t1/t2, which may be the other way round from the line's from/to.
+      const flipped = x.t1 !== j.fromTable;
+      x.kind = kind === "inner" || !flipped ? kind : kind === "left" ? "right" : "left";
+    });
+
   // A field is added to the grid by double-clicking it, or by tapping it with a finger. The kind
   // of pointer is read from the event itself, so a touchscreen laptop used with a mouse still
   // needs a double-click.
@@ -676,6 +735,13 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
         ref={tablesRef}
         onDoubleClick={(e) => (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains("qd-canvas-size")) && setShowTables(true)}
         title={design.tables.length ? "Drag a table's title bar to move it. Double-click an empty area to show more tables." : undefined}
+        tabIndex={-1}
+        onKeyDown={(e) => {
+          const j = lines.find((l) => l.id === selectedJoin)?.join;
+          if (j && e.key === "Delete") (e.preventDefault(), removeJoin(j));
+          else if (e.key === "Escape") setSelectedJoin(null);
+        }}
+        onMouseDown={(e) => !(e.target as Element).closest(".qd-join") && setSelectedJoin(null)}
       >
         {design.tables.map((t, i) => {
           const table = ws.doc.tables.find((x) => x.name === t);
@@ -691,7 +757,7 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
             >
               <div className="field-list-title" onPointerDown={(e) => startBoxDrag(e, t, i, "move")} title="Drag to move">
                 <span>
-                  {!table && linked && <LinkedTableIcon size={12} />} {t}
+                  {!table && linked && (ws.doc.queries.some((q) => q.name === t) ? <QueryIcon size={12} /> : <LinkedTableIcon size={12} />)} {t}
                 </span>
                 <button
                   className="icon-btn"
@@ -702,6 +768,7 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
                       dz.tables = dz.tables.filter((x) => x !== t);
                       dz.columns = dz.columns.filter((c) => c.table !== t);
                       if (dz.boxes) delete dz.boxes[t];
+                      if (dz.joins) dz.joins = dz.joins.filter((j) => j.t1 !== t && j.t2 !== t);
                     })
                   }
                 >
@@ -711,7 +778,25 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
               <ul style={b.h ? { height: b.h, maxHeight: "none" } : undefined}>
                 <li {...fieldProps(t, "*")} title={touch ? "Tap to add all fields" : "Double-click to add all fields"}>*</li>
                 {fields?.map((f) => (
-                  <li key={f.id} data-qd-field={f.name} {...fieldProps(t, f.name)}>
+                  <li
+                    key={f.id}
+                    data-qd-field={f.name}
+                    {...fieldProps(t, f.name)}
+                    draggable={!touch}
+                    onDragStart={(e) => {
+                      dragField.current = { table: t, field: f.name };
+                      e.dataTransfer.effectAllowed = "link";
+                      e.dataTransfer.setData("text/plain", `${t}.${f.name}`);
+                    }}
+                    onDragEnd={() => (dragField.current = null)}
+                    onDragOver={(e) => dragField.current && dragField.current.table !== t && e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const from = dragField.current;
+                      dragField.current = null;
+                      if (from) addJoin(from, { table: t, field: f.name });
+                    }}
+                  >
                     {f.primaryKey && <KeyIcon size={11} />} {f.name}
                   </li>
                 )) ?? (
@@ -739,11 +824,26 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
             </button>
           </div>
         )}
-        <svg className="qd-join-lines" width={lineBox.w} height={lineBox.h} aria-hidden="true">
+        <svg className="qd-join-lines" width={lineBox.w} height={lineBox.h}>
+          <defs>
+            <marker id="qd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" />
+            </marker>
+          </defs>
           {lines.map((l) => (
-            <g key={l.id}>
-              <title>{l.title}</title>
-              <path d={l.d} />
+            <g
+              key={l.id}
+              className={`qd-join ${selectedJoin === l.id ? "selected" : ""}`}
+              onClick={() => {
+                setSelectedJoin(l.id);
+                tablesRef.current?.focus();
+                if (touch) setJoinProps(l.join);
+              }}
+              onDoubleClick={() => setJoinProps(l.join)}
+            >
+              <title>{`${l.title}${l.join.kind === "inner" ? "" : ` (all records from ${l.join.kind === "left" ? l.join.fromTable : l.join.toTable})`}. Double-click for Join Properties.`}</title>
+              <path d={l.d} className="hit" />
+              <path d={l.d} className="stroke" markerEnd={l.join.kind === "left" ? "url(#qd-arrow)" : undefined} markerStart={l.join.kind === "right" ? "url(#qd-arrow)" : undefined} />
               {l.enforce && (
                 <>
                   <text x={l.oneX} y={l.oneY}>1</text>
@@ -772,6 +872,22 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
         <strong>{QUERY_TYPE_LABELS[type]} query</strong>
         {type === "makeTable" && design.target && <span>· new table: <strong>{design.target}</strong> <button className="link" onClick={() => setQueryType("makeTable")}>change</button></span>}
         {type === "append" && design.target && <span>· append to: <strong>{design.target}</strong> <button className="link" onClick={() => setAppendPicker(true)}>change</button></span>}
+        {(type === "select" || type === "makeTable" || type === "append") && (
+          <label className="qd-unique" title="Leave out duplicate records (SELECT DISTINCT)">
+            <input
+              type="checkbox"
+              checked={!!design.distinct}
+              onChange={(e) =>
+                setDesign((dz) => {
+                  if (e.target.checked) dz.distinct = true;
+                  else delete dz.distinct;
+                })
+              }
+            />
+            Unique Values
+          </label>
+        )}
+        {fromSql && <span className="qd-note">Read from SQL View.{read?.status === "ok" && read.note ? ` ${read.note}` : ""} Changing the design rewrites the SQL.</span>}
         {problem && design.columns.length > 0 && <span className="qd-problem">{problem}</span>}
       </div>
       <div
@@ -862,28 +978,50 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
               <th>Field:</th>
               {cols.map((c, i) => (
                 <td key={i} className={colClass(i)}>
-                  <ComboBox
-                    value={c.field ? `${c.table}\u0000${c.field}` : ""}
-                    ariaLabel={`Field ${i + 1}`}
-                    options={[
-                      { value: "", label: "" },
-                      ...fieldOptions.map((o) => ({
-                        value: `${o.table}\u0000${o.field}`,
-                        label: design.tables.length > 1 ? `${o.table}.${o.field}` : o.field,
-                      })),
-                    ]}
-                    onChange={(v) => {
-                      const [table, field] = v ? v.split("\u0000") : ["", ""];
-                      setCol(i, { table, field });
-                    }}
-                  />
+                  {c.expr || c.alias ? (
+                    // Alias: Field or Alias: Expression, typed like in Access.
+                    <input
+                      defaultValue={fieldCellText(c)}
+                      key={`f${i}:${fieldCellText(c)}`}
+                      aria-label={`Field ${i + 1}`}
+                      title={fieldCellText(c)}
+                      onBlur={(e) => e.target.value !== fieldCellText(c) && setCol(i, parseFieldCell(e.target.value, fieldOptions, design.tables))}
+                      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                    />
+                  ) : (
+                    <ComboBox
+                      value={c.field ? `${c.table}\u0000${c.field}` : ""}
+                      ariaLabel={`Field ${i + 1}`}
+                      options={[
+                        { value: "", label: "" },
+                        ...fieldOptions.map((o) => ({
+                          value: `${o.table}\u0000${o.field}`,
+                          label: design.tables.length > 1 ? `${o.table}.${o.field}` : o.field,
+                        })),
+                        ...(design.tables.length ? [{ value: EXPRESSION_CHOICE, label: "(Expression or name…)" }] : []),
+                      ]}
+                      onChange={async (v) => {
+                        if (v === EXPRESSION_CHOICE) {
+                          const typed = await dialogs.prompt(
+                            "Field",
+                            "Type a field or an expression, with an optional name in front, e.g.  Total: [Qty]*[Price]",
+                            c.field && c.field !== "*" ? (design.tables.length > 1 ? `[${c.table}].[${c.field}]` : `[${c.field}]`) : "",
+                          );
+                          if (typed?.trim()) setCol(i, parseFieldCell(typed, fieldOptions, design.tables));
+                          return;
+                        }
+                        const [table, field] = v ? v.split("\u0000") : ["", ""];
+                        setCol(i, { table, field, expr: undefined, alias: undefined });
+                      }}
+                    />
+                  )}
                 </td>
               ))}
             </tr>
             <tr>
               <th>Table:</th>
               {cols.map((c, i) => (
-                <td key={i} className={`qd-static ${colClass(i)}`}>{c.table}</td>
+                <td key={i} className={`qd-static ${colClass(i)}`}>{c.expr ? "" : c.table}</td>
               ))}
             </tr>
             {totalsOn && (
@@ -910,7 +1048,7 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
                     <ComboBox
                       value={c.crosstab ?? ""}
                       ariaLabel={`Crosstab ${i + 1}`}
-                      disabled={!c.field || c.field === "*"}
+                      disabled={!c.field || (c.field === "*" && !isStarTotal(c))}
                       options={CROSSTAB_OPTIONS}
                       onChange={(v) => setCol(i, { crosstab: v, ...(v === "value" && (!c.total || c.total === "Group By") ? { total: "Sum" as const } : {}) })}
                     />
@@ -926,7 +1064,7 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
                     <input
                       defaultValue={c.updateTo ?? ""}
                       key={`u${i}:${c.field}:${c.updateTo}`}
-                      disabled={!c.field || c.field === "*"}
+                      disabled={!c.field || (c.field === "*" && !isStarTotal(c))}
                       placeholder={c.field && c.field !== "*" ? 'e.g. "Closed" or [Price]*1.1' : ""}
                       aria-label={`Update To ${i + 1}`}
                       onBlur={(e) => e.target.value !== (c.updateTo ?? "") && setCol(i, { updateTo: e.target.value })}
@@ -952,7 +1090,7 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
                     <ComboBox
                       value={c.sort}
                       ariaLabel={`Sort ${i + 1}`}
-                      disabled={!c.field || c.field === "*"}
+                      disabled={!c.field || (c.field === "*" && !isStarTotal(c))}
                       options={SORT_OPTIONS}
                       onChange={(v) => setCol(i, { sort: v })}
                     />
@@ -968,7 +1106,7 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
                     <ComboBox
                       value={c.appendTo ?? ""}
                       ariaLabel={`Append To ${i + 1}`}
-                      disabled={!c.field || c.field === "*"}
+                      disabled={!c.field || (c.field === "*" && !isStarTotal(c))}
                       options={[{ value: "", label: "" }, ...(appendTable?.fields.map((f) => ({ value: f.name, label: f.name })) ?? [])]}
                       onChange={(v) => setCol(i, { appendTo: v || undefined })}
                     />
@@ -998,7 +1136,7 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
                   <input
                     defaultValue={c.criteria}
                     key={`${i}:${c.field}:${c.criteria}`}
-                    disabled={!c.field || c.field === "*"}
+                    disabled={!c.field || (c.field === "*" && !isStarTotal(c))}
                     placeholder={c.field && c.field !== "*" ? "e.g. >10" : ""}
                     onBlur={(e) => e.target.value !== c.criteria && setCol(i, { criteria: e.target.value })}
                     onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
@@ -1006,6 +1144,33 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
                 </td>
               ))}
             </tr>
+            {orRows.map((r) => (
+              <tr key={`or${r}`}>
+                <th>or:</th>
+                {cols.map((c, i) => {
+                  const v = c.or?.[r] ?? "";
+                  return (
+                    <td key={i} className={colClass(i)}>
+                      <input
+                        defaultValue={v}
+                        key={`or${r}:${i}:${c.field}:${v}`}
+                        disabled={!c.field || (c.field === "*" && !isStarTotal(c))}
+                        aria-label={`Or ${r + 1}, column ${i + 1}`}
+                        onBlur={(e) => {
+                          if (e.target.value === v) return;
+                          const or = [...(c.or ?? [])];
+                          while (or.length <= r) or.push("");
+                          or[r] = e.target.value;
+                          while (or.length && !or[or.length - 1]) or.pop();
+                          setCol(i, { or: or.length ? or : undefined });
+                        }}
+                        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                      />
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -1024,13 +1189,29 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
           }}
         />
       )}
+      {joinProps && (
+        <JoinPropertiesDialog
+          join={joinProps}
+          onClose={() => setJoinProps(null)}
+          onChange={(kind) => {
+            setJoinKind(joinProps, kind);
+            setJoinProps(null);
+          }}
+          onDelete={() => {
+            removeJoin(joinProps);
+            setJoinProps(null);
+          }}
+        />
+      )}
       {showTables && (
         <ShowTableDialog
           existing={design.tables}
+          queryId={query.id}
           onClose={() => setShowTables(false)}
           onAdd={(names) =>
             setDesign((dz) => {
               const placed = !!dz.boxes;
+              const before = [...dz.tables];
               let x = rightEdge() + QD_GAP;
               for (const n of names) {
                 if (dz.tables.includes(n)) continue;
@@ -1041,11 +1222,98 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
                   x += QD_BOX_W + QD_GAP;
                 }
               }
+              // Designs that list their joins get the relationship joins for the new tables, as Access adds them.
+              if (dz.joins && before.length) {
+                for (const j of relationshipJoins(ws.doc, dz.tables, before)) dz.joins.push({ t1: j.fromTable, f1: j.fromField, t2: j.toTable, f2: j.toField, kind: "inner" });
+              }
             })
           }
         />
       )}
     </div>
+  );
+}
+
+const EXPRESSION_CHOICE = "\u0001expr";
+
+/** The Field cell as Access shows it: Alias: [Field] or Alias: Expression. */
+function fieldCellText(c: QueryColumn): string {
+  const f = c.expr ? c.field : c.field === "*" ? `[${c.table}].*` : `[${c.table}].[${c.field}]`;
+  return c.alias ? `${c.alias}: ${f}` : f;
+}
+
+/**
+ * Reads a typed Field cell: "Name: [Table].[Field]", "[Field]" or "Name: expression".
+ * A plain field of one of the design's tables becomes a normal column; anything else an expression.
+ */
+function parseFieldCell(text: string, options: { table: string; field: string }[], tables: string[]): Partial<QueryColumn> {
+  let t = text.trim();
+  if (!t) return { field: "", table: "" };
+  let alias: string | undefined;
+  const m = /^([^:[\]"'#()]+?)\s*:\s*(?!=)(.+)$/.exec(t);
+  if (m) {
+    alias = m[1].trim();
+    t = m[2].trim();
+  }
+  const ref = /^(?:\[([^\]]+)\]|([A-Za-z_][\w ]*?))(?:\.(?:\[([^\]]+)\]|([A-Za-z_]\w*)))?$/.exec(t);
+  if (ref) {
+    const [first, second] = [ref[1] ?? ref[2], ref[3] ?? ref[4]];
+    const table = second ? tables.find((x) => x.toLowerCase() === first.toLowerCase()) : undefined;
+    const fieldName = (second ?? first).toLowerCase();
+    const hits = options.filter((o) => o.field !== "*" && o.field.toLowerCase() === fieldName && (!second || o.table === table));
+    if (hits.length === 1) return { table: hits[0].table, field: hits[0].field, expr: undefined, alias: alias && alias !== hits[0].field ? alias : undefined };
+  }
+  return { table: "", field: t, expr: true, alias };
+}
+
+/** Access's Join Properties: which records the join includes. */
+function JoinPropertiesDialog(props: { join: DesignJoin; onClose: () => void; onChange: (kind: JoinKind) => void; onDelete: () => void }) {
+  const j = props.join;
+  const [kind, setKind] = useState<JoinKind>(j.kind);
+  const options: { value: JoinKind; label: string }[] = [
+    { value: "inner", label: "Only include rows where the joined fields from both tables are equal." },
+    { value: "left", label: `Include ALL records from '${j.fromTable}' and only those records from '${j.toTable}' where the joined fields are equal.` },
+    { value: "right", label: `Include ALL records from '${j.toTable}' and only those records from '${j.fromTable}' where the joined fields are equal.` },
+  ];
+  return (
+    <Modal
+      title="Join Properties"
+      onClose={props.onClose}
+      width={480}
+      footer={
+        <>
+          <button onClick={props.onDelete}>Delete Join</button>
+          <span className="spacer" />
+          <button className="primary" onClick={() => props.onChange(kind)}>OK</button>
+          <button onClick={props.onClose}>Cancel</button>
+        </>
+      }
+    >
+      <div className="join-props-fields">
+        <div>
+          <div className="small muted">Left Table Name</div>
+          <strong>{j.fromTable}</strong>
+          <div className="small muted">Left Column Name</div>
+          <strong>{j.fromField}</strong>
+        </div>
+        <div>
+          <div className="small muted">Right Table Name</div>
+          <strong>{j.toTable}</strong>
+          <div className="small muted">Right Column Name</div>
+          <strong>{j.toField}</strong>
+        </div>
+      </div>
+      <div className="join-props-options" role="radiogroup" aria-label="Join type">
+        {options.map((o, i) => (
+          <label key={o.value}>
+            <input type="radio" name="join-kind" checked={kind === o.value} onChange={() => setKind(o.value)} />
+            <span>
+              {i + 1}: {o.label}
+            </span>
+          </label>
+        ))}
+      </div>
+    </Modal>
   );
 }
 
@@ -1057,6 +1325,7 @@ const QD_PAD = 14;
 
 interface JoinLine {
   id: string;
+  join: DesignJoin;
   d: string;
   title: string;
   enforce: boolean;
@@ -1071,7 +1340,7 @@ interface JoinLine {
  * the other, leaving from the facing sides. A field scrolled out of its list is pinned to the
  * list's top or bottom edge, as in Access.
  */
-function measureJoinLines(box: HTMLElement, joins: ReturnType<typeof designJoins>["joins"]): JoinLine[] {
+function measureJoinLines(box: HTMLElement, joins: DesignJoin[]): JoinLine[] {
   const origin = box.getBoundingClientRect();
   const relX = (x: number) => x - origin.left + box.scrollLeft;
   const relY = (y: number) => y - origin.top + box.scrollTop;
@@ -1098,7 +1367,8 @@ function measureJoinLines(box: HTMLElement, joins: ReturnType<typeof designJoins
     const bx = ltr ? b.left : b.right;
     const dx = ltr ? 16 : -16;
     out.push({
-      id: j.relationshipId,
+      id: j.key,
+      join: j,
       d: `M${ax} ${a.y} h${dx} L${bx - dx} ${b.y} h${dx}`,
       title: `${j.fromTable}.${j.fromField} = ${j.toTable}.${j.toField}`,
       enforce: j.enforce,
@@ -1112,29 +1382,26 @@ function measureJoinLines(box: HTMLElement, joins: ReturnType<typeof designJoins
 }
 
 type LinkedFieldsState = Record<string, { fields: { id: string; name: string; primaryKey?: boolean }[] } | { error: string } | { loading: true }>;
-const linkedFieldCache = new Map<string, Promise<{ id: string; name: string }[]>>();
 
-/** Reads the field names of the linked tables among `names` (once per link and session). */
+/** Reads the field names of the linked tables and saved queries among `names`. */
 function useLinkedFields(names: string[]): LinkedFieldsState {
   const ws = useWorkspace();
   const [state, setState] = useState<LinkedFieldsState>({});
-  const links = (ws.doc.linkedTables ?? []).filter((l) => names.some((n) => n.toLowerCase() === l.name.toLowerCase()) && !ws.doc.tables.some((t) => t.name.toLowerCase() === l.name.toLowerCase()));
-  const key = links.map((l) => l.id).join("|");
+  const others = names.filter((n) => !ws.doc.tables.some((t) => t.name.toLowerCase() === n.toLowerCase()));
+  // Re-read when a source changes (a query's SQL, a link's target).
+  const key = others
+    .map((n) => {
+      const l = ws.doc.linkedTables?.find((x) => x.name.toLowerCase() === n.toLowerCase());
+      const q = ws.doc.queries.find((x) => x.name.toLowerCase() === n.toLowerCase());
+      return `${n}:${l?.id ?? ""}:${q?.sql ?? ""}`;
+    })
+    .join("|");
   useEffect(() => {
     let cancelled = false;
-    for (const link of links) {
-      const k = link.name.toLowerCase();
-      const cacheKey = `${ws.projectId}:${link.id}:${link.remoteTable ?? link.sourceId}`;
-      let p = linkedFieldCache.get(cacheKey);
-      if (!p) {
-        p = isPublicViewing()
-          ? Promise.reject(new Error(PUBLIC_LINK_MESSAGE))
-          : link.connectionId && link.remoteTable
-            ? api.remoteRows(ws.projectId, link.connectionId, link.remoteTable, 0, 1).then((r) => r.columns.map((name, i) => ({ id: `c${i}`, name })))
-            : loadAppLink(link).then((d) => d.table.fields.map((f) => ({ id: f.id, name: f.name })));
-        p.catch(() => linkedFieldCache.delete(cacheKey)); // try again next time
-        linkedFieldCache.set(cacheKey, p);
-      }
+    for (const name of others) {
+      const k = name.toLowerCase();
+      const p = sourceFieldNames(ws.doc, ws.projectId, name);
+      if (!p) continue;
       setState((s) => (s[k] ? s : { ...s, [k]: { loading: true } }));
       p.then(
         (fields) => !cancelled && setState((s) => ({ ...s, [k]: { fields } })),
@@ -1148,13 +1415,18 @@ function useLinkedFields(names: string[]): LinkedFieldsState {
   return state;
 }
 
-function ShowTableDialog(props: { existing: string[]; onClose: () => void; onAdd: (names: string[]) => void }) {
+function ShowTableDialog(props: { existing: string[]; queryId: string; onClose: () => void; onAdd: (names: string[]) => void }) {
   const { touch } = useLayout();
   const ws = useWorkspace();
   const [picked, setPicked] = useState<string[]>([]);
   const linkedNames = new Set((ws.doc.linkedTables ?? []).map((l) => l.name));
-  // Linked tables (MySQL or other databases) can be queried too, like in Access.
-  const tables = [...ws.doc.tables.map((t) => t.name), ...[...linkedNames].filter((n) => !ws.doc.tables.some((t) => t.name === n)).sort((a, b) => a.localeCompare(b))];
+  // Linked tables (MySQL or other databases) and saved select queries can be used too, like in Access.
+  const queryNames = new Set(ws.doc.queries.filter((q) => q.id !== props.queryId && typeOfQuery(q) === "select").map((q) => q.name));
+  const tables = [
+    ...ws.doc.tables.map((t) => t.name),
+    ...[...linkedNames].filter((n) => !ws.doc.tables.some((t) => t.name === n)).sort((a, b) => a.localeCompare(b)),
+    ...[...queryNames].sort((a, b) => a.localeCompare(b)),
+  ];
   return (
     <Modal
       title="Show Table"
@@ -1186,12 +1458,12 @@ function ShowTableDialog(props: { existing: string[]; onClose: () => void; onAdd
             onClick={(e) => setPicked((p) => (e.ctrlKey || e.metaKey || touch ? (p.includes(t) ? p.filter((x) => x !== t) : [...p, t]) : [t]))}
             onDoubleClick={() => props.onAdd([t])}
           >
-            {linkedNames.has(t) ? <LinkedTableIcon /> : <TableIcon />} {t}
+            {queryNames.has(t) ? <QueryIcon /> : linkedNames.has(t) ? <LinkedTableIcon /> : <TableIcon />} {t}
           </div>
         ))}
         {!tables.length && <div className="muted pad">There are no tables yet.</div>}
       </div>
-      <p className="muted small">{touch ? "Tap to pick one or more." : "Ctrl+click to pick several."} Related tables are joined automatically using your relationships. Linked tables have a link icon.</p>
+      <p className="muted small">{touch ? "Tap to pick one or more." : "Ctrl+click to pick several."} Related tables are joined automatically using your relationships; drag a field onto a field in another table to join them yourself.</p>
     </Modal>
   );
 }

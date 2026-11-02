@@ -88,9 +88,14 @@ export function renameObject(doc: ProjectDoc, kind: ObjectKind, id: string, name
   if (!obj) return;
   const old = obj.name;
   obj.name = name;
-  if (kind === "table") {
+  // Tables and saved queries can both be sources in a query's design.
+  if (kind === "table" || kind === "query") {
     for (const q of doc.queries) {
       if (!q.design) continue;
+      for (const j of q.design.joins ?? []) {
+        if (j.t1 === old) j.t1 = name;
+        if (j.t2 === old) j.t2 = name;
+      }
       q.design.tables = q.design.tables.map((t) => (t === old ? name : t));
       for (const c of q.design.columns) if (c.table === old) c.table = name;
       if (q.design.boxes?.[old]) {
@@ -148,6 +153,10 @@ export function renameField(doc: ProjectDoc, table: TableDef, fieldId: string, n
   }
   for (const q of doc.queries) {
     for (const c of q.design?.columns ?? []) if (c.table === table.name && c.field === old) c.field = name;
+    for (const j of q.design?.joins ?? []) {
+      if (j.t1 === table.name && j.f1 === old) j.f1 = name;
+      if (j.t2 === table.name && j.f2 === old) j.f2 = name;
+    }
   }
 }
 
