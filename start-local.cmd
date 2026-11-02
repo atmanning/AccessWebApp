@@ -5,6 +5,11 @@ setlocal
 cd /d "%~dp0"
 title Access Web
 
+rem Use the private Node.js / Java that install.ps1 puts in .runtime, if it's there.
+if exist ".runtime\node\node.exe" set "PATH=%~dp0.runtime\node;%PATH%"
+if exist ".runtime\java\bin\java.exe" set "PATH=%~dp0.runtime\java\bin;%PATH%"
+if exist ".runtime\java\bin\java.exe" set "JAVA_BIN=%~dp0.runtime\java\bin\java.exe"
+
 if not exist "server\dist\server\src\index.js" goto notbuilt
 if not exist "web\dist\index.html" goto notbuilt
 where node >nul 2>nul || (echo Node.js isn't installed or isn't on PATH. See docs\INSTALL-LOCAL.md. & pause & exit /b 1)
@@ -32,7 +37,7 @@ pause
 exit /b
 
 :notbuilt
-echo Access Web hasn't been built yet. In this folder run:
+echo Access Web hasn't been built yet. Run install.cmd, or in this folder run:
 echo     npm ci
 echo     npm run build
 echo     npm run build:exporter

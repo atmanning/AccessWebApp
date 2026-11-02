@@ -4,8 +4,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Use the private Node.js / Java that install.sh puts in .runtime, if it's there.
+[[ -x .runtime/node/bin/node ]] && export PATH="$PWD/.runtime/node/bin:$PATH"
+[[ -x .runtime/java/bin/java ]] && export PATH="$PWD/.runtime/java/bin:$PATH" JAVA_BIN="$PWD/.runtime/java/bin/java"
+
 if [[ ! -f server/dist/server/src/index.js || ! -f web/dist/index.html ]]; then
-  echo "Access Web hasn't been built yet. In this folder run:"
+  echo "Access Web hasn't been built yet. Run install.sh, or in this folder run:"
   echo "    npm ci && npm run build && npm run build:exporter"
   exit 1
 fi
@@ -25,4 +29,4 @@ url="http://localhost:$PORT"
 echo "Starting Access Web on $url  (data folder: $DATA_DIR)"
 ( sleep 3
   if [[ "$(uname)" == Darwin ]]; then open "$url"; elif command -v xdg-open >/dev/null; then xdg-open "$url" >/dev/null 2>&1 || true; fi ) &
-exec node server/dist/server/src/index.js
+exec node "$PWD/server/dist/server/src/index.js"   # full path lets install.sh find and stop it
