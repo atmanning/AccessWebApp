@@ -1,7 +1,9 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Field, Relationship, TableDef } from "../../../shared/model";
+import { linkedRelations } from "../engine/queryDesign";
+import { sourceFieldNames } from "./sqlDesignReader";
 import { Modal, useDialogs } from "../ui/dialogs";
-import { KeyIcon } from "../ui/icons";
+import { KeyIcon, LinkedTableIcon } from "../ui/icons";
 import { useLayout } from "../ui/layout";
 import { useCommands, useWorkspace } from "../workspace/context";
 import { newId } from "../workspace/docOps";
@@ -11,6 +13,14 @@ const HEAD_H = 24;
 const ROW_H = 20;
 
 type Draft = Omit<Relationship, "id"> & { id?: string };
+
+/** A table in the window: one of this database's, or a linked MySQL table with foreign keys. */
+interface Box {
+  id: string;
+  name: string;
+  fields: { id: string; name: string; primaryKey?: boolean }[];
+  linked?: boolean;
+}
 
 function compatible(a: Field, b: Field) {
   const norm = (f: Field) => (f.type === "AutoNumber" ? "Number:Long" : f.type === "Number" ? `Number:${f.numberSize ?? "Long"}` : f.type);
@@ -27,14 +37,44 @@ export function RelationshipsView({ tabKey }: { tabKey: string }) {
   const [picked, setPicked] = useState<{ table: string; field: string } | null>(null);
   const dragField = useRef<{ table: string; field: string } | null>(null);
 
-  const tables = ws.doc.tables;
-  const pos = (t: TableDef, i: number) => positions[t.id] ?? { x: 24 + (i % 4) * 240, y: 24 + Math.floor(i / 4) * 260 };
+  // Linked MySQL tables joined by foreign keys on the server are shown too (read-only, dashed lines).
+  const remoteRels = useMemo(() => linkedRelations(ws.doc), [ws.doc]);
+  const remoteLinks = useMemo(
+    () => (ws.doc.linkedTables ?? []).filter((l) => remoteRels.some((r) => r.fromTable === l.name || r.toTable === l.name)),
+    [ws.doc.linkedTables, remoteRels],
+  );
+  const [linkedFields, setLinkedFields] = useState<Record<string, { id: string; name: string }[]>>({});
+  useEffect(() => {
+    let cancelled = false;
+    for (const l of remoteLinks) {
+      sourceFieldNames(ws.doc, ws.projectId, l.name)?.then(
+        (fields) => !cancelled && setLinkedFields((s) => ({ ...s, [l.id]: fields.map((f) => ({ id: f.name, name: f.name })) })),
+        () => {},
+      );
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [remoteLinks.map((l) => l.id).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+  const tables: Box[] = useMemo(
+    () => [
+      ...ws.doc.tables,
+      ...remoteLinks.map((l) => {
+        // Until the server answers, show the fields the foreign keys name.
+        const known = remoteRels.flatMap((r) => (r.fromTable === l.name ? [r.fromField] : r.toTable === l.name ? [r.toField] : []));
+        return { id: l.id, name: l.name, linked: true, fields: linkedFields[l.id] ?? [...new Set(known)].map((n) => ({ id: n, name: n })) };
+      }),
+    ],
+    [ws.doc.tables, remoteLinks, remoteRels, linkedFields],
+  );
+  const pos = (t: Box, i: number) => positions[t.id] ?? { x: 24 + (i % 4) * 240, y: 24 + Math.floor(i / 4) * 260 };
   const layout = useMemo(() => new Map(tables.map((t, i) => [t.id, { ...pos(t, i), t }])), [tables, positions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const anchor = (tableId: string, fieldId: string, side: "left" | "right") => {
     const l = layout.get(tableId);
     if (!l) return null;
-    const idx = l.t.fields.findIndex((f) => f.id === fieldId);
+    const idx = l.t.fields.findIndex((f) => f.id === fieldId || (l.t.linked && f.name.toLowerCase() === fieldId.toLowerCase()));
+    if (idx < 0) return null;
     return { x: side === "left" ? l.x : l.x + BOX_W, y: l.y + HEAD_H + idx * ROW_H + ROW_H / 2 };
   };
 
@@ -66,11 +106,12 @@ export function RelationshipsView({ tabKey }: { tabKey: string }) {
 
   useCommands(tabKey, {
     addRelationship: () => {
-      if (tables.length < 2) {
+      const own = ws.doc.tables;
+      if (own.length < 2) {
         ws.setStatus("Create at least two tables before adding a relationship.", "error");
         return;
       }
-      setEditing({ fromTable: tables[0].id, fromField: tables[0].fields[0]?.id ?? "", toTable: tables[1].id, toField: tables[1].fields[0]?.id ?? "", enforce: true });
+      setEditing({ fromTable: own[0].id, fromField: own[0].fields[0]?.id ?? "", toTable: own[1].id, toField: own[1].fields[0]?.id ?? "", enforce: true });
     },
     deleteRecord: () => selected && remove(selected),
   });
@@ -107,14 +148,47 @@ export function RelationshipsView({ tabKey }: { tabKey: string }) {
               </g>
             );
           })}
+          {remoteRels.map((r, i) => {
+            const fromBox = tables.find((t) => t.linked && t.name === r.fromTable);
+            const toBox = tables.find((t) => t.linked && t.name === r.toTable);
+            const fromL = fromBox && layout.get(fromBox.id);
+            const toL = toBox && layout.get(toBox.id);
+            if (!fromL || !toL) return null;
+            const leftToRight = fromL.x <= toL.x;
+            const a = anchor(fromBox!.id, r.fromField, leftToRight ? "right" : "left");
+            const b = anchor(toBox!.id, r.toField, leftToRight ? "left" : "right");
+            if (!a || !b) return null;
+            const dx = leftToRight ? 14 : -14;
+            const d = `M${a.x} ${a.y} h${dx} L${b.x - dx} ${b.y} h${dx}`;
+            return (
+              <g
+                key={`remote${i}`}
+                className="rel-line remote"
+                onClick={() => ws.setStatus(`${r.fromTable}.${r.fromField} → ${r.toTable}.${r.toField} is a foreign key on the MySQL server. Change it there; Query Design joins these linked tables with it.`)}
+              >
+                <title>Foreign key on the MySQL server (read-only here)</title>
+                <path d={d} className="hit" />
+                <path d={d} className="stroke" />
+                <text x={a.x + (leftToRight ? 3 : -10)} y={a.y - 4} className="rel-card">1</text>
+                <text x={b.x - (leftToRight ? 12 : -3)} y={b.y - 4} className="rel-card">∞</text>
+              </g>
+            );
+          })}
         </svg>
         {tables.map((t) => {
           const l = layout.get(t.id)!;
           return (
-            <div key={t.id} className="rel-box" style={{ left: l.x, top: l.y, width: BOX_W }} onPointerDown={(e) => startDrag(e, t.id)}>
-              <div className="rel-box-title" style={{ height: HEAD_H }}>{t.name}</div>
+            <div key={t.id} className={`rel-box ${t.linked ? "linked" : ""}`} style={{ left: l.x, top: l.y, width: BOX_W }} onPointerDown={(e) => startDrag(e, t.id)}>
+              <div className="rel-box-title" style={{ height: HEAD_H }} title={t.linked ? "Linked MySQL table: its relationships are foreign keys on the server" : undefined}>
+                {t.linked && <LinkedTableIcon size={12} />}&nbsp;{t.name}
+              </div>
               <ul>
-                {t.fields.map((f) => (
+                {t.linked && t.fields.map((f) => (
+                  <li key={f.id} style={{ height: ROW_H }} className="rel-linked-field">
+                    {f.name}
+                  </li>
+                ))}
+                {!t.linked && t.fields.map((f) => (
                   <li
                     key={f.id}
                     style={{ height: ROW_H }}
@@ -153,7 +227,7 @@ export function RelationshipsView({ tabKey }: { tabKey: string }) {
             </div>
           );
         })}
-        {!tables.length && <div className="empty-view">Create some tables first, then relate them here.</div>}
+        {!ws.doc.tables.length && !remoteLinks.length && <div className="empty-view">Create some tables first, then relate them here.</div>}
       </div>
       </div>
       <div className="rel-help muted small">

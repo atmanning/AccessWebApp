@@ -305,6 +305,21 @@ export const linkedTableSchema = z.object({
   sourceId: id.optional(),
   sourceName: z.string().max(64).optional(),
   sourceProjectName: z.string().max(200).optional(),
+  /**
+   * MySQL link: the table's foreign keys, read from the server when it was linked, so Query Design
+   * can join linked tables and the Relationships window can show them. Unset = not read yet.
+   */
+  foreignKeys: z
+    .array(
+      z.object({
+        name: z.string().max(64),
+        /** The referenced (parent) table on the MySQL server. */
+        refTable: z.string().max(64),
+        columns: z.array(z.object({ field: z.string().max(64), refField: z.string().max(64) })).min(1).max(16),
+      }),
+    )
+    .max(64)
+    .optional(),
 });
 export type LinkedTable = z.infer<typeof linkedTableSchema>;
 
@@ -456,6 +471,14 @@ export interface ConnectionInfo {
   user: string;
   ssl: SslMode;
   hasPassword: boolean;
+}
+
+/** A foreign key on a MySQL server: child table columns that reference a parent table. */
+export interface RemoteForeignKey {
+  name: string;
+  table: string;
+  refTable: string;
+  columns: { field: string; refField: string }[];
 }
 
 export interface RemoteTableInfo {

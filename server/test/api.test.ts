@@ -391,6 +391,16 @@ describe.skipIf(!mysqlUrl)("mysql connections", () => {
     expect(products.rows[0]).toContain("2026-05-01T10:30");
   });
 
+  it("reads foreign keys, so linked tables can be joined", async () => {
+    const { foreignKeys } = (await viewer.get(`${base()}/${cid}/foreign-keys`)).body;
+    expect(foreignKeys).toEqual(
+      expect.arrayContaining([
+        { name: "orders_ibfk_1", table: "orders", refTable: "customers", columns: [{ field: "customer_id", refField: "id" }] },
+        { name: "orders_ibfk_2", table: "orders", refTable: "products", columns: [{ field: "sku", refField: "sku" }] },
+      ]),
+    );
+  });
+
   it("runs SQL like the mysql client: result sets, OK packets and errors", async () => {
     const sql = (q: string) => owner.post(`${base()}/${cid}/sql`).send({ sql: q }).then((r) => r.body);
     const rows = await sql("SELECT name, balance FROM customers WHERE vip = 1 ORDER BY id");

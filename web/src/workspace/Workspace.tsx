@@ -2,7 +2,8 @@ import { produce } from "immer";
 import { LayoutPicker } from "../ui/LayoutPicker";
 import { useLayout, useLongPress } from "../ui/layout";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ConnectionInfo, ObjectKind, ProjectDoc, ProjectRecord, RemoteTableInfo, UserInfo } from "../../../shared/model";
+import type { ConnectionInfo, LinkedTable, ObjectKind, ProjectDoc, ProjectRecord, RemoteForeignKey, RemoteTableInfo, UserInfo } from "../../../shared/model";
+import { linkedRelations } from "../engine/queryDesign";
 import { api, ApiError } from "../api";
 import { Modal, showImportWarnings, useDialogs } from "../ui/dialogs";
 import { dateShortcut, insertAtCaret, isTextBox, nowText } from "../ui/dateKeys";
@@ -425,20 +426,62 @@ export function Workspace(props: {
     openObject("console", target.id);
   };
 
-  const linkTables = (c: ConnectionInfo, tables: RemoteTableInfo[]) => {
+  const linkTables = async (c: ConnectionInfo, tables: RemoteTableInfo[]) => {
+    // Their foreign keys come too, so Query Design joins linked tables like related ones.
+    const fks = await api.remoteForeignKeys(props.project.id, c.id).then((r) => r.foreignKeys, () => null);
     const ids: string[] = [];
     update((d) => {
       d.linkedTables ??= [];
       for (const t of tables) {
         const id = newId("lt");
         ids.push(id);
-        d.linkedTables.push({ id, name: uniqueObjectName(d, "linked", cleanName(t.name, "Linked")), connectionId: c.id, remoteTable: t.name });
+        d.linkedTables.push({
+          id,
+          name: uniqueObjectName(d, "linked", cleanName(t.name, "Linked")),
+          connectionId: c.id,
+          remoteTable: t.name,
+          ...(fks ? { foreignKeys: foreignKeysOf(fks, t.name) } : {}),
+        });
       }
     });
     setMysqlDialog(null);
-    setStatus(`Linked ${tables.length} table(s) from ${c.name}. They're in the Tables group with a link icon.`);
+    const related = fks ? linkedRelations(docRef.current).filter((r) => ids.some((id) => docRef.current.linkedTables?.find((l) => l.id === id && (l.name === r.fromTable || l.name === r.toTable)))).length : 0;
+    setStatus(
+      `Linked ${tables.length} table(s) from ${c.name}. They're in the Tables group with a link icon.` +
+        (related ? " Their foreign keys join them automatically in Query Design." : fks ? "" : " (Their foreign keys couldn't be read.)"),
+    );
     if (ids.length === 1) openObject("linked", ids[0]);
   };
+
+  // Tables linked before foreign keys were read: read them once, quietly (not an undo step).
+  useEffect(() => {
+    if (readOnly || publicView || !connections) return;
+    const pending = [...new Set((doc.linkedTables ?? []).filter((l) => l.connectionId && l.remoteTable && !l.foreignKeys).map((l) => l.connectionId!))];
+    const known = pending.filter((cid) => connections.some((c) => c.id === cid && c.database));
+    if (!known.length) return;
+    let cancelled = false;
+    void (async () => {
+      for (const cid of known) {
+        const fks = await api.remoteForeignKeys(props.project.id, cid).then((r) => r.foreignKeys, () => null);
+        if (cancelled || !fks) continue;
+        const next = produce(docRef.current, (d) => {
+          for (const l of d.linkedTables ?? []) if (l.connectionId === cid && l.remoteTable && !l.foreignKeys) l.foreignKeys = foreignKeysOf(fks, l.remoteTable);
+        });
+        if (next === docRef.current) continue;
+        // Keep undo history pointing at documents that already have them, so undo doesn't drop them.
+        history.current.past = history.current.past.map((p) =>
+          produce(p, (d) => {
+            for (const l of d.linkedTables ?? []) if (l.connectionId === cid && l.remoteTable && !l.foreignKeys) l.foreignKeys = foreignKeysOf(fks, l.remoteTable);
+          }),
+        );
+        docRef.current = next;
+        setDoc(next);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [connections, (doc.linkedTables ?? []).map((l) => `${l.id}:${!!l.foreignKeys}`).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const importTables = async (c: ConnectionInfo, tables: RemoteTableInfo[]) => {
     try {
@@ -973,4 +1016,12 @@ function Backstage(props: {
       </main>
     </div>
   );
+}
+
+/** The foreign keys of one remote table, as stored on its link. */
+function foreignKeysOf(all: RemoteForeignKey[], table: string): NonNullable<LinkedTable["foreignKeys"]> {
+  return all
+    .filter((fk) => fk.table.toLowerCase() === table.toLowerCase())
+    .slice(0, 64)
+    .map((fk) => ({ name: fk.name.slice(0, 64), refTable: fk.refTable, columns: fk.columns.slice(0, 16) }));
 }

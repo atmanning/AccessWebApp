@@ -2,6 +2,7 @@ import type {
   ConnectionInfo,
   ConnectionInput,
   RemoteRows,
+  RemoteForeignKey,
   RemoteTableInfo,
   SqlRunResult,
   LinkAccess,
@@ -95,6 +96,8 @@ export const api = {
       | { ok: true; version: string; database: string | null; databases: string[]; ms: number }
       | { ok: false; error: { errno: number | null; sqlState: string | null; message: string } }
     >("POST", `/api/projects/${pid}/connections/test`, { settings, connectionId }),
+  remoteForeignKeys: (pid: string, cid: string) =>
+    call<{ foreignKeys: RemoteForeignKey[] }>("GET", `/api/projects/${pid}/connections/${cid}/foreign-keys`),
   remoteTables: (pid: string, cid: string) => call<{ tables: RemoteTableInfo[] }>("GET", `/api/projects/${pid}/connections/${cid}/tables`),
   remoteRows: (pid: string, cid: string, table: string, offset: number, limit: number) =>
     call<RemoteRows>("GET", `/api/projects/${pid}/connections/${cid}/tables/${encodeURIComponent(table)}/rows?offset=${offset}&limit=${limit}`),

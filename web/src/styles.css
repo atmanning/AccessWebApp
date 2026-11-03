@@ -267,7 +267,7 @@ select.grid-input { padding: 0 2px; }
 .qd-box-resize.e { top: 0; right: -3px; width: 6px; bottom: 0; cursor: ew-resize; }
 .qd-box-resize.s { left: 0; right: 0; bottom: -3px; height: 6px; cursor: ns-resize; }
 .qd-box-resize.se { right: -4px; bottom: -4px; width: 10px; height: 10px; cursor: nwse-resize; }
-.qd-join-lines { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 2; overflow: visible; }
+.qd-join-lines { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 0; overflow: visible; }
 .qd-join-lines path.stroke { fill: none; stroke: #333; stroke-width: 1.5; }
 .qd-join-lines path.hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: stroke; cursor: pointer; }
 .qd-join-lines marker path { fill: #333; }
@@ -330,6 +330,9 @@ select.grid-input { padding: 0 2px; }
 .rel-line .hit { stroke: transparent; stroke-width: 10; fill: none; }
 .rel-line .stroke { stroke: #333; stroke-width: 1.5; fill: none; }
 .rel-line.selected .stroke { stroke: #0078d4; stroke-width: 2.5; }
+.rel-line.remote .stroke { stroke-dasharray: 5 3; }
+.rel-box.linked .rel-box-title { font-style: italic; }
+.rel-box li.rel-linked-field { cursor: move; color: #444; }
 .rel-card { font-size: 12px; font-weight: 700; fill: #333; }
 .rel-box { position: absolute; background: #fff; border: 1px solid var(--border-strong); box-shadow: 1px 2px 5px rgba(0, 0, 0, 0.15); cursor: move; user-select: none; }
 .rel-box-title { background: var(--chrome-2); font-weight: 600; padding: 0 8px; display: flex; align-items: center; border-bottom: 1px solid var(--border); box-sizing: border-box; }

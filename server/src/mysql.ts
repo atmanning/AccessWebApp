@@ -8,7 +8,7 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import mysql, { type FieldPacket, type ResultSetHeader } from "mysql2/promise";
-import type { CellValue, ConnectionInput, Field, RemoteRows, RemoteTableInfo, SqlRunResult, SslMode } from "../../shared/model.js";
+import type { CellValue, ConnectionInput, Field, RemoteForeignKey, RemoteRows, RemoteTableInfo, SqlRunResult, SslMode } from "../../shared/model.js";
 import type { ExchangeColumn, ExchangeDocument } from "../../shared/exchange.js";
 
 // ---- Secrets ------------------------------------------------------------------------------
@@ -433,24 +433,38 @@ export async function readTablesForImport(c: Conn, tables: string[], maxRows: nu
     });
   }
   // Foreign keys between the imported tables become relationships.
-  const [fks] = await c.query({
-    sql: `SELECT k.TABLE_NAME AS child, k.COLUMN_NAME AS childCol, k.REFERENCED_TABLE_NAME AS parent, k.REFERENCED_COLUMN_NAME AS parentCol,
-                 k.CONSTRAINT_NAME AS name, (SELECT COUNT(*) FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE k2
-                   WHERE k2.TABLE_SCHEMA = k.TABLE_SCHEMA AND k2.CONSTRAINT_NAME = k.CONSTRAINT_NAME AND k2.TABLE_NAME = k.TABLE_NAME) AS parts
-          FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE k
-          WHERE k.TABLE_SCHEMA = DATABASE() AND k.REFERENCED_TABLE_NAME IS NOT NULL`,
-    timeout: QUERY_TIMEOUT_MS,
-  });
   const names = new Set(out.tables.map((t) => t.name));
-  for (const fk of fks as { child: string; childCol: string; parent: string; parentCol: string; name: string; parts: number }[]) {
-    if (!names.has(fk.child) || !names.has(fk.parent)) continue;
-    if (Number(fk.parts) > 1) {
+  for (const fk of await listForeignKeys(c)) {
+    if (!names.has(fk.table) || !names.has(fk.refTable)) continue;
+    if (fk.columns.length > 1) {
       warnings.push(`Skipped foreign key '${fk.name}' (multi-field relationships aren't supported yet).`);
       continue;
     }
-    out.relationships.push({ fromTable: fk.parent, fromColumn: fk.parentCol, toTable: fk.child, toColumn: fk.childCol, enforce: true });
+    const [col] = fk.columns;
+    out.relationships.push({ fromTable: fk.refTable, fromColumn: col.refField, toTable: fk.table, toColumn: col.field, enforce: true });
   }
   return out;
+}
+
+/** The database's foreign keys, one entry per constraint with its columns in order. */
+export async function listForeignKeys(c: Conn): Promise<RemoteForeignKey[]> {
+  const [rows] = await c.query({
+    sql: `SELECT k.CONSTRAINT_NAME AS name, k.TABLE_NAME AS child, k.COLUMN_NAME AS childCol,
+                 k.REFERENCED_TABLE_NAME AS parent, k.REFERENCED_COLUMN_NAME AS parentCol
+          FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE k
+          WHERE k.TABLE_SCHEMA = DATABASE() AND k.REFERENCED_TABLE_NAME IS NOT NULL
+            AND (k.REFERENCED_TABLE_SCHEMA IS NULL OR k.REFERENCED_TABLE_SCHEMA = DATABASE())
+          ORDER BY k.TABLE_NAME, k.CONSTRAINT_NAME, k.ORDINAL_POSITION`,
+    timeout: QUERY_TIMEOUT_MS,
+  });
+  const byKey = new Map<string, RemoteForeignKey>();
+  for (const r of rows as { name: string; child: string; childCol: string; parent: string; parentCol: string }[]) {
+    const key = `${r.child}\u0000${r.name}`;
+    let fk = byKey.get(key);
+    if (!fk) byKey.set(key, (fk = { name: r.name, table: r.child, refTable: r.parent, columns: [] }));
+    fk.columns.push({ field: r.childCol, refField: r.parentCol });
+  }
+  return [...byKey.values()];
 }
 
 export function settingsFrom(input: ConnectionInput, password: string): ConnectionSettings {

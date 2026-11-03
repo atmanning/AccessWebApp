@@ -50,6 +50,32 @@ describe("query design", () => {
   });
 });
 
+describe("linked MySQL tables", () => {
+  it("joins linked tables through their foreign keys, like related tables", () => {
+    const doc = buildTemplate("blank");
+    doc.linkedTables = [
+      { id: "lt1", name: "customers", connectionId: "c1", remoteTable: "customers", foreignKeys: [] },
+      {
+        id: "lt2",
+        name: "orders",
+        connectionId: "c1",
+        remoteTable: "orders",
+        foreignKeys: [
+          { name: "fk_cust", refTable: "customers", columns: [{ field: "customer_id", refField: "id" }] },
+          { name: "fk_line", refTable: "lines", columns: [{ field: "a", refField: "a" }, { field: "b", refField: "b" }] },
+        ],
+      },
+      { id: "lt3", name: "lines", connectionId: "c1", remoteTable: "lines" },
+      // Same table name on another server: not related.
+      { id: "lt4", name: "customers2", connectionId: "c2", remoteTable: "customers" },
+    ];
+    expect(designJoins(doc, ["orders", "customers"]).joins).toMatchObject([{ fromTable: "customers", fromField: "id", toTable: "orders", toField: "customer_id", enforce: true }]);
+    const sql = designToSql(doc, ["customers", "orders", "lines"], [{ table: "orders", field: "*", show: true, sort: "", criteria: "" }]);
+    expect(sql).toContain("FROM ([customers] INNER JOIN [orders] ON [customers].[id] = [orders].[customer_id]) INNER JOIN [lines] ON ([lines].[a] = [orders].[a]) AND ([lines].[b] = [orders].[b])");
+    expect(designJoins(doc, ["customers2", "orders"]).unjoined).toEqual(["orders"]);
+  });
+});
+
 describe("query engine", () => {
   const doc = buildTemplate("contacts");
   it("runs every sample query", async () => {

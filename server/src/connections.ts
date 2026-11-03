@@ -18,6 +18,7 @@ import {
 import { fromExchangeDocument } from "../../shared/exchange.js";
 import {
   browseTable,
+  listForeignKeys,
   listTables,
   MySqlError,
   readTablesForImport,
@@ -169,6 +170,18 @@ export function connectionsRouter(db: DB, opts: ConnectionsOptions) {
     if (!row.database) throw httpError(400, "Set a database name on this connection to list its tables.");
     try {
       res.json({ tables: await withConnection(settingsOf(row), opts.allowPrivateHosts, listTables) });
+    } catch (e) {
+      res.status(502).json({ error: mysqlError(e).message, mysql: mysqlError(e) });
+    }
+  });
+
+  /** Foreign keys of the connection's database, so linked tables can be joined like related tables (any role). */
+  router.get("/:cid/foreign-keys", async (req, res) => {
+    const p = project(req);
+    const row = getRow(p.id, req.params.cid);
+    if (!row.database) throw httpError(400, "Set a database name on this connection to read its foreign keys.");
+    try {
+      res.json({ foreignKeys: await withConnection(settingsOf(row), opts.allowPrivateHosts, listForeignKeys) });
     } catch (e) {
       res.status(502).json({ error: mysqlError(e).message, mysql: mysqlError(e) });
     }

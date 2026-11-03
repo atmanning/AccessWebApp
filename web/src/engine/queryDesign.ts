@@ -39,42 +39,74 @@ export interface DesignJoin {
 
 type ExplicitJoins = QueryDesign["joins"];
 
+/**
+ * A relationship between two tables by name: one from the Relationships window, or a foreign key
+ * between two linked MySQL tables (read from the server when they were linked).
+ */
+export interface NamedRelation {
+  /** Relationships with several fields (multi-column foreign keys) share a group. */
+  group: string;
+  fromTable: string;
+  fromField: string;
+  toTable: string;
+  toField: string;
+  enforce: boolean;
+  /** A foreign key on a MySQL server, not a relationship stored here. */
+  remote?: boolean;
+}
+
+/** Foreign keys between linked tables of the same MySQL connection, as relations. */
+export function linkedRelations(doc: ProjectDoc): NamedRelation[] {
+  const links = (doc.linkedTables ?? []).filter((l) => l.connectionId && l.remoteTable);
+  const out: NamedRelation[] = [];
+  for (const child of links) {
+    for (const fk of child.foreignKeys ?? []) {
+      const parent = links.find((p) => p.connectionId === child.connectionId && p.remoteTable!.toLowerCase() === fk.refTable.toLowerCase());
+      if (!parent) continue;
+      for (const col of fk.columns) {
+        out.push({ group: `${child.id}:${fk.name}`, fromTable: parent.name, fromField: col.refField, toTable: child.name, toField: col.field, enforce: true, remote: true });
+      }
+    }
+  }
+  return out;
+}
+
+/** Every relationship in the database, by table and field names. */
+export function allRelations(doc: ProjectDoc): NamedRelation[] {
+  const local = doc.relationships.flatMap((r) => {
+    const from = doc.tables.find((t) => t.id === r.fromTable);
+    const to = doc.tables.find((t) => t.id === r.toTable);
+    const ff = from?.fields.find((f) => f.id === r.fromField);
+    const tf = to?.fields.find((f) => f.id === r.toField);
+    return from && to && ff && tf ? [{ group: r.id, fromTable: from.name, fromField: ff.name, toTable: to.name, toField: tf.name, enforce: r.enforce }] : [];
+  });
+  return [...local, ...linkedRelations(doc)];
+}
+
 /** The relationship between two fields, either way round. */
 function relationshipBetween(doc: ProjectDoc, t1: string, f1: string, t2: string, f2: string) {
-  const ids = (t: string, f: string) => {
-    const table = doc.tables.find((x) => x.name === t);
-    return { t: table?.id, f: table?.fields.find((x) => x.name === f)?.id };
-  };
-  const a = ids(t1, f1);
-  const b = ids(t2, f2);
-  return doc.relationships.find(
-    (r) => (r.fromTable === a.t && r.fromField === a.f && r.toTable === b.t && r.toField === b.f) || (r.fromTable === b.t && r.fromField === b.f && r.toTable === a.t && r.toField === a.f),
+  return allRelations(doc).find(
+    (r) => (r.fromTable === t1 && r.fromField === f1 && r.toTable === t2 && r.toField === f2) || (r.fromTable === t2 && r.fromField === f2 && r.toTable === t1 && r.toField === f1),
   );
 }
 
 /**
- * Joins Access makes automatically from relationships: each table after the first joins to an
- * earlier one through a relationship. Tables with no relationship to the others are left unjoined.
+ * Joins Access makes automatically from relationships (and from foreign keys between linked MySQL
+ * tables): each table after the first joins to an earlier one through a relationship. Tables with
+ * no relationship to the others are left unjoined.
  */
 export function relationshipJoins(doc: ProjectDoc, tableNames: string[], alreadyJoined: string[] = []): DesignJoin[] {
+  const rels = allRelations(doc);
   const joins: DesignJoin[] = [];
   const joined = new Set(alreadyJoined.length ? alreadyJoined : tableNames.slice(0, 1));
   for (const name of tableNames) {
     if (joined.has(name)) continue;
-    const t = doc.tables.find((x) => x.name === name);
-    const rel = t
-      ? doc.relationships.find((r) => {
-          const other = r.fromTable === t.id ? r.toTable : r.toTable === t.id ? r.fromTable : null;
-          const otherT = doc.tables.find((x) => x.id === other);
-          return otherT && joined.has(otherT.name);
-        })
-      : undefined;
-    const from = rel && doc.tables.find((x) => x.id === rel.fromTable);
-    const to = rel && doc.tables.find((x) => x.id === rel.toTable);
-    const ff = rel && from?.fields.find((f) => f.id === rel.fromField);
-    const tf = rel && to?.fields.find((f) => f.id === rel.toField);
-    if (!rel || !from || !to || !ff || !tf) continue;
-    joins.push({ key: rel.id, fromTable: from.name, fromField: ff.name, toTable: to.name, toField: tf.name, kind: "inner", enforce: rel.enforce });
+    const rel = rels.find((r) => (r.fromTable === name && joined.has(r.toTable)) || (r.toTable === name && joined.has(r.fromTable)));
+    if (!rel) continue;
+    // All the fields of that relationship (a multi-field foreign key joins on each of them).
+    for (const r of rels.filter((x) => x.group === rel.group && x.fromTable === rel.fromTable && x.toTable === rel.toTable)) {
+      joins.push({ key: `${r.group}:${r.fromField}`, fromTable: r.fromTable, fromField: r.fromField, toTable: r.toTable, toField: r.toField, kind: "inner", enforce: r.enforce });
+    }
     joined.add(name);
   }
   return joins;
