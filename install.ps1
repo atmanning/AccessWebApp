@@ -142,9 +142,15 @@ param(
       Say "Using app files from $Source"
       $src = Expand $Source "$tmp\src"
     } else {
-      Say "Downloading the latest Access Web ($Branch)"
-      Download "https://github.com/$Repo/archive/refs/heads/$Branch.zip" "$tmp\app.zip"
+      # Pin the download to the branch's current commit, and record it for the version shown in the app.
+      $sha = $null
+      try { $sha = "$(Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/commits/$Branch" -Headers @{ Accept = 'application/vnd.github.sha' })".Trim() } catch { }
+      if ($sha -notmatch '^[0-9a-f]{40}$') { $sha = $null }
+      Say "Downloading the latest Access Web ($Branch$(if ($sha) { " $($sha.Substring(0, 7))" }))"
+      $ref = if ($sha) { $sha } else { "refs/heads/$Branch" }
+      Download "https://github.com/$Repo/archive/$ref.zip" "$tmp\app.zip"
       $src = Expand "$tmp\app.zip" "$tmp\src"
+      if ($sha) { Set-Content "$src\.source-commit" $sha }
     }
     if (-not (Test-Path "$src\package.json") -or -not (Test-Path "$src\start-local.cmd")) { throw "The downloaded files don't look like Access Web." }
 

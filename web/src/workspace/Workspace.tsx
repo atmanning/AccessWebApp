@@ -41,6 +41,7 @@ import { cleanName } from "../../../shared/exchange";
 import { QUERY_TYPE_ICONS, typeOfQuery } from "./queryKinds";
 import { NavPane, type Selection } from "./NavPane";
 import { setPublicViewing } from "../engine/linked";
+import { VersionStamp } from "../ui/VersionStamp";
 import { Ribbon } from "./Ribbon";
 
 type SaveState = "saved" | "pending" | "saving" | "error" | "conflict";
@@ -612,6 +613,7 @@ export function Workspace(props: {
             </button>
           )}
           <div className="title-user" title={props.user.email}>{props.user.name}</div>
+          <VersionStamp className="title-version" />
         </header>
 
         <Ribbon
@@ -985,6 +987,9 @@ function Backstage(props: {
               {props.doc.reports.length} report(s), {records.toLocaleString()} record(s).
             </p>
             <p>{props.roleText}</p>
+            <p className="small muted">
+              Access Web version: <VersionStamp />
+            </p>
             <div className="button-row">
               {props.onRename && <button onClick={props.onRename}>Rename database…</button>}
               {props.onShare && <button onClick={props.onShare}>Share…</button>}

@@ -131,9 +131,13 @@ if [[ -n "$SOURCE" ]]; then
   say "Using app files from $SOURCE"
   tar -xzf "$SOURCE" -C "$TMP/src" --strip-components 1
 else
-  say "Downloading the latest Access Web ($BRANCH)"
-  download "https://github.com/$REPO/archive/refs/heads/$BRANCH.tar.gz" "$TMP/app.tgz"
+  # Pin the download to the branch's current commit, and record it for the version shown in the app.
+  SHA="$(curl -fsSL --retry 2 -H 'Accept: application/vnd.github.sha' "https://api.github.com/repos/$REPO/commits/$BRANCH" 2>/dev/null || true)"
+  [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || SHA=""
+  say "Downloading the latest Access Web ($BRANCH${SHA:+ ${SHA:0:7}})"
+  download "https://github.com/$REPO/archive/${SHA:-refs/heads/$BRANCH}.tar.gz" "$TMP/app.tgz"
   tar -xzf "$TMP/app.tgz" -C "$TMP/src" --strip-components 1
+  if [[ -n "$SHA" ]]; then echo "$SHA" >"$TMP/src/.source-commit"; fi
 fi
 [[ -f "$TMP/src/package.json" && -f "$TMP/src/start-local.sh" ]] || die "The downloaded files don't look like Access Web."
 

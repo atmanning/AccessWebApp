@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLayoutAttributes } from "./ui/layout";
 import { LayoutPicker } from "./ui/LayoutPicker";
+import { VersionStamp } from "./ui/VersionStamp";
 import type { ProjectRecord, ProjectSummary, UserInfo } from "../../shared/model";
 import { TEMPLATES, type TemplateId } from "../../shared/templates";
 import { api } from "./api";
@@ -168,6 +169,7 @@ function AuthScreen({ onSignedIn, onBack }: { onSignedIn: (u: UserInfo) => void;
             {mode === "signin" ? "Create one" : "Sign in"}
           </button>
         </div>
+        <div className="auth-switch"><VersionStamp /></div>
         {onBack && (
           <div className="auth-switch">
             <button type="button" className="link" onClick={onBack}>Back to the database</button>
@@ -284,6 +286,7 @@ function Home({
           <div>{user.name}</div>
           <div className="small">{user.email}</div>
         </div>
+        <VersionStamp className="home-version" />
         <LayoutPicker className="home-layout" />
         <button onClick={onSignOut}>Sign out</button>
       </nav>

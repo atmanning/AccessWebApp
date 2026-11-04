@@ -395,6 +395,14 @@ export interface ProjectRecord extends ProjectSummary {
   publicView?: boolean;
 }
 
+/** Which build of the app is running, shown in the title bar. */
+export interface VersionInfo {
+  /** Git commit the build came from, when known. */
+  commit: string | null;
+  builtAt: string | null;
+  startedAt: string;
+}
+
 export interface UserInfo {
   id: string;
   email: string;

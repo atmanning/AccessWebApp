@@ -8,7 +8,7 @@ import type { DB } from "./db.js";
 import { authRouter, loadUser } from "./auth.js";
 import { projectsRouter, publicRouter, type ImportAccess } from "./projects.js";
 import { connectionsRouter, type ConnectionsOptions } from "./connections.js";
-import type { ProjectDoc } from "../../shared/model.js";
+import type { ProjectDoc, VersionInfo } from "../../shared/model.js";
 
 export interface AppOptions {
   db: DB;
@@ -19,6 +19,8 @@ export interface AppOptions {
   /** Built web app to serve (web/dist). Omit in development; Vite serves it. */
   staticDir?: string;
   trustProxy?: boolean;
+  /** Which build is running (GET /api/version). */
+  version?: VersionInfo;
 }
 
 export function createApp(opts: AppOptions) {
@@ -55,6 +57,8 @@ export function createApp(opts: AppOptions) {
   });
 
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
+  const version: VersionInfo = opts.version ?? { commit: null, builtAt: null, startedAt: new Date().toISOString() };
+  app.get("/api/version", (_req, res) => res.json(version));
   app.use("/api/auth", authRouter(opts.db, { secureCookies: opts.secureCookies }));
   app.use("/api/projects/:id/connections", connectionsRouter(opts.db, opts.connections));
   app.use("/api/projects", projectsRouter(opts.db, opts.exportAccdb, opts.importAccess));

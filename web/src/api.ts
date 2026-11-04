@@ -12,6 +12,7 @@ import type {
   SharePermission,
   ShareSettings,
   UserInfo,
+  VersionInfo,
 } from "../../shared/model";
 import type { TemplateId } from "../../shared/templates";
 
@@ -51,6 +52,8 @@ async function upload<T>(url: string, file: File): Promise<T> {
 
 export const api = {
   me: () => call<{ user: UserInfo | null }>("GET", "/api/auth/me"),
+  /** Which build is running: commit and build time. */
+  version: () => call<VersionInfo>("GET", "/api/version"),
   login: (email: string, password: string) => call<{ user: UserInfo }>("POST", "/api/auth/login", { email, password }),
   register: (name: string, email: string, password: string) =>
     call<{ user: UserInfo }>("POST", "/api/auth/register", { name, email, password }),

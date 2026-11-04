@@ -656,3 +656,8 @@ select.grid-input { padding: 0 2px; }
 
 .qd-unique { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; font-size: 12px; cursor: pointer; }
 .qd-note { color: #555; font-size: 12px; }
+
+.version-stamp { font-size: 11px; opacity: 0.75; white-space: nowrap; cursor: default; }
+.title-version { z-index: 1; margin-left: 10px; }
+.home-version { color: inherit; padding: 0 6px; }
+[data-compact] .title-version { display: none; }

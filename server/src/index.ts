@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApp } from "./app.js";
@@ -28,7 +29,16 @@ const javaLimit = createLimiter(javaTool.maxConcurrent);
 const exportAccdb = createExporter(javaTool, javaLimit);
 const importAccess = createImporter(javaTool, javaLimit);
 
+// Written by `npm run build` (scripts/write-build-info.mjs); Render also says which commit it deployed.
+let build: { commit?: string | null; builtAt?: string | null } = {};
+try {
+  build = JSON.parse(fs.readFileSync(path.join(repoRoot, "server/dist/build-info.json"), "utf8"));
+} catch {
+  /* development: not built */
+}
+
 const app = createApp({
+  version: { commit: build.commit || env.RENDER_GIT_COMMIT || null, builtAt: build.builtAt ?? null, startedAt: new Date().toISOString() },
   db,
   exportAccdb,
   importAccess,
