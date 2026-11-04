@@ -51,8 +51,31 @@ export const fieldSchema = z.object({
   description: z.string().max(255).optional(),
   primaryKey: z.boolean().optional(),
   indexed: z.enum(INDEX_OPTIONS).optional(),
+  /**
+   * Lookup (Table Design's Lookup tab, like Access): the field is picked from a list in datasheets
+   * and forms, typically the key of a related table shown by a name. Uses the same row source
+   * settings as a form combo box.
+   */
+  lookup: z
+    .object({
+      /** Display Control: Combo Box or List Box (no lookup = Text Box). */
+      display: z.enum(["combo", "list"]),
+      rowSourceType: z.enum(["table", "query", "values"]),
+      /** Table or query id, or a value list ("Red;Green;Blue", one per line also works). */
+      rowSource: z.string().max(4000),
+      /** Field of the row source stored in this field (default: its first field). */
+      boundColumn: z.string().max(64).optional(),
+      /** Field shown in place of the stored value (default: the second field, else the bound one). */
+      displayColumn: z.string().max(64).optional(),
+      /** Only values in the list can be entered (default Yes). */
+      limitToList: z.boolean().optional(),
+    })
+    .optional(),
 });
 export type Field = z.infer<typeof fieldSchema>;
+export type FieldLookup = NonNullable<Field["lookup"]>;
+/** Field types that can have a lookup. */
+export const LOOKUP_TYPES: readonly FieldType[] = ["ShortText", "Number"];
 
 /** `_id` is a stable row identity used by the UI; other keys are field ids. */
 export const rowSchema = z.record(z.string(), cellValueSchema);

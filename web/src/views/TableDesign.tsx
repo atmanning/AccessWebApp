@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   defaultFieldProps,
+  LOOKUP_TYPES,
   FIELD_TYPE_LABELS,
   FIELD_TYPES,
   INDEX_LABELS,
@@ -16,8 +17,14 @@ import { ComboBox } from "../ui/ComboBox";
 import { KeyIcon } from "../ui/icons";
 import { useCommands, useWorkspace } from "../workspace/context";
 import { changeFieldType, countLostOnTypeChange, deleteField, newId, renameField, uniqueFieldName, validateFieldName } from "../workspace/docOps";
+import { LookupTab, LookupWizard, type WizardResult } from "./LookupProps";
 
-const TYPE_OPTIONS = FIELD_TYPES.map((t) => ({ value: t, label: FIELD_TYPE_LABELS[t] }));
+// "Lookup Wizard..." sits in the Data Type list, as in Access.
+const LOOKUP_WIZARD = "__lookup" as const;
+const TYPE_OPTIONS: { value: FieldType | typeof LOOKUP_WIZARD; label: string }[] = [
+  ...FIELD_TYPES.map((t) => ({ value: t, label: FIELD_TYPE_LABELS[t] })),
+  { value: LOOKUP_WIZARD, label: "Lookup Wizard..." },
+];
 const NUMBER_SIZE_OPTIONS = NUMBER_SIZES.map((s) => ({ value: s, label: s === "Long" ? "Long Integer" : s }));
 const YES_NO_OPTIONS = [
   { value: "No", label: "No" },
@@ -42,6 +49,8 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
   const [current, setCurrent] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [help, setHelp] = useState(HELP.name);
+  const [propsTab, setPropsTab] = useState<"general" | "lookup">("general");
+  const [wizardFor, setWizardFor] = useState<string | null>(null);
   const field: Field | undefined = table.fields[current];
 
   useEffect(() => {
@@ -167,6 +176,56 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
     setSelected(new Set());
   };
 
+  /**
+   * Applies the Lookup Wizard: the field takes the type of the field it stores (a key stored from
+   * an AutoNumber is a Number), gets its lookup, and optionally a relationship to the source table.
+   */
+  const finishWizard = async (f: Field, r: WizardResult) => {
+    const src = r.lookup.rowSourceType === "table" ? ws.doc.tables.find((t) => t.id === r.lookup.rowSource) : undefined;
+    const bound = src?.fields.find((x) => x.name === r.lookup.boundColumn);
+    let type: FieldType = f.type;
+    if (bound) type = bound.type === "AutoNumber" || bound.type === "Number" ? "Number" : bound.type === "ShortText" ? "ShortText" : f.type;
+    else if (r.lookup.rowSourceType === "values" && f.type !== "ShortText" && f.type !== "Number") type = "ShortText";
+    if (!LOOKUP_TYPES.includes(type)) type = "ShortText";
+    if (type !== f.type) {
+      const lost = countLostOnTypeChange(table, f.id, type);
+      if (lost > 0) {
+        const ok = await dialogs.confirm(
+          "Lookup Wizard",
+          `'${f.name}' becomes a ${FIELD_TYPE_LABELS[type]} field to match '${bound?.name}'. ${lost} record(s) have values that can't be converted and will be deleted. Continue?`,
+          { okLabel: "Yes", danger: true },
+        );
+        if (!ok) return;
+      }
+    }
+    // Data integrity needs a unique key and no values without a match.
+    let enforce = false;
+    let note = "";
+    if (r.relate && src && bound) {
+      const keys = new Set(src.rows.map((row) => String(row[bound.id] ?? "")));
+      const orphans = table.rows.filter((row) => row[f.id] !== null && row[f.id] !== undefined && row[f.id] !== "" && !keys.has(String(row[f.id]))).length;
+      const unique = bound.primaryKey || bound.indexed === "YesNoDup";
+      enforce = unique && orphans === 0;
+      if (!unique) note = ` The relationship doesn't enforce integrity because '${bound.name}' isn't a key or unique.`;
+      else if (orphans) note = ` The relationship doesn't enforce integrity because ${orphans} record(s) have values not in '${src.name}'.`;
+    }
+    mutate((t, d) => {
+      if (type !== f.type) changeFieldType(t, f.id, type);
+      const field = t.fields.find((x) => x.id === f.id)!;
+      if (type === "Number" && bound?.type === "Number" && bound.numberSize) field.numberSize = bound.numberSize;
+      field.lookup = r.lookup;
+      if (r.relate && src && bound) {
+        d.relationships.push({ id: newId("rel"), fromTable: src.id, fromField: bound.id, toTable: t.id, toField: f.id, enforce });
+      }
+    });
+    setPropsTab("lookup");
+    ws.setStatus(
+      `'${f.name}' now looks up ${src ? `'${src.name}'` : "its values"}${r.lookup.displayColumn ? `, showing ${r.lookup.displayColumn}` : ""}.` +
+        (r.relate && src ? " Added a relationship." : "") +
+        note,
+    );
+  };
+
   useCommands(tabKey, { primaryKey: togglePrimaryKey, insertRows: insertRow, deleteRows });
 
   const rows = [...table.fields, undefined];
@@ -240,7 +299,7 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
                       ariaLabel="Data Type"
                       options={TYPE_OPTIONS}
                       onFocus={() => setHelp(HELP.type)}
-                      onChange={(v) => changeType(f, v)}
+                      onChange={(v) => (v === LOOKUP_WIZARD ? setWizardFor(f.id) : changeType(f, v))}
                     />
                   )}
                 </td>
@@ -267,11 +326,32 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
       <div className="field-props">
         <div className="field-props-head">Field Properties</div>
         <div className="field-props-body">
-          <div className="props-tabs">
-            <span className="props-tab active">General</span>
+          <div className="props-tabs" role="tablist">
+            <button role="tab" aria-selected={propsTab === "general"} className={`props-tab ${propsTab === "general" ? "active" : ""}`} onClick={() => setPropsTab("general")}>
+              General
+            </button>
+            <button role="tab" aria-selected={propsTab === "lookup"} className={`props-tab ${propsTab === "lookup" ? "active" : ""}`} onClick={() => setPropsTab("lookup")}>
+              Lookup
+            </button>
           </div>
           <div className="props-columns">
-            {field ? (
+            {field && propsTab === "lookup" ? (
+              <table className="props-table" key={`${field.id}:lookup`}>
+                <LookupTab
+                  table={table}
+                  field={field}
+                  onHelp={setHelp}
+                  onWizard={() => setWizardFor(field.id)}
+                  onChange={(lookup) =>
+                    mutate((t) => {
+                      const f = t.fields.find((x) => x.id === field.id)!;
+                      if (lookup) f.lookup = lookup;
+                      else delete f.lookup;
+                    })
+                  }
+                />
+              </table>
+            ) : field ? (
               <table className="props-table" key={field.id}>
                 <tbody>
                   {field.type === "ShortText" && (
@@ -377,6 +457,18 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
           </div>
         </div>
       </div>
+      {wizardFor && table.fields.some((f) => f.id === wizardFor) && (
+        <LookupWizard
+          table={table}
+          field={table.fields.find((f) => f.id === wizardFor)!}
+          onClose={() => setWizardFor(null)}
+          onFinish={(r) => {
+            const f = table.fields.find((x) => x.id === wizardFor)!;
+            setWizardFor(null);
+            void finishWizard(f, r);
+          }}
+        />
+      )}
     </div>
   );
 }

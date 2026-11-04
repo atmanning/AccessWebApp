@@ -4,12 +4,15 @@ import { useCommands, useWorkspace } from "../workspace/context";
 import { exportCsv } from "../workspace/csv";
 import { useTableEditing } from "../workspace/useTableEditing";
 import { Datasheet, type DatasheetHandle } from "./Datasheet";
+import { useFieldLookups } from "./lookups";
 
 export function TableDatasheet({ table, tabKey }: { table: TableDef; tabKey: string }) {
   const ws = useWorkspace();
   const grid = useRef<DatasheetHandle>(null);
   const editing = useTableEditing(table);
   const fields = table.fields;
+  // Lookup fields show a name (e.g. the customer) instead of the stored key, with a drop-down.
+  const lookups = useFieldLookups(ws.doc, fields);
 
   const columns = useMemo(
     () =>
@@ -17,9 +20,10 @@ export function TableDatasheet({ table, tabKey }: { table: TableDef; tabKey: str
         key: f.id,
         label: f.name,
         field: f,
+        lookup: lookups[f.id],
         readOnlyReason: ws.readOnly ? "You have view-only access to this database." : undefined,
       })),
-    [fields, ws.readOnly],
+    [fields, ws.readOnly, lookups],
   );
   const getValue = useCallback((r: number, c: number) => table.rows[r]?.[fields[c].id] ?? null, [table.rows, fields]);
 

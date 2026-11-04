@@ -17,6 +17,7 @@ import { parseInput } from "../engine/values";
 import { exportCsv } from "../workspace/csv";
 import { Datasheet, MAX_ROW_H, MIN_ROW_H, type DatasheetHandle } from "./Datasheet";
 import { readSqlDesign, sourceFieldNames, type SqlReadState } from "./sqlDesignReader";
+import { useFieldLookups } from "./lookups";
 
 /** Runs a query and shows the results read-only. */
 export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: string }) {
@@ -68,14 +69,27 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
 
   // View-only users see results read-only.
   const edit = result?.edit?.ok && !ws.readOnly ? result.edit : null;
+  // Columns that come straight from a table field: their real field, so lookups show names with a drop-down.
+  const info = result?.edit?.ok ? result.edit : null;
+  const sourceFields = useMemo(
+    () =>
+      (result?.columns ?? []).map((_, i) => {
+        const m = info?.columns[i];
+        return m ? ws.doc.tables.find((t) => t.id === info!.tables[m.source].id)?.fields.find((f) => f.id === m.fieldId) : undefined;
+      }),
+    [result, ws.doc.tables], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const lookups = useFieldLookups(ws.doc, sourceFields);
   const columns = useMemo(
     () =>
       (result?.columns ?? []).map((c, i) => {
         const editable = !!edit?.columns[i];
+        const sf = sourceFields[i];
         return {
           key: `${i}:${c}`,
           label: c,
-          field: result?.fields[i],
+          field: sf ?? result?.fields[i],
+          lookup: sf ? lookups[sf.id] : undefined,
           readOnly: !editable,
           readOnlyReason: edit
             ? `'${c}' is calculated by the query, so it can't be edited.`
@@ -84,7 +98,7 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
               : undefined,
         };
       }),
-    [result, edit],
+    [result, edit, sourceFields, lookups],
   );
   const getValue = useCallback((r: number, c: number) => result?.rows[r]?.[c] ?? null, [result]);
   const savedWidths = useMemo(

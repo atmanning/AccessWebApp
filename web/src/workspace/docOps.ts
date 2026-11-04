@@ -1,6 +1,7 @@
 /** Pure helpers that change a project document (used inside immer recipes). */
 import {
   defaultFieldProps,
+  LOOKUP_TYPES,
   NAME_PATTERN,
   type Field,
   type FieldType,
@@ -115,6 +116,10 @@ export function deleteObject(doc: ProjectDoc, kind: ObjectKind, id: string) {
   else if (kind === "linked") doc.linkedTables = (doc.linkedTables ?? []).filter((t) => t.id !== id);
   else if (kind === "form") doc.forms = doc.forms.filter((f) => f.id !== id);
   else doc.reports = doc.reports.filter((r) => r.id !== id);
+  // Lookup fields that listed this table or query go back to plain text boxes.
+  if (kind === "table" || kind === "query") {
+    for (const t of doc.tables) for (const f of t.fields) if (f.lookup && f.lookup.rowSourceType === kind && f.lookup.rowSource === id) delete f.lookup;
+  }
 }
 
 /** Objects whose record source is this table or query. */
@@ -151,6 +156,15 @@ export function renameField(doc: ProjectDoc, table: TableDef, fieldId: string, n
       }
     }
   }
+  // Lookup fields that list this table's values.
+  for (const t of doc.tables) {
+    for (const lf of t.fields) {
+      if (lf.lookup?.rowSourceType === "table" && lf.lookup.rowSource === table.id) {
+        if (lf.lookup.boundColumn === old) lf.lookup.boundColumn = name;
+        if (lf.lookup.displayColumn === old) lf.lookup.displayColumn = name;
+      }
+    }
+  }
   for (const q of doc.queries) {
     for (const c of q.design?.columns ?? []) if (c.table === table.name && c.field === old) c.field = name;
     for (const j of q.design?.joins ?? []) {
@@ -164,7 +178,18 @@ export function renameField(doc: ProjectDoc, table: TableDef, fieldId: string, n
 export function changeFieldType(table: TableDef, fieldId: string, type: FieldType): number {
   const f = table.fields.find((x) => x.id === fieldId);
   if (!f || f.type === type) return 0;
-  const next: Field = { id: f.id, name: f.name, description: f.description, required: f.required, primaryKey: f.primaryKey, indexed: f.indexed, type, ...defaultFieldProps(type) };
+  const next: Field = {
+    id: f.id,
+    name: f.name,
+    description: f.description,
+    required: f.required,
+    primaryKey: f.primaryKey,
+    indexed: f.indexed,
+    type,
+    ...defaultFieldProps(type),
+    // A lookup stays when the new type can have one (Short Text, Number).
+    ...(f.lookup && LOOKUP_TYPES.includes(type) ? { lookup: f.lookup } : {}),
+  };
   let lost = 0;
   if (type === "AutoNumber") {
     let n = 1;
@@ -190,7 +215,17 @@ export function countLostOnTypeChange(table: TableDef, fieldId: string, type: Fi
 }
 
 export function deleteField(doc: ProjectDoc, table: TableDef, fieldId: string) {
+  const name = table.fields.find((f) => f.id === fieldId)?.name;
   table.fields = table.fields.filter((f) => f.id !== fieldId);
+  // Lookups that stored or showed this field fall back to their defaults.
+  for (const t of doc.tables) {
+    for (const lf of t.fields) {
+      if (lf.lookup?.rowSourceType === "table" && lf.lookup.rowSource === table.id) {
+        if (lf.lookup.boundColumn === name) delete lf.lookup.boundColumn;
+        if (lf.lookup.displayColumn === name) delete lf.lookup.displayColumn;
+      }
+    }
+  }
   for (const r of table.rows) delete r[fieldId];
   doc.relationships = doc.relationships.filter(
     (r) => !(r.fromTable === table.id && r.fromField === fieldId) && !(r.toTable === table.id && r.toField === fieldId),

@@ -1,9 +1,11 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { CellValue, Field } from "../../../shared/model";
 import { editText, formatValue, isNumericType } from "../engine/values";
 import { acceptsDateText, dateShortcut, insertAtCaret, nowText, type DateShortcut } from "../ui/dateKeys";
 import { FindIcon } from "../ui/icons";
 import { useLayout } from "../ui/layout";
+import type { ColumnLookup } from "./lookups";
 
 export interface DatasheetColumn {
   key: string;
@@ -12,6 +14,8 @@ export interface DatasheetColumn {
   readOnly?: boolean;
   /** Shown in the status bar when someone tries to type in a read-only column. */
   readOnlyReason?: string;
+  /** A lookup field: shows the display value and edits with a drop-down list. */
+  lookup?: ColumnLookup;
 }
 
 export interface DatasheetProps {
@@ -77,7 +81,8 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
     c: p.rowCount ? 0 : Math.max(0, p.columns.findIndex((c) => !c.readOnly && c.field?.type !== "AutoNumber")),
   }));
   const [selRows, setSelRows] = useState<Set<number>>(new Set()); // display indexes
-  const [editing, setEditing] = useState<{ text: string } | null>(null);
+  // `list`: a lookup's drop-down is open; `hi`: its highlighted choice; `typed`: filter the list by the text.
+  const [editing, setEditing] = useState<{ text: string; list?: boolean; hi?: number; typed?: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [widths, setWidths] = useState<Record<string, number>>(() => ({ ...(p.savedWidths ?? {}) }));
   const widthsRef = useRef(widths);
@@ -87,6 +92,16 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
   const scroller = useRef<HTMLDivElement>(null);
   const findBox = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // Lookup columns show the display value for the stored one (e.g. a customer's name for their ID).
+  const labelMaps = useMemo(() => p.columns.map((col) => (col.lookup ? new Map(col.lookup.options.map((o) => [o.value, o.label])) : null)), [p.columns]);
+  const shown = (c: number, v: CellValue): string => {
+    const col = p.columns[c];
+    const m = labelMaps[c];
+    if (m && v !== null && v !== undefined && v !== "") return m.get(col.field ? editText(col.field, v) : String(v)) ?? formatValue(col.field, v);
+    return formatValue(col?.field, v);
+  };
 
   // Display order: filter then sort, as indexes into the underlying rows.
   const order = useMemo(() => {
@@ -94,25 +109,26 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
     const f = filter.trim().toLowerCase();
     if (f) {
       idx = idx.filter((r) =>
-        p.columns.some((col, c) => formatValue(col.field, p.getValue(r, c)).toLowerCase().includes(f)),
+        p.columns.some((_, c) => shown(c, p.getValue(r, c)).toLowerCase().includes(f)),
       );
     }
     if (sort) {
       const col = p.columns[sort.col];
       const numeric = isNumericType(col?.field?.type);
       const dir = sort.dir === "ASC" ? 1 : -1;
+      const byLabel = !!col?.lookup;
       idx.sort((a, b) => {
-        const va = p.getValue(a, sort.col);
-        const vb = p.getValue(b, sort.col);
+        const va = byLabel ? shown(sort.col, p.getValue(a, sort.col)) : p.getValue(a, sort.col);
+        const vb = byLabel ? shown(sort.col, p.getValue(b, sort.col)) : p.getValue(b, sort.col);
         if (va === null || va === undefined || va === "") return vb === null || vb === undefined || vb === "" ? 0 : -dir;
         if (vb === null || vb === undefined || vb === "") return dir;
-        if (numeric || (typeof va === "number" && typeof vb === "number")) return (Number(va) - Number(vb)) * dir;
+        if (!byLabel && (numeric || (typeof va === "number" && typeof vb === "number"))) return (Number(va) - Number(vb)) * dir;
         return String(va).localeCompare(String(vb), undefined, { numeric: true, sensitivity: "base" }) * dir;
       });
     }
     return idx;
     // getValue changes identity when data changes, so it's the right dependency.
-  }, [p.rowCount, p.getValue, p.columns, sort, filter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [p.rowCount, p.getValue, p.columns, labelMaps, sort, filter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const count = order.length;
   const allowNew = p.allowNew ?? p.editable;
@@ -169,7 +185,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
 
   const canEdit = (c: number) => p.editable && !p.columns[c]?.readOnly && p.columns[c]?.field?.type !== "AutoNumber";
 
-  const startEdit = (initial?: string) => {
+  const startEdit = (initial?: string, openList = false) => {
     if (!canEdit(cell.c)) {
       const col = p.columns[cell.c];
       if (col?.readOnlyReason) p.onStatus?.(col.readOnlyReason, "error");
@@ -178,24 +194,62 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
     }
     const field = p.columns[cell.c].field;
     if (field?.type === "YesNo") return toggle();
+    if (p.columns[cell.c].lookup) {
+      // Lookups edit the display text; typing filters the list, like an Access combo box.
+      const v = valueAt(cell.r, cell.c);
+      const text = initial ?? (v === null || v === undefined || v === "" ? "" : shown(cell.c, v));
+      setEditing({ text, list: openList || initial !== undefined, typed: initial !== undefined, hi: 0 });
+      setError(null);
+      return;
+    }
     setEditing({ text: initial ?? (field ? editText(field, valueAt(cell.r, cell.c)) : String(valueAt(cell.r, cell.c) ?? "")) });
     setError(null);
   };
 
-  /** Saves the editor's text. Returns false if the value was rejected. */
-  function commit(): boolean {
+  /** A lookup's text as the value to store: a listed choice (by what's shown, or its value), else what was typed. */
+  const lookupValue = (c: number, text: string): { value: string } | { error: string } => {
+    const lk = p.columns[c].lookup!;
+    const t = text.trim();
+    if (!t) return { value: "" };
+    const low = t.toLowerCase();
+    const opt = lk.options.find((o) => o.label.toLowerCase() === low) ?? lk.options.find((o) => o.value.toLowerCase() === low);
+    if (opt) return { value: opt.value };
+    if (lk.limit && !lk.loading) return { error: "The text you entered isn't an item in the list. Select an item from the list, or enter text that matches one of the listed items." };
+    return { value: t };
+  };
+  const lookupMatches = (c: number, text: string, typed?: boolean) => {
+    const opts = p.columns[c]?.lookup?.options ?? [];
+    const t = text.trim().toLowerCase();
+    if (!typed || !t) return opts;
+    const starts = opts.filter((o) => o.label.toLowerCase().startsWith(t));
+    return starts.length ? starts : opts.filter((o) => o.label.toLowerCase().includes(t));
+  };
+
+  /** Saves the editor's text (or `override`). Returns false if the value was rejected. */
+  function commit(override?: string): boolean {
     if (!editing) return true;
     const field = p.columns[cell.c]?.field;
     const original = isNewRow(cell.r) ? "" : field ? editText(field, valueAt(cell.r, cell.c)) : "";
-    if (editing.text === original) {
+    let text = override ?? editing.text;
+    if (p.columns[cell.c]?.lookup) {
+      const r = lookupValue(cell.c, text);
+      if ("error" in r) {
+        setError(r.error);
+        p.onStatus?.(r.error, "error");
+        editorRef.current?.focus();
+        return false;
+      }
+      text = r.value;
+    }
+    if (text === original) {
       setEditing(null);
       return true;
     }
-    if (isNewRow(cell.r) && editing.text === "") {
+    if (isNewRow(cell.r) && text === "") {
       setEditing(null);
       return true;
     }
-    const err = p.onCommit?.(isNewRow(cell.r) ? "new" : order[cell.r], cell.c, editing.text) ?? null;
+    const err = p.onCommit?.(isNewRow(cell.r) ? "new" : order[cell.r], cell.c, text) ?? null;
     if (err) {
       setError(err);
       p.onStatus?.(err, "error");
@@ -293,7 +347,8 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
       return;
     }
     const k = e.key;
-    if (k === "ArrowDown") moveTo(cell.r + 1, cell.c);
+    if (p.columns[cell.c]?.lookup && e.altKey && k === "ArrowDown") startEdit(undefined, true);
+    else if (k === "ArrowDown") moveTo(cell.r + 1, cell.c);
     else if (k === "ArrowUp") moveTo(cell.r - 1, cell.c);
     else if (k === "ArrowRight" || (k === "Tab" && !e.shiftKey)) {
       if (cell.c < colCount - 1) moveTo(cell.r, cell.c + 1);
@@ -304,6 +359,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
     else if (k === "PageDown") moveTo(cell.r + Math.floor(viewH / ROW_H) - 1, cell.c);
     else if (k === "PageUp") moveTo(cell.r - Math.floor(viewH / ROW_H) + 1, cell.c);
     else if (k === "Enter" || k === "F2") startEdit();
+    else if (p.columns[cell.c]?.lookup && (k === "F4" || (e.altKey && k === "ArrowDown"))) startEdit(undefined, true);
     else if (k === " " && p.columns[cell.c]?.field?.type === "YesNo") toggle();
     else if (k === "Delete") {
       if (selRows.size) deleteSelected();
@@ -380,7 +436,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
     canvas.font = getComputedStyle(scroller.current ?? document.body).font || "12px Segoe UI";
     let max = canvas.measureText(col.label).width + 24;
     const sample = Math.min(order.length, 1000);
-    for (let i = 0; i < sample; i++) max = Math.max(max, canvas.measureText(formatValue(col.field, p.getValue(order[i], c))).width + 16);
+    for (let i = 0; i < sample; i++) max = Math.max(max, canvas.measureText(shown(c, p.getValue(order[i], c))).width + (col.lookup ? 30 : 16));
     const next = { ...widthsRef.current, [col.key]: Math.round(Math.max(40, Math.min(600, max))) };
     setWidths(next);
     p.onWidthsChange?.(next);
@@ -502,10 +558,84 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
                     const type = col.field?.type;
                     const cls = [
                       active ? "cell-active" : "",
-                      isNumericType(type) ? "num" : "",
+                      isNumericType(type) && !col.lookup ? "num" : "",
                       type === "YesNo" ? "center" : "",
                       !newRow && p.cellWarning?.(order[r], c) ? "cell-warning" : "",
                     ].join(" ");
+                    if (active && editing && col.lookup) {
+                      const matches = lookupMatches(c, editing.text, editing.typed);
+                      const hi = Math.min(editing.hi ?? 0, Math.max(0, matches.length - 1));
+                      const pick = (o: { value: string; label: string }) => {
+                        if (commit(o.value)) scroller.current?.focus();
+                      };
+                      return (
+                        <td key={col.key} className={`${cls} editing lookup-cell ${error ? "has-error" : ""}`}>
+                          <input
+                            ref={editorRef}
+                            className="cell-editor"
+                            value={editing.text}
+                            aria-label={col.label}
+                            role="combobox"
+                            aria-expanded={!!editing.list}
+                            aria-autocomplete="list"
+                            onChange={(e) => {
+                              setEditing({ text: e.target.value, list: true, typed: true, hi: 0 });
+                              setError(null);
+                            }}
+                            onKeyDown={(e) => {
+                              e.stopPropagation();
+                              const open = editing.list;
+                              if ((e.altKey && e.key === "ArrowDown") || e.key === "F4") {
+                                e.preventDefault();
+                                setEditing({ ...editing, list: !open, typed: false, hi: Math.max(0, (col.lookup!.options ?? []).findIndex((o) => o.label === editing.text)) });
+                              } else if (open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+                                e.preventDefault();
+                                const n = Math.max(0, Math.min(matches.length - 1, hi + (e.key === "ArrowDown" ? 1 : -1)));
+                                setEditing({ ...editing, hi: n });
+                                listRef.current?.children[n]?.scrollIntoView({ block: "nearest" });
+                              } else if (open && e.key === "Escape") {
+                                e.preventDefault();
+                                setEditing({ ...editing, list: false });
+                              } else if (open && e.key === "Enter" && matches[hi]) {
+                                // Take the highlighted choice, then move on like Enter does.
+                                e.preventDefault();
+                                const wasNew = isNewRow(cell.r);
+                                if (!commit(matches[hi].value)) return;
+                                if (cell.c < colCount - 1) setCell({ r: wasNew ? count : cell.r, c: cell.c + 1 });
+                                else setCell({ r: wasNew ? count + 1 : Math.min(cell.r + 1, totalRows - 1), c: firstEditableCol() });
+                                scroller.current?.focus();
+                              } else onKeyDown(e);
+                            }}
+                            onBlur={(e) => {
+                              if (!scroller.current?.contains(e.relatedTarget as Node) && !listRef.current?.contains(e.relatedTarget as Node)) commit();
+                            }}
+                          />
+                          <button
+                            className="lookup-arrow"
+                            tabIndex={-1}
+                            aria-label={`Open ${col.label} list`}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setEditing({ ...editing, list: !editing.list, typed: false });
+                            }}
+                          >
+                            ▾
+                          </button>
+                          {editing.list && (
+                            <LookupList
+                              anchor={editorRef}
+                              listRef={listRef}
+                              options={matches}
+                              hi={hi}
+                              current={editing.text}
+                              loading={col.lookup.loading}
+                              onHover={(i) => setEditing({ ...editing, hi: i })}
+                              onPick={pick}
+                            />
+                          )}
+                        </td>
+                      );
+                    }
                     if (active && editing) {
                       return (
                         <td key={col.key} className={`${cls} editing ${error ? "has-error" : ""}`}>
@@ -553,9 +683,24 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
                         ) : newRow ? (
                           <span className="placeholder">{p.newRowPlaceholder?.(c) ?? ""}</span>
                         ) : tall ? (
-                          <div className="cell-wrap">{formatValue(col.field, v)}</div>
+                          <div className="cell-wrap">{shown(c, v)}</div>
                         ) : (
-                          formatValue(col.field, v)
+                          shown(c, v)
+                        )}
+                        {active && col.lookup && canEdit(c) && (
+                          // Like Access, the current cell of a lookup shows its drop-down arrow.
+                          <button
+                            className="lookup-arrow"
+                            tabIndex={-1}
+                            aria-label={`Open ${col.label} list`}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              startEdit(undefined, true);
+                            }}
+                          >
+                            ▾
+                          </button>
                         )}
                       </td>
                     );
@@ -616,3 +761,50 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
     </div>
   );
 });
+
+/** A lookup's drop-down, drawn at page level under the cell so the grid can't clip it. */
+function LookupList(props: {
+  /** The cell editor; read once it's on the page. */
+  anchor: React.RefObject<HTMLElement | null>;
+  listRef: React.RefObject<HTMLDivElement | null>;
+  options: { value: string; label: string }[];
+  hi: number;
+  current: string;
+  loading?: boolean;
+  onHover: (i: number) => void;
+  onPick: (o: { value: string; label: string }) => void;
+}) {
+  const [pos, setPos] = useState<{ left: number; top: number; width: number; maxHeight: number } | null>(null);
+  useLayoutEffect(() => {
+    const td = props.anchor.current?.closest("td");
+    if (!td) return;
+    const r = td.getBoundingClientRect();
+    const below = window.innerHeight - r.bottom - 8;
+    setPos({ left: r.left, top: r.bottom, width: Math.max(r.width, 180), maxHeight: Math.max(120, Math.min(260, below)) });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    props.listRef.current?.children[props.hi]?.scrollIntoView({ block: "nearest" });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!pos) return null;
+  return createPortal(
+    <div ref={props.listRef} className="combo-list lookup-list" role="listbox" style={{ position: "fixed", left: pos.left, top: pos.top, minWidth: pos.width, maxHeight: pos.maxHeight }}>
+      {props.options.map((o, i) => (
+        <div
+          key={o.value}
+          role="option"
+          aria-selected={i === props.hi}
+          className={`combo-option ${i === props.hi ? "highlight" : ""} ${o.label === props.current ? "selected" : ""}`}
+          onMouseEnter={() => props.onHover(i)}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            props.onPick(o);
+          }}
+        >
+          {o.label}
+        </div>
+      ))}
+      {!props.options.length && <div className="combo-option muted">{props.loading ? "Loading…" : "(no matching items)"}</div>}
+    </div>,
+    document.body,
+  );
+}

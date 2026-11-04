@@ -156,6 +156,8 @@ function nameFor(layout: FormLayout, type: FormControlType, field?: string) {
 
 /** The control Access would make for a field dropped on the form. */
 export function controlTypeForField(field: Field | undefined): { type: FormControlType; multiline?: boolean } {
+  // A lookup field becomes a combo (or list) box that picks from its row source, as in Access.
+  if (field?.lookup) return { type: field.lookup.display === "list" ? "listbox" : "combobox" };
   if (field?.type === "YesNo") return { type: "checkbox" };
   if (field?.type === "LongText") return { type: "textbox", multiline: true };
   return { type: "textbox" };
@@ -190,8 +192,11 @@ export function makeControl(
     c.variant = "primary";
   }
   if (type === "combobox" || type === "listbox") {
-    c.rowSourceType = "values";
-    c.rowSource = "";
+    const lk = opts.fieldDef?.lookup;
+    c.rowSourceType = lk?.rowSourceType ?? "values";
+    c.rowSource = lk?.rowSource ?? "";
+    if (lk?.boundColumn) c.boundColumn = lk.boundColumn;
+    if (lk?.displayColumn) c.displayColumn = lk.displayColumn;
   }
   if (type === "rectangle") {
     c.borderWidth = 1;
