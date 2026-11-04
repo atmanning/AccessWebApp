@@ -49,6 +49,16 @@ export const KeyIcon = svg(
   </>,
 );
 export const DatasheetIcon = TableIcon;
+/** A form with a pencil: Create > Form Design. */
+export const FormDesignIcon = svg(
+  <>
+    <rect x="1.5" y="1.5" width="11" height="12" rx="1" fill="#fff" stroke="#2e7d4f" />
+    <rect x="1.5" y="1.5" width="11" height="3" fill="#2e7d4f" />
+    <path d="M3.5 7h2.5M3.5 10h2.5" stroke="#2e7d4f" />
+    <rect x="7" y="6" width="4" height="2" fill="none" stroke="#2e7d4f" />
+    <path d="M9.5 14.5l1-3 4-4 2 2-4 4z" fill="#f2c94c" stroke="#7a5d00" strokeWidth=".8" />
+  </>,
+);
 export const DesignIcon = svg(
   <>
     <rect x="1.5" y="2.5" width="9" height="11" fill="#fff" stroke="#555" />

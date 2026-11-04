@@ -9,6 +9,7 @@ import {
   ImportAccessIcon,
   FindIcon,
   FormIcon,
+  FormDesignIcon,
   ImportIcon,
   InsertRowIcon,
   KeyIcon,
@@ -71,6 +72,7 @@ export interface RibbonActions {
   createTableDesign: () => void;
   createQueryDesign: () => void;
   createForm: () => void;
+  createFormDesign?: () => void;
   createReport: () => void;
   importText?: () => void;
   importAccess?: () => void;
@@ -326,6 +328,7 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
             </Group>
             <Group label="Forms">
               <Big icon={<FormIcon size={32} />} label="Form" onClick={actions.createForm} title="Create a form from the selected table or query" />
+              <Big icon={<FormDesignIcon size={32} />} label="Form Design" onClick={actions.createFormDesign} title="Create a blank form and open it in Design View" />
             </Group>
             <Group label="Reports">
               <Big icon={<ReportIcon size={32} />} label="Report" onClick={actions.createReport} title="Create a report from the selected table or query" />

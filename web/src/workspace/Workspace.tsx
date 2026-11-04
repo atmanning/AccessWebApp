@@ -301,6 +301,36 @@ export function Workspace(props: {
     else if (kind === "form") setStatus("Form created. Switch to Design View to move fields, add buttons and pick a theme.");
   };
 
+  /**
+   * Create > Form Design: a blank form opened in Design View, like Access. Its record source is the
+   * table or query selected in the Navigation Pane (or the first table); change it in the Property Sheet.
+   */
+  const createFormDesign = () => {
+    const pick =
+      selection && (selection.kind === "table" || selection.kind === "query")
+        ? (selection as { kind: "table" | "query"; id: string })
+        : doc.tables[0]
+          ? { kind: "table" as const, id: doc.tables[0].id }
+          : doc.queries[0]
+            ? { kind: "query" as const, id: doc.queries[0].id }
+            : null;
+    if (!pick) return dialogs.alert("Microsoft Access Web", "Create a table first, then design a form for it.");
+    const src = findObject(doc, pick.kind, pick.id)!;
+    const id = newId("fm");
+    update((d) => {
+      d.forms.push({
+        id,
+        name: uniqueObjectName(d, "form", "Form1"),
+        title: "",
+        source: pick,
+        columns: [],
+        layout: { width: 640, sections: { header: 0, detail: 320, footer: 0 }, theme: "modern", controls: [] },
+      });
+    });
+    openObject("form", id, "design");
+    setStatus(`Blank form for ${pick.kind} '${src.name}'. Drag fields from the field list, or add controls from the Form Design tab. Change the record source in the Property Sheet.`);
+  };
+
   const createFormOrReport = (kind: "form" | "report") => {
     if (selection && (selection.kind === "table" || selection.kind === "query")) {
       createFromSource(kind, selection as { kind: "table" | "query"; id: string });
@@ -626,6 +656,7 @@ export function Workspace(props: {
             createTableDesign: () => createTable(true),
             createQueryDesign: createQuery,
             createForm: () => createFormOrReport("form"),
+            createFormDesign: readOnly ? undefined : createFormDesign,
             createReport: () => createFormOrReport("report"),
             importText: publicView ? undefined : () => setImporting(true),
             importAccess: publicView ? undefined : () => accessInput.current?.click(),
