@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   defaultFieldProps,
   LOOKUP_TYPES,
@@ -51,6 +51,9 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
   const [help, setHelp] = useState(HELP.name);
   const [propsTab, setPropsTab] = useState<"general" | "lookup">("general");
   const [wizardFor, setWizardFor] = useState<string | null>(null);
+  // Fields being dragged by their row selectors, and the row they'd go before.
+  const [drag, setDrag] = useState<{ ids: string[]; to: number } | null>(null);
+  const bodyRef = useRef<HTMLTableSectionElement>(null);
   const field: Field | undefined = table.fields[current];
 
   useEffect(() => {
@@ -226,6 +229,52 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
     );
   };
 
+  /**
+   * Drag a row selector (or several selected rows) up or down to change the field order, like
+   * Access. The order is the order of the datasheet's columns.
+   */
+  const startRowDrag = (e: React.PointerEvent, f: Field, index: number) => {
+    if (e.button !== 0 || ws.readOnly) return;
+    const ids = selected.has(f.id) ? table.fields.filter((x) => selected.has(x.id)).map((x) => x.id) : [f.id];
+    const sy = e.clientY;
+    let active = false;
+    let to = index;
+    const targetAt = (y: number) => {
+      const rows = [...(bodyRef.current?.querySelectorAll<HTMLElement>("tr[data-field-row]") ?? [])];
+      const i = rows.findIndex((r) => {
+        const b = r.getBoundingClientRect();
+        return y < b.top + b.height / 2;
+      });
+      return i < 0 ? rows.length : i;
+    };
+    const move = (ev: PointerEvent) => {
+      if (!active && Math.abs(ev.clientY - sy) < 4) return;
+      active = true;
+      to = targetAt(ev.clientY);
+      setDrag({ ids, to });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      setDrag(null);
+      if (!active) return;
+      const order = table.fields.map((x) => x.id);
+      const rest = order.filter((id) => !ids.includes(id));
+      const at = to - order.slice(0, to).filter((id) => ids.includes(id)).length;
+      const next = [...rest.slice(0, at), ...ids, ...rest.slice(at)];
+      if (next.join() === order.join()) return;
+      mutate((t) => {
+        t.fields = next.map((id) => t.fields.find((x) => x.id === id)!);
+      });
+      setCurrent(at);
+      ws.setStatus(`Moved ${ids.length === 1 ? `'${table.fields.find((x) => x.id === ids[0])?.name}'` : `${ids.length} fields`}. Datasheet View shows the fields in this order.`);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+
   useCommands(tabKey, { primaryKey: togglePrimaryKey, insertRows: insertRow, deleteRows });
 
   const rows = [...table.fields, undefined];
@@ -248,15 +297,18 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
               <th>Description (Optional)</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody ref={bodyRef}>
             {rows.map((f, i) => (
               <tr
                 key={f?.id ?? "__new"}
-                className={`${i === current ? "row-current" : ""} ${f && selected.has(f.id) ? "row-selected" : ""}`}
+                data-field-row={f ? "" : undefined}
+                className={`${i === current ? "row-current" : ""} ${f && selected.has(f.id) ? "row-selected" : ""} ${drag && drag.to === i ? "drop-before" : ""} ${f && drag?.ids.includes(f.id) ? "row-dragging" : ""}`}
                 onFocusCapture={() => setCurrent(i)}
               >
                 <td
                   className="row-selector"
+                  title={f ? "Click to select the field; drag to move it" : undefined}
+                  onPointerDown={(e) => f && startRowDrag(e, f, i)}
                   onMouseDown={(e) => {
                     e.preventDefault();
                     setCurrent(i);

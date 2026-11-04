@@ -42,6 +42,7 @@ import { QUERY_TYPE_ICONS, typeOfQuery } from "./queryKinds";
 import { NavPane, type Selection } from "./NavPane";
 import { setPublicViewing } from "../engine/linked";
 import { VersionStamp } from "../ui/VersionStamp";
+import { ExportSchemaDialog } from "./ExportSchemaDialog";
 import { Ribbon } from "./Ribbon";
 
 type SaveState = "saved" | "pending" | "saving" | "error" | "conflict";
@@ -444,6 +445,7 @@ export function Workspace(props: {
   }, [props.project.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [sharing, setSharing] = useState(false);
+  const [schemaExport, setSchemaExport] = useState(false);
 
   // ---- MySQL connections ----
 
@@ -772,6 +774,7 @@ export function Workspace(props: {
                   : `${props.project.ownerName} shared this database with you. You can ${role === "edit" ? "view and edit" : "view"} it.`
             }
             onExport={publicView ? undefined : exportAccess}
+            onExportSchema={publicView || !doc.tables.length ? undefined : () => (setBackstage(false), setSchemaExport(true))}
             onClose={async () => {
               await save();
               if (docRef.current !== savedDoc.current && !(await dialogs.confirm("Close", "Some changes haven't been saved yet. Close anyway?", { okLabel: "Close" }))) return;
@@ -818,6 +821,17 @@ export function Workspace(props: {
               setOtherDb(null);
               setStatus(message);
               if (notes.length) showImportWarnings(dialogs, notes, "Done, with these notes:");
+            }}
+          />
+        )}
+        {schemaExport && (
+          <ExportSchemaDialog
+            doc={doc}
+            databaseName={name}
+            onClose={() => setSchemaExport(false)}
+            onDone={(m) => {
+              setSchemaExport(false);
+              setStatus(m);
             }}
           />
         )}
@@ -982,6 +996,7 @@ function Backstage(props: {
   onCopy?: () => void;
   roleText: string;
   onExport?: () => void;
+  onExportSchema?: () => void;
   guest?: boolean;
   onClose: () => void;
   onSignOut: () => void;
@@ -1002,6 +1017,7 @@ function Backstage(props: {
         {props.onShare && <button onClick={props.onShare}>Share</button>}
         {props.onCopy && <button onClick={props.onCopy}>Save a copy</button>}
         {props.onExport && <button onClick={props.onExport}>Export to Access</button>}
+        {props.onExportSchema && <button onClick={props.onExportSchema}>Export Schema</button>}
         {!props.guest && <button onClick={props.onClose}>Close</button>}
         <div className="spacer" />
         <LayoutPicker className="backstage-layout" />
@@ -1037,6 +1053,16 @@ function Backstage(props: {
             </p>
             <button className="primary" onClick={props.onExport}>Export .accdb</button>
           </div>
+          )}
+          {props.onExportSchema && (
+            <div className="info-card">
+              <h3>Export Schema</h3>
+              <p>
+                Download the design of the tables you choose, without their data: as SQL for MySQL, SQLite or Access, as a readable
+                document, or as JSON. Fields, data types, keys, indexes, defaults and relationships are included.
+              </p>
+              <button onClick={props.onExportSchema}>Export Schema…</button>
+            </div>
           )}
           <div className="info-card">
             <h3>Account</h3>
