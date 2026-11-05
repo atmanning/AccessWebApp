@@ -24,6 +24,8 @@ import {
   viewsFor,
   WorkspaceContext,
   type StatusKind,
+  type DeepLink,
+  type RecordTarget,
   type Tab,
   type TabKind,
   type ViewCommands,
@@ -45,6 +47,11 @@ import { setPublicViewing } from "../engine/linked";
 import { VersionStamp } from "../ui/VersionStamp";
 import { prepareImage } from "../ui/images";
 import { ExportSchemaDialog } from "./ExportSchemaDialog";
+import { LabelsView } from "../reports/LabelsView";
+import { LabelSetup } from "../reports/LabelSetup";
+import { NewLabelsDialog } from "../reports/NewLabelsDialog";
+import { defaultLabels } from "../reports/labels";
+import { readSource } from "../engine/engine";
 import { Ribbon } from "./Ribbon";
 
 type SaveState = "saved" | "pending" | "saving" | "error" | "conflict";
@@ -57,6 +64,8 @@ export function Workspace(props: {
   onSignOut: () => void;
   /** Opens another database (used by Save a copy). */
   onOpenProject: (p: ProjectRecord) => void;
+  /** Opened from a link to one record (a label's QR code). */
+  deepLink?: DeepLink | null;
 }) {
   const role = props.project.role;
   const readOnly = role === "view";
@@ -196,18 +205,31 @@ export function Workspace(props: {
   }, [setStatus]);
 
   // ---- Tabs ------------------------------------------------------------------------------
-  const openObject = useCallback((kind: TabKind, id: string, view?: ViewName) => {
+  const openObject = useCallback((kind: TabKind, id: string, view?: ViewName, goto?: Omit<RecordTarget, "n">) => {
     const key = tabKey(kind, id);
+    const target = goto ? { ...goto, n: Date.now() } : undefined;
     setTabs((ts) => {
       const existing = ts.find((t) => t.key === key);
-      if (existing) return view && existing.view !== view ? ts.map((t) => (t.key === key ? { ...t, view } : t)) : ts;
-      return [...ts, { key, kind, id, view: view ?? defaultView(kind) }];
+      if (existing) {
+        if (!target && (!view || existing.view === view)) return ts;
+        return ts.map((t) => (t.key === key ? { ...t, ...(view ? { view } : {}), ...(target ? { goto: target, view: view ?? defaultView(kind) } : {}) } : t));
+      }
+      return [...ts, { key, kind, id, view: view ?? defaultView(kind), ...(target ? { goto: target } : {}) }];
     });
     setActiveKey(key);
     setBackstage(false);
     if (compactRef.current) setNavCollapsed(true);
     if (kind !== "relationships" && kind !== "console") setSelection({ kind, id });
   }, []);
+
+  // Opened from a record's link (a label's QR code): show that form or table at the record.
+  useEffect(() => {
+    const l = props.deepLink;
+    if (!l) return;
+    const exists = l.kind === "form" ? docRef.current.forms.some((f) => f.id === l.id) : docRef.current.tables.some((t) => t.id === l.id);
+    if (!exists) return setStatus("The form or table that link opens isn't in this database any more.", "error");
+    openObject(l.kind, l.id, undefined, { field: l.field, value: l.value });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const closeTab = useCallback((key: string) => {
     setTabs((ts) => {
@@ -458,6 +480,20 @@ export function Workspace(props: {
 
   const [sharing, setSharing] = useState(false);
   const [schemaExport, setSchemaExport] = useState(false);
+  const [newLabels, setNewLabels] = useState(false);
+  /** Create → Labels: a labels report with a starting layout from the source's fields. */
+  const createLabels = async (source: { kind: "table" | "query"; id: string }, preset: string, qr: boolean) => {
+    setNewLabels(false);
+    const src = findObject(docRef.current, source.kind, source.id);
+    if (!src) return;
+    const columns = await readSource(docRef.current, source).then((r) => r.columns, () => [] as string[]);
+    const id = newId("rp");
+    update((d) => {
+      d.reports.push({ id, name: uniqueObjectName(d, "report", `${src.name} Labels`), title: `${src.name} Labels`, source, columns: [], labels: defaultLabels(d, source, columns, preset, qr) });
+    });
+    openObject("report", id);
+    setStatus("Labels created. Switch to Design View to change the size, margins, text or QR code; Print when they look right.");
+  };
 
   // ---- MySQL connections ----
 
@@ -672,6 +708,7 @@ export function Workspace(props: {
             createForm: () => createFormOrReport("form"),
             createFormDesign: readOnly ? undefined : createFormDesign,
             createReport: () => createFormOrReport("report"),
+            createLabels: readOnly ? undefined : () => (doc.tables.length || doc.queries.length ? setNewLabels(true) : setStatus("Create a table first.", "error")),
             importText: publicView ? undefined : () => setImporting(true),
             importAccess: publicView ? undefined : () => accessInput.current?.click(),
             copy: selection && !publicView ? () => copySelected() : undefined,
@@ -836,6 +873,14 @@ export function Workspace(props: {
             }}
           />
         )}
+        {newLabels && (
+          <NewLabelsDialog
+            doc={doc}
+            initial={selection && (selection.kind === "table" || selection.kind === "query") ? (selection as { kind: "table" | "query"; id: string }) : null}
+            onClose={() => setNewLabels(false)}
+            onCreate={(s, p, q) => void createLabels(s, p, q)}
+          />
+        )}
         {schemaExport && (
           <ExportSchemaDialog
             doc={doc}
@@ -924,7 +969,7 @@ function TabContent({ tab, refreshKey }: { tab: Tab; refreshKey: number }) {
       return <LinkedTableView key={key} link={ws.doc.linkedTables!.find((x) => x.id === tab.id)!} tabKey={tab.key} />;
     case "table": {
       const t = ws.doc.tables.find((x) => x.id === tab.id)!;
-      return tab.view === "design" ? <TableDesign key={key} table={t} tabKey={tab.key} /> : <TableDatasheet key={key} table={t} tabKey={tab.key} />;
+      return tab.view === "design" ? <TableDesign key={key} table={t} tabKey={tab.key} /> : <TableDatasheet key={key} table={t} tabKey={tab.key} goto={tab.goto} />;
     }
     case "query": {
       const q = ws.doc.queries.find((x) => x.id === tab.id)!;
@@ -934,10 +979,11 @@ function TabContent({ tab, refreshKey }: { tab: Tab; refreshKey: number }) {
     }
     case "form": {
       const f = ws.doc.forms.find((x) => x.id === tab.id)!;
-      return tab.view === "design" ? <FormDesigner key={key} form={f} tabKey={tab.key} /> : <FormRunView key={key} form={f} tabKey={tab.key} />;
+      return tab.view === "design" ? <FormDesigner key={key} form={f} tabKey={tab.key} /> : <FormRunView key={key} form={f} tabKey={tab.key} goto={tab.goto} />;
     }
     case "report": {
       const r = ws.doc.reports.find((x) => x.id === tab.id)!;
+      if (r.labels) return tab.view === "design" ? <LabelSetup key={key} report={r} /> : <LabelsView key={key} report={r} tabKey={tab.key} />;
       return tab.view === "design" ? <FormReportDesign key={key} kind="report" obj={r} /> : <ReportView key={key} report={r} tabKey={tab.key} />;
     }
   }

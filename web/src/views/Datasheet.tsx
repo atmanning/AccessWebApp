@@ -55,6 +55,8 @@ export interface DatasheetHandle {
   deleteSelected: () => void;
   focusFind: () => void;
   selectedRowCount: () => number;
+  /** Selects a record by its index in the rows (clearing the search box if it hides it). */
+  goToRow: (row: number) => void;
 }
 
 /** Row height: taller on touch screens so a finger can pick a row. */
@@ -97,6 +99,18 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
   const findBox = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  // A record to select once a cleared search box has shown it again.
+  const pendingRow = useRef<number | null>(null);
+  useEffect(() => {
+    if (pendingRow.current === null) return;
+    const r = order.indexOf(pendingRow.current);
+    pendingRow.current = null;
+    if (r >= 0) {
+      setCell({ r, c: 0 });
+      setSelRows(new Set([r]));
+      scrollIntoView(r);
+    }
+  });
   // The Image cell whose picture is open in the picture dialog.
   const [picture, setPicture] = useState<Cell | null>(null);
   const [dropCell, setDropCell] = useState<Cell | null>(null);
@@ -314,6 +328,19 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
     },
     deleteSelected,
     focusFind: () => findBox.current?.focus(),
+    goToRow: (dataRow: number) => {
+      if (!order.includes(dataRow) && filter) {
+        setFilter("");
+        pendingRow.current = dataRow;
+        return;
+      }
+      const r = order.indexOf(dataRow);
+      if (r < 0) return;
+      setCell({ r, c: 0 });
+      setSelRows(new Set([r]));
+      scrollIntoView(r);
+      scroller.current?.focus();
+    },
     selectedRowCount: () => selRows.size,
   }));
 

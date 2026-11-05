@@ -97,6 +97,18 @@ export const FilterFormIcon = svg(
     <path d="M8 9h7l-2.7 3.1V15l-1.6-.8v-2.1z" fill="#f2c94c" stroke="#7a5d00" strokeWidth=".8" strokeLinejoin="round" />
   </>,
 );
+/** A sheet of labels: Create > Labels. */
+export const LabelsIcon = svg(
+  <>
+    <rect x="1.5" y="1" width="13" height="14" fill="#fff" stroke="#b5532b" />
+    <rect x="3" y="2.8" width="4.5" height="3" rx=".6" fill="#f6e3da" stroke="#b5532b" strokeWidth=".7" />
+    <rect x="8.5" y="2.8" width="4.5" height="3" rx=".6" fill="#f6e3da" stroke="#b5532b" strokeWidth=".7" />
+    <rect x="3" y="6.6" width="4.5" height="3" rx=".6" fill="#f6e3da" stroke="#b5532b" strokeWidth=".7" />
+    <rect x="8.5" y="6.6" width="4.5" height="3" rx=".6" fill="#f6e3da" stroke="#b5532b" strokeWidth=".7" />
+    <rect x="3" y="10.4" width="4.5" height="3" rx=".6" fill="#f6e3da" stroke="#b5532b" strokeWidth=".7" />
+    <rect x="8.5" y="10.4" width="4.5" height="3" rx=".6" fill="#f6e3da" stroke="#b5532b" strokeWidth=".7" />
+  </>,
+);
 export const SortAscIcon = svg(
   <>
     <text x="1" y="7" fontSize="6" fontWeight="700" fill="#333">A</text>

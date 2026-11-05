@@ -303,6 +303,57 @@ export const formSchema = z.object({
 });
 export type FormDef = z.infer<typeof formSchema>;
 
+const inches = (min: number, max: number) => z.number().min(min).max(max);
+
+/** One line of text on a label: a template such as "[FirstName] [LastName]". */
+export const labelLineSchema = z.object({
+  text: z.string().max(500),
+  /** Font size in points. */
+  size: z.number().min(5).max(96),
+  bold: z.boolean().optional(),
+  italic: z.boolean().optional(),
+});
+export type LabelLine = z.infer<typeof labelLineSchema>;
+
+/**
+ * A labels report (Access's Label Wizard): one label per record on sheets of labels or name
+ * badges. Sizes are in inches.
+ */
+export const labelLayoutSchema = z.object({
+  /** Which sheet it was set up from, e.g. "avery-5395" (or "custom"). */
+  preset: z.string().max(40).optional(),
+  page: z.enum(["letter", "a4"]),
+  width: inches(0.5, 11),
+  height: inches(0.3, 14),
+  across: z.number().int().min(1).max(10),
+  down: z.number().int().min(1).max(40),
+  marginTop: inches(0, 5),
+  marginLeft: inches(0, 5),
+  gapX: inches(0, 3),
+  gapY: inches(0, 3),
+  /** Space inside each label's edge. */
+  padding: inches(0, 1),
+  align: z.enum(["left", "center", "right"]),
+  lines: z.array(labelLineSchema).max(10),
+  /** Thin outline around each label (helps line up cutting or a test print). */
+  outline: z.boolean().optional(),
+  /** Labels already used on the first sheet, to print a partly used sheet. */
+  skip: z.number().int().min(0).max(400).optional(),
+  /** A QR code that opens the record in this database when scanned. */
+  qr: z
+    .object({
+      /** What the code opens: a form (on the record) or the table's datasheet. */
+      target: z.enum(["form", "table"]),
+      formId: z.string().max(64).optional(),
+      size: inches(0.4, 4),
+      position: z.enum(["right", "left", "bottom"]),
+      /** Address people scan to reach this app (default: the address it's open at). */
+      baseUrl: z.string().max(300).optional(),
+    })
+    .optional(),
+});
+export type LabelLayout = z.infer<typeof labelLayoutSchema>;
+
 export const reportSchema = z.object({
   id,
   name: nameSchema,
@@ -311,6 +362,8 @@ export const reportSchema = z.object({
   columns: z.array(z.string()).max(255),
   groupBy: z.string().optional(),
   sortBy: z.string().optional(),
+  /** Set for a labels report (name tags, address labels) instead of a list. */
+  labels: labelLayoutSchema.optional(),
 });
 export type ReportDef = z.infer<typeof reportSchema>;
 

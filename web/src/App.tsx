@@ -8,6 +8,7 @@ import { api } from "./api";
 import { DialogProvider, showImportWarnings, useDialogs } from "./ui/dialogs";
 import { AccessIcon, TableIcon } from "./ui/icons";
 import { Workspace } from "./workspace/Workspace";
+import type { DeepLink } from "./workspace/context";
 import { validateObjectName } from "./workspace/docOps";
 import { emptyProject } from "../../shared/model";
 
@@ -27,6 +28,9 @@ function Root() {
   // Not signed in: a database published for public viewing, opened from its link (undefined = still checking).
   const [guestProject, setGuestProject] = useState<ProjectRecord | null | undefined>(undefined);
   const [wantsSignIn, setWantsSignIn] = useState(false);
+  // A record's link (from a label's QR code), read before opening the database tidies the URL.
+  const [deepLink] = useState(() => readDeepLink());
+  const linkFor = (projectId: string) => (deepLink && deepLink.db === projectId ? deepLink.link : null);
 
   useEffect(() => {
     api.me().then((r) => setUser(r.user), () => setUser(null));
@@ -91,6 +95,7 @@ function Root() {
         key={guestProject.id}
         project={guestProject}
         user={GUEST}
+        deepLink={linkFor(guestProject.id)}
         onClose={() => setWantsSignIn(true)}
         onSignOut={() => setWantsSignIn(true)}
         onOpenProject={() => setWantsSignIn(true)}
@@ -98,8 +103,19 @@ function Root() {
     );
   }
   if (!user) return <AuthScreen onSignedIn={setUser} onBack={guestProject ? () => setWantsSignIn(false) : undefined} />;
-  if (project) return <Workspace key={project.id} project={project} user={user} onClose={() => open(null)} onSignOut={signOut} onOpenProject={open} />;
+  if (project) return <Workspace key={project.id} project={project} user={user} deepLink={linkFor(project.id)} onClose={() => open(null)} onSignOut={signOut} onOpenProject={open} />;
   return <Home user={user} onOpen={open} onSignOut={signOut} notice={linkError} onDismissNotice={() => setLinkError(null)} />;
+}
+
+/** `?db=…&open=form:…&key=ID&rec=42` → open that form or table at that record. */
+function readDeepLink(): { db: string; link: DeepLink } | null {
+  const q = new URLSearchParams(location.search);
+  const db = q.get("db");
+  const m = /^(form|table):(.+)$/.exec(q.get("open") ?? "");
+  const field = q.get("key");
+  const value = q.get("rec");
+  if (!db || !m || !field || value === null) return null;
+  return { db, link: { kind: m[1] as "form" | "table", id: m[2], field, value } };
 }
 
 /** Shown as the "user" of a public database opened without signing in. */

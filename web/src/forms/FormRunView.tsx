@@ -6,7 +6,7 @@ import { formatValue } from "../engine/values";
 import { compileCriteria } from "../engine/findCriteria";
 import { useLayout } from "../ui/layout";
 import { useSource } from "../views/FormReportViews";
-import { useCommands, useWorkspace } from "../workspace/context";
+import { useCommands, useWorkspace, type RecordTarget } from "../workspace/context";
 import { useTableEditing } from "../workspace/useTableEditing";
 import { FormControlView, type ChoiceOption } from "./FormControls";
 import { isBound, layoutOf, parseValueList, readingOrder, themeStyle } from "./formLayout";
@@ -59,7 +59,7 @@ export function useRowSources(doc: ProjectDoc, controls: FormControl[]) {
 /** Criteria typed in Find mode, by field name; several requests are ORed (Access's "Or" tabs). */
 type FindRequest = Record<string, string>;
 
-export function FormRunView({ form, tabKey }: { form: FormDef; tabKey: string }) {
+export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: string; goto?: RecordTarget }) {
   const ws = useWorkspace();
   const { compact } = useLayout();
   const { data, error, table } = useSource(form.source);
@@ -164,6 +164,19 @@ export function FormRunView({ form, tabKey }: { form: FormDef; tabKey: string })
       setAddedAt(null);
     }
   }, [data, order, addedAt]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Opened at one record (a label's QR code): find it by its key and show it, even if filtered out.
+  useEffect(() => {
+    if (!goto || !data) return;
+    const ci = colOf(goto.field);
+    const i = ci < 0 ? -1 : data.rows.findIndex((r) => String(r[ci] ?? "") === goto.value);
+    if (i < 0) return ws.setStatus(`There's no record with ${goto.field} ${goto.value} any more.`, "error");
+    setFinding(null);
+    setIsNew(false);
+    setAddedAt(i);
+    const shown = layout.controls.filter((c) => c.field && isBound(c.type) && c.type !== "image" && c.field.toLowerCase() !== goto.field.toLowerCase()).slice(0, 2).map((c) => data.rows[i][colOf(c.field!)]);
+    ws.setStatus(`Opened ${shown.filter((v) => v !== null && v !== "").join(" ") || "the record"} from its link.`);
+  }, [goto?.n, data === undefined]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const go = (n: number) => {
     (document.activeElement as HTMLElement | null)?.blur?.();

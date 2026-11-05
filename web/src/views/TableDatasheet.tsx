@@ -1,13 +1,13 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { TableDef } from "../../../shared/model";
-import { useCommands, useWorkspace } from "../workspace/context";
+import { useCommands, useWorkspace, type RecordTarget } from "../workspace/context";
 import { exportCsv } from "../workspace/csv";
 import { useTableEditing } from "../workspace/useTableEditing";
 import { Datasheet, type DatasheetHandle } from "./Datasheet";
 import { useFieldLookups } from "./lookups";
 import { useRowHeight } from "./useRowHeight";
 
-export function TableDatasheet({ table, tabKey }: { table: TableDef; tabKey: string }) {
+export function TableDatasheet({ table, tabKey, goto }: { table: TableDef; tabKey: string; goto?: RecordTarget }) {
   const ws = useWorkspace();
   const grid = useRef<DatasheetHandle>(null);
   const editing = useTableEditing(table);
@@ -38,6 +38,16 @@ export function TableDatasheet({ table, tabKey }: { table: TableDef; tabKey: str
     [fields, ws.readOnly, lookups, image],
   );
   const getValue = useCallback((r: number, c: number) => table.rows[r]?.[fields[c].id] ?? null, [table.rows, fields]);
+
+  // Opened at one record (a label's QR code): select it.
+  useEffect(() => {
+    if (!goto) return;
+    const f = fields.find((x) => x.name.toLowerCase() === goto.field.toLowerCase());
+    const i = f ? table.rows.findIndex((r) => String(r[f.id] ?? "") === goto.value) : -1;
+    if (i < 0) return ws.setStatus(`There's no record with ${goto.field} ${goto.value} any more.`, "error");
+    // After the grid has drawn.
+    setTimeout(() => grid.current?.goToRow(i), 0);
+  }, [goto?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useCommands(tabKey, {
     newRecord: () => grid.current?.goToNewRecord(),

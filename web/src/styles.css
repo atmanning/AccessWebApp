@@ -704,3 +704,56 @@ button.props-tab.active { background: #fff; font-weight: 600; }
 .image-view.drop-over { border-color: var(--accent); background: var(--select); }
 .button-link { display: inline-flex; align-items: center; padding: 4px 14px; border: 1px solid var(--border-strong); border-radius: 2px; color: inherit; text-decoration: none; background: #fff; }
 .report-img { max-height: 64px; max-width: 120px; object-fit: contain; display: block; }
+
+/* Labels reports (name tags, address labels) */
+.labels-view { height: 100%; overflow: auto; background: #e9e9e9; }
+.labels-toolbar { position: sticky; top: 0; z-index: 2; display: flex; gap: 12px; align-items: center; padding: 8px 16px; background: var(--chrome); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.labels-toolbar .spacer { flex: 1; }
+.labels-toolbar button { padding: 4px 16px; }
+.labels-tips { padding: 6px 16px; color: #555; }
+.labels-note { margin-top: 4px; color: #7a5d00; background: #fff8e1; border: 1px solid #f0d78a; padding: 4px 8px; border-radius: 3px; }
+.labels-pages { display: flex; flex-direction: column; align-items: center; gap: 24px; padding: 16px 16px 40px; }
+.label-page { position: relative; background: #fff; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); flex: none; overflow: hidden; }
+.label { position: absolute; box-sizing: border-box; overflow: hidden; border-radius: 0.06in; color: #000; font-family: "Segoe UI", system-ui, sans-serif; }
+.labels-view .label { outline: 1px dashed #cfcfcf; }
+.label.outlined { outline: 1px solid #999 !important; }
+.label-inner { display: flex; align-items: center; gap: 0.12in; width: 100%; height: 100%; }
+.label-inner.qr-bottom { flex-direction: column; justify-content: center; }
+.label-lines { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; line-height: 1.15; overflow: hidden; }
+.label-line { overflow-wrap: anywhere; }
+.qr-code { flex: none; display: block; }
+.labels-print { display: none; }
+@media print {
+  /* Only the sheets: everything else is taken out of the page so nothing clips or adds blank pages. */
+  html:has(body > .labels-print), body:has(> .labels-print) { height: auto !important; overflow: visible !important; background: #fff; }
+  body:has(> .labels-print) > :not(.labels-print) { display: none !important; }
+  .labels-print, .labels-print * { visibility: visible !important; }
+  .labels-print { display: block; }
+  .labels-print .label-page { box-shadow: none; break-after: page; page-break-after: always; }
+  .labels-print .label-page:last-child { break-after: auto; page-break-after: auto; }
+  .labels-print .label:not(.outlined) { outline: none; }
+}
+
+/* Labels Design View */
+.label-setup .od-panel h4 { margin: 6px 0 0; font-size: 12px; font-weight: 600; color: #444; border-top: 1px solid var(--border); padding-top: 8px; }
+.ls-field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.ls-unit { display: inline-flex; align-items: center; gap: 4px; color: #666; }
+.ls-unit input { width: 72px; height: 24px; border: 1px solid var(--border-strong); padding: 0 4px; font: inherit; }
+.ls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+.ls-field > input[type="number"] { width: 72px; height: 24px; border: 1px solid var(--border-strong); padding: 0 4px; font: inherit; }
+.ls-check { flex-direction: row !important; align-items: center; gap: 6px !important; font-size: 12px; }
+.ls-line { display: flex; align-items: center; gap: 4px; }
+.ls-line-text { flex: 1; min-width: 0; }
+.ls-size { width: 46px; height: 26px; border: 1px solid var(--border-strong); padding: 0 3px; font: inherit; }
+.ls-toggle { min-width: 26px; height: 26px; padding: 0 4px; border: 1px solid var(--border-strong); background: #fff; cursor: pointer; }
+.ls-toggle.on { background: #cde4f7; border-color: #0078d4; }
+.ls-align { width: 150px; }
+.ls-fields { display: flex; flex-wrap: wrap; gap: 4px; }
+.ls-chip { font-size: 11px; padding: 2px 8px; border: 1px solid #9ec3e6; background: #eef5fc; border-radius: 10px; cursor: pointer; }
+.ls-chip:hover { background: #d6e8f8; }
+.ls-preview-panel { width: auto; min-width: 320px; }
+.ls-preview { position: relative; background: #fff; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25); overflow: hidden; }
+.ls-preview .label { outline: 1px dashed #cfcfcf; }
+.ls-sheet { display: block; align-self: center; margin-top: 8px; }
+.new-labels { display: flex; flex-direction: column; gap: 10px; }
+.new-labels label { display: flex; flex-direction: column; gap: 3px; }

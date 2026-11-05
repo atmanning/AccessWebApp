@@ -10,6 +10,22 @@ export interface Tab {
   kind: TabKind;
   id: string;
   view: ViewName;
+  /** Go to the record whose `field` equals `value` (from a link such as a label's QR code); `n` makes repeats count. */
+  goto?: RecordTarget;
+}
+
+export interface RecordTarget {
+  field: string;
+  value: string;
+  n: number;
+}
+
+/** A link into a database: open this form or table at the record whose key field has this value. */
+export interface DeepLink {
+  kind: "form" | "table";
+  id: string;
+  field: string;
+  value: string;
 }
 
 /** Commands the ribbon can send to whichever view is active. */
@@ -68,7 +84,7 @@ export interface WorkspaceApi {
   doc: ProjectDoc;
   /** Applies an immer recipe to the document; each call is one undo step. */
   update: (recipe: (draft: ProjectDoc) => void) => void;
-  openObject: (kind: TabKind, id: string, view?: ViewName) => void;
+  openObject: (kind: TabKind, id: string, view?: ViewName, goto?: Omit<RecordTarget, "n">) => void;
   closeTab: (key: string) => void;
   setTabView: (key: string, view: ViewName) => void;
   activeKey: string | null;
