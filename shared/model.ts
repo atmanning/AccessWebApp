@@ -371,6 +371,10 @@ export const projectDocSchema = z.object({
   reports: z.array(reportSchema).max(500),
   relationships: z.array(relationshipSchema).max(1000),
   linkedTables: z.array(linkedTableSchema).max(500).optional(),
+  /** Where each table (or linked table) sits in the Relationships window, by its id. */
+  relationshipLayout: z
+    .record(z.string(), z.object({ x: z.number().int().min(0).max(20_000), y: z.number().int().min(0).max(20_000) }))
+    .optional(),
 });
 export type ProjectDoc = z.infer<typeof projectDocSchema>;
 

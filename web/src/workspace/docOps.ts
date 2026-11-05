@@ -116,6 +116,7 @@ export function deleteObject(doc: ProjectDoc, kind: ObjectKind, id: string) {
   else if (kind === "linked") doc.linkedTables = (doc.linkedTables ?? []).filter((t) => t.id !== id);
   else if (kind === "form") doc.forms = doc.forms.filter((f) => f.id !== id);
   else doc.reports = doc.reports.filter((r) => r.id !== id);
+  if (doc.relationshipLayout?.[id]) delete doc.relationshipLayout[id];
   // Lookup fields that listed this table or query go back to plain text boxes.
   if (kind === "table" || kind === "query") {
     for (const t of doc.tables) for (const f of t.fields) if (f.lookup && f.lookup.rowSourceType === kind && f.lookup.rowSource === id) delete f.lookup;

@@ -30,6 +30,7 @@ function compatible(a: Field, b: Field) {
 export function RelationshipsView({ tabKey }: { tabKey: string }) {
   const ws = useWorkspace();
   const dialogs = useDialogs();
+  // Positions while a table is being dragged (and, for view-only users, where they've moved them).
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
   const [selected, setSelected] = useState<string | null>(null);
   const [editing, setEditing] = useState<Draft | null>(null);
@@ -67,8 +68,23 @@ export function RelationshipsView({ tabKey }: { tabKey: string }) {
     ],
     [ws.doc.tables, remoteLinks, remoteRels, linkedFields],
   );
-  const pos = (t: Box, i: number) => positions[t.id] ?? { x: 24 + (i % 4) * 240, y: 24 + Math.floor(i / 4) * 260 };
-  const layout = useMemo(() => new Map(tables.map((t, i) => [t.id, { ...pos(t, i), t }])), [tables, positions]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Saved with the database. Tables without a saved place go in rows below the arranged ones.
+  const saved = ws.doc.relationshipLayout;
+  const layout = useMemo(() => {
+    const placed = tables.filter((t) => positions[t.id] ?? saved?.[t.id]);
+    const below = placed.length
+      ? Math.max(...placed.map((t) => (positions[t.id] ?? saved![t.id]).y + HEAD_H + t.fields.length * ROW_H)) + 40
+      : 24;
+    let n = 0;
+    return new Map(
+      tables.map((t) => {
+        const p = positions[t.id] ?? saved?.[t.id];
+        if (p) return [t.id, { ...p, t }];
+        const i = n++;
+        return [t.id, { x: 24 + (i % 4) * 240, y: below + Math.floor(i / 4) * 260, t }];
+      }),
+    );
+  }, [tables, positions, saved]);
 
   const anchor = (tableId: string, fieldId: string, side: "left" | "right") => {
     const l = layout.get(tableId);
@@ -84,12 +100,28 @@ export function RelationshipsView({ tabKey }: { tabKey: string }) {
     const start = layout.get(id)!;
     const sx = e.clientX;
     const sy = e.clientY;
-    const move = (ev: PointerEvent) =>
-      setPositions((p) => ({ ...p, [id]: { x: Math.max(0, start.x + ev.clientX - sx), y: Math.max(0, start.y + ev.clientY - sy) } }));
+    let at = { x: start.x, y: start.y };
+    const move = (ev: PointerEvent) => {
+      at = { x: Math.round(Math.max(0, start.x + ev.clientX - sx)), y: Math.round(Math.max(0, start.y + ev.clientY - sy)) };
+      setPositions((p) => ({ ...p, [id]: at }));
+    };
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
+      if (at.x === start.x && at.y === start.y) return;
+      if (ws.readOnly) return; // view-only: the move lasts for this visit
+      // Save every table's place (one undo step), so tables that were never moved stay put too.
+      ws.update((d) => {
+        const next: NonNullable<typeof d.relationshipLayout> = {};
+        for (const [tid, l] of layout) next[tid] = { x: Math.round(l.x), y: Math.round(l.y) };
+        next[id] = at;
+        d.relationshipLayout = next;
+      });
+      setPositions((p) => {
+        const { [id]: _, ...rest } = p;
+        return rest;
+      });
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
