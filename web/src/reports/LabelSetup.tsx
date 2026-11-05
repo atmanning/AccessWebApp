@@ -44,7 +44,13 @@ export function LabelSetup({ report }: { report: ReportDef }) {
     ...ws.doc.tables.map((t) => ({ value: `table:${t.id}`, label: `Table: ${t.name}` })),
     ...ws.doc.queries.map((q) => ({ value: `query:${q.id}`, label: `Query: ${q.name}` })),
   ];
-  const forms = ws.doc.forms;
+  // Forms a QR code can open at the person: built on a table whose key is among these records' fields.
+  const forms = ws.doc.forms.filter((f) => {
+    if (f.source.kind !== "table") return false;
+    if (report.source.kind === "table") return f.source.id === report.source.id;
+    const key = linkKeyField(ws.doc, report.source, { kind: "form", formId: f.id });
+    return !!key && !!data?.columns.some((c) => c.toLowerCase() === key.toLowerCase());
+  });
   const keyField = linkKeyField(ws.doc, report.source, l.qr ? { kind: l.qr.target, formId: l.qr.formId } : undefined);
   // The preview label is drawn at its real size, scaled down if it's very large.
   const scale = Math.min(1, 380 / (l.width * 96));
