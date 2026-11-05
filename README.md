@@ -109,6 +109,7 @@ NODE_ENV=production SECURE_COOKIES=false PORT=3000 npm start
 | `HOST` | all interfaces | Address to listen on; `127.0.0.1` accepts connections from this computer only (the local launchers and the Linux guide use it) |
 | `STATIC_DIR` | `web/dist` | Built web app to serve |
 | `CONNECTION_SECRET` | key file in `DATA_DIR` | Key that encrypts saved MySQL passwords (AES-256-GCM). If unset, a random key is created in `DATA_DIR/connection.key`. Changing it makes saved passwords unreadable (re-enter them) |
+| `IMAGE_QUOTA_MB` | `200` | Total size of pictures (Image fields) each database may store, in MB |
 | `ALLOW_PRIVATE_DB_HOSTS` | `false` | Allow MySQL connections to private/internal addresses (localhost, 10.x, 192.168.x, cloud metadata). Leave off on a public server |
 
 ## Exporting to Access
