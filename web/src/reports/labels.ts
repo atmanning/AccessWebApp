@@ -14,6 +14,7 @@ export interface LabelPreset {
 /** Common Avery sheets (US Letter; other brands list the Avery number they match). */
 export const LABEL_PRESETS: LabelPreset[] = [
   { id: "avery-5395", name: "Avery 5395 / 8395 – name badges, 2⅓″ × 3⅜″, 8 per sheet", layout: { page: "letter", width: 3.375, height: 2.333, across: 2, down: 4, marginTop: 0.583, marginLeft: 0.6875, gapX: 0.375, gapY: 0.167 } },
+  { id: "avery-8371", name: "Avery 8371 / 5371 / 5911 / 8869 – business cards (pre-scored cardstock), 2″ × 3½″, 10 per sheet", layout: { page: "letter", width: 3.5, height: 2, across: 2, down: 5, marginTop: 0.5, marginLeft: 0.75, gapX: 0, gapY: 0 } },
   { id: "avery-5392", name: "Avery 5392 – badge inserts, 3″ × 4″, 6 per sheet", layout: { page: "letter", width: 4, height: 3, across: 2, down: 3, marginTop: 1, marginLeft: 0.25, gapX: 0, gapY: 0 } },
   { id: "avery-5390", name: "Avery 5390 – badge inserts, 2¼″ × 3½″, 8 per sheet", layout: { page: "letter", width: 3.5, height: 2.25, across: 2, down: 4, marginTop: 1, marginLeft: 0.75, gapX: 0, gapY: 0 } },
   { id: "avery-5164", name: "Avery 5164 – shipping labels, 3⅓″ × 4″, 6 per sheet", layout: { page: "letter", width: 4, height: 3.333, across: 2, down: 3, marginTop: 0.5, marginLeft: 0.156, gapX: 0.188, gapY: 0 } },
