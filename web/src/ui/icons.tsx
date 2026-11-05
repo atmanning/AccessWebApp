@@ -89,6 +89,14 @@ export const RowHeightIcon = svg(
     <path d="M13 2.5v11M11.3 4.2L13 2.5l1.7 1.7M11.3 11.8L13 13.5l1.7-1.7" stroke="#3b6ea5" strokeWidth="1.2" fill="none" />
   </>,
 );
+export const ToggleFilterIcon = svg(<path d="M2 3h12l-4.6 5.4V13l-2.8-1.4V8.4z" fill="#f2c94c" stroke="#7a5d00" strokeWidth=".9" strokeLinejoin="round" />);
+export const FilterFormIcon = svg(
+  <>
+    <rect x="1.5" y="1.5" width="9" height="12" fill="#fff" stroke="#2e7d4f" />
+    <path d="M3 5h6M3 8h6" stroke="#2e7d4f" />
+    <path d="M8 9h7l-2.7 3.1V15l-1.6-.8v-2.1z" fill="#f2c94c" stroke="#7a5d00" strokeWidth=".8" strokeLinejoin="round" />
+  </>,
+);
 export const SortAscIcon = svg(
   <>
     <text x="1" y="7" fontSize="6" fontWeight="700" fill="#333">A</text>

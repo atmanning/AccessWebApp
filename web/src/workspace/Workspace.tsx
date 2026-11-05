@@ -881,12 +881,12 @@ function signature(c: ViewCommands | undefined): string {
   const present = Object.entries(c).filter(([, v]) => typeof v === "function").map(([k]) => k).sort();
   const f = c.formDesign;
   const form = f ? [f.tool, f.selectionCount, f.theme, f.fieldList, f.propertySheet] : null;
-  return JSON.stringify([present, c.queryType ?? null, c.totals ?? null, form]);
+  return JSON.stringify([present, c.queryType ?? null, c.totals ?? null, c.filterOn ?? null, form]);
 }
 
 function liveCommands(all: Map<string, ViewCommands>, key: string | null): ViewCommands {
   const current = (key && all.get(key)) || {};
-  const live: Record<string, unknown> = { queryType: current.queryType, totals: current.totals };
+  const live: Record<string, unknown> = { queryType: current.queryType, totals: current.totals, filterOn: current.filterOn };
   for (const [name, value] of Object.entries(current)) {
     if (typeof value === "function") {
       live[name] = (...args: unknown[]) => {

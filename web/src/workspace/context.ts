@@ -28,6 +28,10 @@ export interface ViewCommands {
   print?: () => void;
   exportText?: () => void;
   addRelationship?: () => void;
+  /** Form View: Find mode (Filter by Form) and the filter it applies. */
+  filterByForm?: () => void;
+  toggleFilter?: () => void;
+  filterOn?: boolean;
   /** Datasheet: set the height of every row (Home > Records > Row Height). */
   rowHeight?: () => void;
   /** Query Design: switch query type, and the current type / Totals state for the ribbon. */

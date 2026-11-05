@@ -8,6 +8,8 @@ import {
   ExportAccessIcon,
   ImportAccessIcon,
   FindIcon,
+  ToggleFilterIcon,
+  FilterFormIcon,
   FormIcon,
   FormDesignIcon,
   ImportIcon,
@@ -298,6 +300,12 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
                 <Small icon={<SortDescIcon />} label="Descending" onClick={c.sortDesc} />
                 <Small icon={<span className="rb-x">✕</span>} label="Remove Sort" onClick={c.removeSort} />
               </div>
+              {(c.filterByForm || c.toggleFilter) && (
+                <div className="rb-stack">
+                  <Small icon={<FilterFormIcon />} label="Filter by Form" onClick={c.filterByForm} title="Find records by typing what you're looking for into the form's fields" />
+                  <Small icon={<ToggleFilterIcon />} label="Toggle Filter" onClick={c.toggleFilter} pressed={!!c.filterOn} title="Switch between the found records and all records" />
+                </div>
+              )}
             </Group>
             <Group label="Records">
               <Big icon={<RefreshIcon size={32} />} label="Refresh All" onClick={actions.refresh} />

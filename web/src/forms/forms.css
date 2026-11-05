@@ -205,3 +205,29 @@ textarea.ps-input { height: auto; padding: 4px 6px; resize: vertical; }
 .fc-image.drop-over { outline: 2px solid var(--f-accent, #2563eb); }
 .t-image .fc-bound { height: 100%; display: flex; flex-direction: column; }
 .t-image .fc-input-wrap { flex: 1; display: flex; min-height: 0; }
+
+/* Find mode (Filter by Form): the form's fields become boxes to type criteria into */
+.find-bar { position: sticky; top: 0; z-index: 5; background: #fff8e1; border-bottom: 1px solid #e6c65c; padding: 8px 14px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.find-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.find-help { color: #5c4a00; }
+.find-help code, .find-help kbd { background: #fff; border: 1px solid #e6c65c; border-radius: 3px; padding: 0 4px; font-size: 12px; }
+.find-tabs { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.find-tabs .spacer { flex: 1; }
+.find-tab { border: 1px solid #d9b84a; background: #fff; padding: 3px 12px; border-radius: 3px 3px 0 0; cursor: pointer; font: inherit; }
+.find-tab.active { background: #f6d55c; font-weight: 600; }
+.find-tab.filled:not(.active)::after { content: " •"; color: #8a6d00; }
+.find-tab.add, .find-tab.remove { border-style: dashed; background: transparent; }
+.find-tabs > button:not(.find-tab) { padding: 4px 14px; border: 1px solid #c9a93d; background: #fff; border-radius: 3px; cursor: pointer; font: inherit; }
+.find-tabs > button.primary { background: #8a6d00; color: #fff; border-color: #8a6d00; }
+.find-message { color: #8a1c13; background: #fde8e6; border: 1px solid #f0b4ad; padding: 4px 10px; border-radius: 3px; }
+.fv.finding .fv-card { outline: 3px solid #f6d55c; outline-offset: 2px; }
+.fv.finding .fc-input.find-input { background: #fffbea; border: 1px dashed #c9a93d; }
+.fv.finding .fc-input.find-input::placeholder { color: #a8946a; font-style: italic; }
+.fv.finding .find-na { opacity: 0.4; }
+.find-check { gap: 2px; }
+.record-nav .rn-filter-toggle { margin-left: 10px; padding: 1px 8px; border: 1px solid var(--border-strong); background: #fff; border-radius: 2px; cursor: pointer; }
+.record-nav .rn-filter-toggle.on { background: #f6d55c; border-color: #c9a93d; font-weight: 600; }
+.record-nav .rn-find, .record-nav .rn-sort { margin-left: 6px; padding: 1px 8px; border: 1px solid var(--border-strong); background: #fff; border-radius: 2px; cursor: pointer; }
+
+.find-check { display: flex; align-items: center; gap: 8px; height: 100%; }
+.find-check select.find-input { width: auto; height: 26px; padding: 0 6px; }
