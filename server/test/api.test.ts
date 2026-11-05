@@ -440,3 +440,35 @@ describe.skipIf(!mysqlUrl)("mysql connections", () => {
     expect(r.body.error.message).toMatch(/private and internal network addresses are blocked/);
   });
 });
+
+describe("pictures in Image fields", () => {
+  const app = makeApp();
+  const png = Buffer.from("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4ab0000000049454e44ae426082", "hex");
+  const upload = (agent: ReturnType<typeof request.agent>, pid: string, body: Buffer) =>
+    agent.post(`/api/projects/${pid}/images`).set("X-Requested-With", "fetch").set("Content-Type", "application/octet-stream").send(body);
+
+  it("stores pictures, checks they are pictures, and serves them to people who can view", async () => {
+    const owner = await signUp(app, "pics@example.com");
+    const other = await signUp(app, "nopics@example.com");
+    const pid = (await owner.post("/api/projects").send({ name: "Pics", template: "blank" })).body.project.id;
+    const up = await upload(owner, pid, png);
+    expect(up.status).toBe(201);
+    expect(up.body.id).toMatch(/^img_[0-9a-f]{32}$/);
+    expect(up.body.mime).toBe("image/png");
+    const got = await owner.get(`/api/projects/${pid}/images/${up.body.id}`);
+    expect(got.status).toBe(200);
+    expect(got.headers["content-type"]).toBe("image/png");
+    expect(Buffer.from(got.body).equals(png)).toBe(true);
+
+    expect((await upload(owner, pid, Buffer.from("<svg onload=alert(1)>"))).status).toBe(400);
+    expect((await upload(other, pid, png)).status).toBe(404);
+    expect((await other.get(`/api/projects/${pid}/images/${up.body.id}`)).status).toBe(404);
+    expect((await request(app).get(`/api/public/${pid}/images/${up.body.id}`)).status).toBe(404);
+    await owner.put(`/api/projects/${pid}/public-access`).send({ publicView: true });
+    expect((await request(app).get(`/api/public/${pid}/images/${up.body.id}`)).status).toBe(200);
+
+    // Save a copy keeps the pictures.
+    const copy = (await owner.post(`/api/projects/${pid}/copy`).send({ name: "Pics copy" })).body.project.id;
+    expect((await owner.get(`/api/projects/${copy}/images/${up.body.id}`)).status).toBe(200);
+  });
+});

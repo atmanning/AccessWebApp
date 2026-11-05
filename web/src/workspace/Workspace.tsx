@@ -2,6 +2,7 @@ import { produce } from "immer";
 import { LayoutPicker } from "../ui/LayoutPicker";
 import { useLayout, useLongPress } from "../ui/layout";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { IMAGE_ID_ANYWHERE } from "../../../shared/model";
 import type { ConnectionInfo, LinkedTable, ObjectKind, ProjectDoc, ProjectRecord, RemoteForeignKey, RemoteTableInfo, UserInfo } from "../../../shared/model";
 import { linkedRelations } from "../engine/queryDesign";
 import { api, ApiError } from "../api";
@@ -42,6 +43,7 @@ import { QUERY_TYPE_ICONS, typeOfQuery } from "./queryKinds";
 import { NavPane, type Selection } from "./NavPane";
 import { setPublicViewing } from "../engine/linked";
 import { VersionStamp } from "../ui/VersionStamp";
+import { prepareImage } from "../ui/images";
 import { ExportSchemaDialog } from "./ExportSchemaDialog";
 import { Ribbon } from "./Ribbon";
 
@@ -258,8 +260,18 @@ export function Workspace(props: {
       readOnly,
       connections,
       refreshConnections,
+      // Public viewers read pictures through the public route.
+      imageUrl: (imageId: string, projectId = props.project.id) =>
+        publicView && projectId === props.project.id ? `/api/public/${projectId}/images/${imageId}` : `/api/projects/${projectId}/images/${imageId}`,
+      uploadImage: async (file: Blob) => (await api.uploadImage(props.project.id, await prepareImage(file))).id,
+      copyPicturesFrom: (sourceProjectId: string, objects: unknown) => {
+        if (sourceProjectId === props.project.id) return;
+        const ids = [...new Set(JSON.stringify(objects).match(IMAGE_ID_ANYWHERE) ?? [])];
+        if (!ids.length) return;
+        api.copyImages(props.project.id, sourceProjectId, ids).catch((e: Error) => setStatus(`The pictures couldn't be copied: ${e.message}`, "error"));
+      },
     }),
-    [props.project.id, name, doc, update, openObject, closeTab, setTabView, activeKey, setStatus, registerCommands, readOnly, connections, refreshConnections],
+    [props.project.id, name, doc, update, openObject, closeTab, setTabView, activeKey, setStatus, registerCommands, readOnly, connections, refreshConnections, publicView],
   );
 
   // ---- Commands ----------------------------------------------------------------------------

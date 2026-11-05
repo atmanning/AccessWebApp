@@ -6,6 +6,8 @@ import { acceptsDateText, dateShortcut, insertAtCaret, nowText, type DateShortcu
 import { FindIcon } from "../ui/icons";
 import { useLayout } from "../ui/layout";
 import type { ColumnLookup } from "./lookups";
+import { ImageDialog } from "./ImageDialog";
+import { pictureIn } from "../ui/images";
 
 export interface DatasheetColumn {
   key: string;
@@ -16,6 +18,8 @@ export interface DatasheetColumn {
   readOnlyReason?: string;
   /** A lookup field: shows the display value and edits with a drop-down list. */
   lookup?: ColumnLookup;
+  /** An Image field: shows a thumbnail; double-click, drop or paste to change the picture. */
+  image?: { url: (imageId: string) => string; upload?: (file: Blob) => Promise<string> };
 }
 
 export interface DatasheetProps {
@@ -93,6 +97,9 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
   const findBox = useRef<HTMLInputElement>(null);
   const editorRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  // The Image cell whose picture is open in the picture dialog.
+  const [picture, setPicture] = useState<Cell | null>(null);
+  const [dropCell, setDropCell] = useState<Cell | null>(null);
 
   // Lookup columns show the display value for the stored one (e.g. a customer's name for their ID).
   const labelMaps = useMemo(() => p.columns.map((col) => (col.lookup ? new Map(col.lookup.options.map((o) => [o.value, o.label])) : null)), [p.columns]);
@@ -194,6 +201,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
     }
     const field = p.columns[cell.c].field;
     if (field?.type === "YesNo") return toggle();
+    if (p.columns[cell.c].image) return setPicture({ ...cell });
     if (p.columns[cell.c].lookup) {
       // Lookups edit the display text; typing filters the list, like an Access combo box.
       const v = valueAt(cell.r, cell.c);
@@ -266,6 +274,21 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
     const v = valueAt(cell.r, cell.c);
     p.onCommit?.(isNewRow(cell.r) ? "new" : order[cell.r], cell.c, !(v === true || v === 1));
   }
+
+  /** Stores a picture and puts its id in an Image cell. */
+  const putPicture = async (at: Cell, file: Blob) => {
+    const col = p.columns[at.c];
+    if (!col.image?.upload || !canEdit(at.c)) return;
+    p.onStatus?.("Adding the picture…");
+    const id = await col.image.upload(file);
+    const err = p.onCommit?.(isNewRow(at.r) ? "new" : order[at.r], at.c, id) ?? null;
+    if (err) throw new Error(err);
+    p.onStatus?.(`Added a picture to ${col.label}.`);
+  };
+  const dropPicture = (at: Cell, file: File | null) => {
+    if (!file) return;
+    putPicture(at, file).catch((e: Error) => p.onStatus?.(e.message, "error"));
+  };
 
   const deleteSelected = () => {
     if (!p.onDeleteRows) return;
@@ -465,6 +488,14 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
         ref={scroller}
         tabIndex={0}
         onKeyDown={onKeyDown}
+        onPaste={(e) => {
+          // Ctrl+V with a picture on the clipboard, into an Image cell.
+          if (editing || !p.columns[cell.c]?.image?.upload || !canEdit(cell.c)) return;
+          const file = pictureIn(e.clipboardData.items);
+          if (!file) return;
+          e.preventDefault();
+          dropPicture({ ...cell }, file);
+        }}
         onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
       >
         <table
@@ -661,10 +692,25 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
                         </td>
                       );
                     }
+                    const imageDrop = col.image?.upload && canEdit(c);
                     return (
                       <td
                         key={col.key}
-                        className={cls}
+                        className={`${cls} ${col.image ? "image-cell" : ""} ${dropCell?.r === r && dropCell.c === c ? "drop-over" : ""}`}
+                        title={col.image && canEdit(c) ? "Double-click to view or change the picture, or drop an image file here" : undefined}
+                        onDragOver={(e) => {
+                          if (!imageDrop || !e.dataTransfer.types.includes("Files")) return;
+                          e.preventDefault();
+                          setDropCell({ r, c });
+                        }}
+                        onDragLeave={() => setDropCell(null)}
+                        onDrop={(e) => {
+                          if (!imageDrop) return;
+                          e.preventDefault();
+                          setDropCell(null);
+                          moveTo(r, c);
+                          dropPicture({ r, c }, pictureIn(e.dataTransfer.files));
+                        }}
                         onMouseDown={(e) => {
                           wasActive.current = active;
                           if (active) return;
@@ -678,7 +724,9 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
                           else if (touch && active && wasActive.current) startEdit();
                         }}
                       >
-                        {type === "YesNo" ? (
+                        {col.image ? (
+                          v ? <img className="cell-img" src={col.image.url(String(v))} alt={`${col.label} picture`} loading="lazy" draggable={false} /> : null
+                        ) : type === "YesNo" ? (
                           <input type="checkbox" tabIndex={-1} readOnly checked={v === true || v === 1} className="cell-check" />
                         ) : newRow ? (
                           <span className="placeholder">{p.newRowPlaceholder?.(c) ?? ""}</span>
@@ -717,6 +765,30 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
         </table>
         {count === 0 && !allowNew && <div className="empty-note">{p.emptyMessage ?? "No records."}</div>}
       </div>
+      {picture && p.columns[picture.c]?.image && (() => {
+        const col = p.columns[picture.c];
+        const v = isNewRow(picture.r) ? null : p.getValue(order[picture.r], picture.c);
+        return (
+          <ImageDialog
+            title={col.label}
+            url={v ? col.image!.url(String(v)) : null}
+            canEdit={!!col.image!.upload && canEdit(picture.c)}
+            onPick={async (file) => {
+              await putPicture(picture, file);
+              setPicture(null);
+            }}
+            onRemove={() => {
+              const err = p.onCommit?.(order[picture.r], picture.c, "") ?? null;
+              if (err) p.onStatus?.(err, "error");
+              setPicture(null);
+            }}
+            onClose={() => {
+              setPicture(null);
+              scroller.current?.focus();
+            }}
+          />
+        );
+      })()}
       <div className="record-nav">
         <span className="rn-label">Record:</span>
         <button onClick={() => navTo(0)} title="First record" disabled={!count}>⏮</button>

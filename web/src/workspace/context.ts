@@ -75,6 +75,12 @@ export interface WorkspaceApi {
   /** Saved MySQL connections for this database (null while loading). */
   connections: ConnectionInfo[] | null;
   refreshConnections: () => Promise<void>;
+  /** Address of a picture stored in an Image field. */
+  imageUrl: (imageId: string, projectId?: string) => string;
+  /** Stores a picture (shrinking big photos first) and returns its id for the cell. */
+  uploadImage: (file: Blob) => Promise<string>;
+  /** After pasting or importing from another database, copies the pictures `objects` mention. */
+  copyPicturesFrom: (sourceProjectId: string, objects: unknown) => void;
 }
 
 export const WorkspaceContext = createContext<WorkspaceApi | null>(null);

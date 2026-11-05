@@ -15,9 +15,10 @@ import { useRunAction } from "../workspace/useRunAction";
 import { QUERY_TYPE_ICONS, typeOfQuery } from "../workspace/queryKinds";
 import { parseInput } from "../engine/values";
 import { exportCsv } from "../workspace/csv";
-import { Datasheet, MAX_ROW_H, MIN_ROW_H, type DatasheetHandle } from "./Datasheet";
+import { Datasheet, type DatasheetHandle } from "./Datasheet";
 import { readSqlDesign, sourceFieldNames, type SqlReadState } from "./sqlDesignReader";
 import { useFieldLookups } from "./lookups";
+import { useRowHeight } from "./useRowHeight";
 
 /** Runs a query and shows the results read-only. */
 export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: string }) {
@@ -90,6 +91,10 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
           label: c,
           field: sf ?? result?.fields[i],
           lookup: sf ? lookups[sf.id] : undefined,
+          image:
+            (sf ?? result?.fields[i])?.type === "Image"
+              ? { url: (id: string) => ws.imageUrl(id), ...(editable ? { upload: ws.uploadImage } : {}) }
+              : undefined,
           readOnly: !editable,
           readOnlyReason: edit
             ? `'${c}' is calculated by the query, so it can't be edited.`
@@ -194,33 +199,15 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
     }
   };
 
-  // Row height is saved with the query; view-only users can still change it for this visit.
-  const dialogs = useDialogs();
-  const [viewerRowH, setViewerRowH] = useState<number | undefined | null>(null);
-  const rowHeight = ws.readOnly && viewerRowH !== null ? viewerRowH : query.rowHeight;
-  const saveRowHeight = (h: number | undefined) => {
-    if (ws.readOnly) return setViewerRowH(h);
+  // Row height is saved with the query.
+  const { rowHeight, saveRowHeight, askRowHeight } = useRowHeight(query.rowHeight, (h) =>
     ws.update((d) => {
       const q = d.queries.find((x) => x.id === query.id);
       if (!q) return;
       if (h === undefined) delete q.rowHeight;
       else q.rowHeight = h;
-    });
-  };
-  const askRowHeight = async () => {
-    const v = await dialogs.prompt(
-      "Row Height",
-      `Row Height in pixels (${MIN_ROW_H}–${MAX_ROW_H}). Leave it blank for the standard height.`,
-      rowHeight ? String(rowHeight) : "",
-      (t) => {
-        if (!t.trim()) return null;
-        const n = Number(t);
-        return Number.isInteger(n) && n >= MIN_ROW_H && n <= MAX_ROW_H ? null : `Enter a whole number from ${MIN_ROW_H} to ${MAX_ROW_H}.`;
-      },
-    );
-    if (v === null) return;
-    saveRowHeight(v.trim() ? Number(v) : undefined);
-  };
+    }),
+  );
 
   const runAction = useRunAction();
   useCommands(tabKey, {

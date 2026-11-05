@@ -76,6 +76,19 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE projects ADD COLUMN public_view INTEGER NOT NULL DEFAULT 0;
   `,
+  // 5: pictures in Image fields, kept apart from the database document (it holds their ids)
+  `
+  CREATE TABLE images (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    id         TEXT NOT NULL,
+    mime       TEXT NOT NULL,
+    size       INTEGER NOT NULL,
+    data       BLOB NOT NULL,
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (project_id, id)
+  );
+  `,
 ];
 
 export function openDatabase(file: string): DB {

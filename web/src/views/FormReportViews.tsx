@@ -40,6 +40,7 @@ export function useSource(source: SourceRef) {
 
 export function ReportView({ report, tabKey }: { report: ReportDef; tabKey: string }) {
   const { data, error } = useSource(report.source);
+  const ws = useWorkspace();
 
   useCommands(tabKey, { print: () => window.print() });
 
@@ -103,7 +104,11 @@ export function ReportView({ report, tabKey }: { report: ReportDef; tabKey: stri
                 <tr key={ri}>
                   {prepared.cols.map((c) => (
                     <td key={c.name} className={isNumericType(data.fields[c.i]?.type) ? "num" : ""}>
-                      {formatValue(data.fields[c.i], r[c.i])}
+                      {data.fields[c.i]?.type === "Image" && r[c.i] ? (
+                        <img className="report-img" src={ws.imageUrl(String(r[c.i]))} alt="" loading="lazy" />
+                      ) : (
+                        formatValue(data.fields[c.i], r[c.i])
+                      )}
                     </td>
                   ))}
                 </tr>

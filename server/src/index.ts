@@ -40,6 +40,8 @@ try {
 const app = createApp({
   version: { commit: build.commit || env.RENDER_GIT_COMMIT || null, builtAt: build.builtAt ?? null, startedAt: new Date().toISOString() },
   db,
+  // Pictures in Image fields, per database (default 200 MB).
+  images: { maxBytesPerProject: Number(env.IMAGE_QUOTA_MB ?? 200) * 1024 * 1024 },
   exportAccdb,
   importAccess,
   connections: {

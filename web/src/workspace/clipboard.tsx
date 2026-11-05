@@ -112,6 +112,7 @@ export function PasteDialog({ item, onClose }: { item: ClipItem; onClose: () => 
       );
       if (!ok) return;
       ws.update(plan.apply);
+      ws.copyPicturesFrom(item.projectId, src.rows);
       ws.setStatus(plan.done);
       return;
     }
@@ -119,6 +120,7 @@ export function PasteDialog({ item, onClose }: { item: ClipItem; onClose: () => 
     if (err) return setError(err);
     const warnings: string[] = [];
     let created: { kind: ObjectKind; id: string } | null = null;
+    if (item.kind === "table" && mode === "data") ws.copyPicturesFrom(item.projectId, item.object);
     ws.update((d) => {
       switch (item.kind) {
         case "table": {

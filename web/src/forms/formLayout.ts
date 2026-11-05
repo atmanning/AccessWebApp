@@ -72,6 +72,7 @@ export const CONTROL_LABELS: Record<FormControlType, string> = {
   listbox: "List Box",
   checkbox: "Check Box",
   button: "Button",
+  image: "Image",
   rectangle: "Rectangle",
   line: "Line",
 };
@@ -93,9 +94,9 @@ export const ACTION_LABELS: Record<ButtonAction, string> = {
 export const SECTION_LABELS: Record<FormSection, string> = { header: "Form Header", detail: "Detail", footer: "Form Footer" };
 
 /** Controls that show and edit a field. */
-export const isBound = (t: FormControlType) => t === "textbox" || t === "combobox" || t === "listbox" || t === "checkbox";
+export const isBound = (t: FormControlType) => t === "textbox" || t === "combobox" || t === "listbox" || t === "checkbox" || t === "image";
 /** Bound controls drawn with their own label above or beside them. */
-export const hasLabel = (t: FormControlType) => t === "textbox" || t === "combobox" || t === "listbox";
+export const hasLabel = (t: FormControlType) => t === "textbox" || t === "combobox" || t === "listbox" || t === "image";
 
 const LABEL_H = 22;
 const INPUT_H = 34;
@@ -117,6 +118,8 @@ export function defaultSize(type: FormControlType, opts: { labelPos?: "top" | "l
       return { w: 200, h: 28 };
     case "button":
       return { w: 120, h: 36 };
+    case "image":
+      return { w: 220, h: lab + 160 };
     case "rectangle":
       return { w: 240, h: 120 };
     case "line":
@@ -140,6 +143,7 @@ const BASE_NAMES: Record<FormControlType, string> = {
   listbox: "List",
   checkbox: "Check",
   button: "Command",
+  image: "Image",
   rectangle: "Box",
   line: "Line",
 };
@@ -159,6 +163,7 @@ export function controlTypeForField(field: Field | undefined): { type: FormContr
   // A lookup field becomes a combo (or list) box that picks from its row source, as in Access.
   if (field?.lookup) return { type: field.lookup.display === "list" ? "listbox" : "combobox" };
   if (field?.type === "YesNo") return { type: "checkbox" };
+  if (field?.type === "Image") return { type: "image" };
   if (field?.type === "LongText") return { type: "textbox", multiline: true };
   return { type: "textbox" };
 }

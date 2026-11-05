@@ -52,6 +52,8 @@ function AppLinkedView({ link, tabKey }: { link: LinkedTable; tabKey: string }) 
         field: f,
         readOnly: true,
         readOnlyReason: `Linked from '${data?.project.name}'. Open that database to change its data, or import the ${link.sourceKind} to get your own copy.`,
+        // Pictures live with the database they're linked from.
+        image: f.type === "Image" && data ? { url: (id: string) => ws.imageUrl(id, data.project.id) } : undefined,
       })),
     [data], // eslint-disable-line react-hooks/exhaustive-deps
   );

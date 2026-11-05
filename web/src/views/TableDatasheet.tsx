@@ -5,6 +5,7 @@ import { exportCsv } from "../workspace/csv";
 import { useTableEditing } from "../workspace/useTableEditing";
 import { Datasheet, type DatasheetHandle } from "./Datasheet";
 import { useFieldLookups } from "./lookups";
+import { useRowHeight } from "./useRowHeight";
 
 export function TableDatasheet({ table, tabKey }: { table: TableDef; tabKey: string }) {
   const ws = useWorkspace();
@@ -13,6 +14,16 @@ export function TableDatasheet({ table, tabKey }: { table: TableDef; tabKey: str
   const fields = table.fields;
   // Lookup fields show a name (e.g. the customer) instead of the stored key, with a drop-down.
   const lookups = useFieldLookups(ws.doc, fields);
+  // Image fields show thumbnails; editors can drop, paste or choose pictures.
+  const image = useMemo(() => ({ url: (id: string) => ws.imageUrl(id), ...(ws.readOnly ? {} : { upload: ws.uploadImage }) }), [ws.imageUrl, ws.uploadImage, ws.readOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { rowHeight, saveRowHeight, askRowHeight } = useRowHeight(table.rowHeight, (h) =>
+    ws.update((d) => {
+      const t = d.tables.find((x) => x.id === table.id);
+      if (!t) return;
+      if (h === undefined) delete t.rowHeight;
+      else t.rowHeight = h;
+    }),
+  );
 
   const columns = useMemo(
     () =>
@@ -21,9 +32,10 @@ export function TableDatasheet({ table, tabKey }: { table: TableDef; tabKey: str
         label: f.name,
         field: f,
         lookup: lookups[f.id],
+        image: f.type === "Image" ? image : undefined,
         readOnlyReason: ws.readOnly ? "You have view-only access to this database." : undefined,
       })),
-    [fields, ws.readOnly, lookups],
+    [fields, ws.readOnly, lookups, image],
   );
   const getValue = useCallback((r: number, c: number) => table.rows[r]?.[fields[c].id] ?? null, [table.rows, fields]);
 
@@ -34,6 +46,7 @@ export function TableDatasheet({ table, tabKey }: { table: TableDef; tabKey: str
     sortDesc: () => grid.current?.sort("DESC"),
     removeSort: () => grid.current?.sort(null),
     find: () => grid.current?.focusFind(),
+    rowHeight: () => void askRowHeight(),
     exportText: () =>
       exportCsv(
         table.name,
@@ -61,6 +74,8 @@ export function TableDatasheet({ table, tabKey }: { table: TableDef; tabKey: str
       cellWarning={(r, c) => !!fields[c].required && (table.rows[r][fields[c].id] ?? "") === ""}
       onStatus={ws.setStatus}
       savedWidths={table.columnWidths}
+      rowHeight={rowHeight}
+      onRowHeightChange={saveRowHeight}
       onWidthsChange={(w) => {
         // Saved with the table, like Access's datasheet layout. Viewers just get it for this session.
         if (ws.readOnly) return;

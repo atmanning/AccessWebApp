@@ -37,7 +37,7 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
   return data as T;
 }
 
-async function upload<T>(url: string, file: File): Promise<T> {
+async function upload<T>(url: string, file: Blob): Promise<T> {
   if (file.size > 100 * 1024 * 1024) throw new ApiError("That file is larger than 100 MB.", 413);
   const res = await fetch(url, {
     method: "POST",
@@ -75,6 +75,10 @@ export const api = {
     call<ShareSettings>("PUT", `/api/projects/${id}/shares`, { email, permission }),
   unshare: (id: string, userId: string) => call<ShareSettings>("DELETE", `/api/projects/${id}/shares/${userId}`),
   setLinkAccess: (id: string, linkAccess: LinkAccess) => call<ShareSettings>("PUT", `/api/projects/${id}/link-access`, { linkAccess }),
+  /** Stores a picture for an Image field; returns its id. */
+  uploadImage: (pid: string, picture: Blob) => upload<{ id: string; mime: string; size: number }>(`/api/projects/${pid}/images`, picture),
+  /** Copies pictures from another database (pasting or importing objects that have pictures). */
+  copyImages: (pid: string, from: string, ids: string[]) => call<{ copied: number }>("POST", `/api/projects/${pid}/images/copy`, { from, ids }),
   setPublicView: (id: string, publicView: boolean) => call<ShareSettings>("PUT", `/api/projects/${id}/public-access`, { publicView }),
   /** A database published for public viewing (no sign-in needed). */
   getPublicProject: (id: string) => call<{ project: ProjectRecord }>("GET", `/api/public/${id}`),

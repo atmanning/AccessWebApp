@@ -176,6 +176,8 @@ export function FormRunView({ form, tabKey }: { form: FormDef; tabKey: string })
           isNew,
           error: fieldError?.id === c.id ? fieldError.msg : null,
           options: options[c.id],
+          imageUrl: (imageId: string) => ws.imageUrl(imageId),
+          uploadImage: ws.readOnly ? undefined : ws.uploadImage,
           onCommit: (input) => field && save(c, field, input),
           onAction: () => {},
         }}
@@ -236,7 +238,7 @@ export function FormRunView({ form, tabKey }: { form: FormDef; tabKey: string })
       }
       flush();
       out.push(
-        <div key={valueKey(c)} className={`fv-ctl flow t-${c.type}`} style={c.multiline || c.type === "listbox" ? { minHeight: c.h } : undefined}>
+        <div key={valueKey(c)} className={`fv-ctl flow t-${c.type}`} style={c.multiline || c.type === "listbox" || c.type === "image" ? { minHeight: c.h } : undefined}>
           {renderControl(c)}
         </div>,
       );

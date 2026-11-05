@@ -200,6 +200,7 @@ export function OtherDatabaseDialog(props: { mode: OtherDbMode; onClose: () => v
         d.queries = r.doc.queries;
         d.relationships = r.doc.relationships;
       });
+      if (withData) ws.copyPicturesFrom(source.id, source.doc.tables.filter((t) => tables.has(t.id)));
       props.onDone(
         `Imported ${r.counts.tables} table(s)${withData ? ` with ${r.counts.records.toLocaleString()} record(s)` : ""} and ${r.counts.queries} quer${r.counts.queries === 1 ? "y" : "ies"} from '${source.name}'.`,
         r.notes,

@@ -4,7 +4,9 @@
  * design is what you get.
  */
 import "./forms.css";
-import type { CSSProperties, ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
+import { ImageDialog } from "../views/ImageDialog";
+import { pictureIn } from "../ui/images";
 import type { CellValue, Field, FormControl } from "../../../shared/model";
 import { editText, formatValue, isNumericType } from "../engine/values";
 import { acceptsDateText } from "../ui/dateKeys";
@@ -26,6 +28,9 @@ export interface RunProps {
   onCommit: (input: string | boolean) => void;
   onAction: () => void;
   buttonDisabled?: boolean;
+  /** Image controls: where a picture is, and how to store a new one. */
+  imageUrl?: (imageId: string) => string;
+  uploadImage?: (file: Blob) => Promise<string>;
 }
 
 /** Font, colour and border properties as CSS. */
@@ -128,6 +133,14 @@ function BoundControl({ c, run, ts, bs, inputId }: { c: FormControl; run?: RunPr
 
 function DesignInput({ c, ts, bs }: { c: FormControl; ts: CSSProperties; bs: CSSProperties }) {
   const src = c.field ? c.field : <em className="fc-muted">Unbound</em>;
+  if (c.type === "image") {
+    return (
+      <div className="fc-input fc-image design" style={{ ...ts, ...bs }}>
+        <span className="fc-image-icon" aria-hidden="true">🖼</span>
+        <span className="fc-src">{src}</span>
+      </div>
+    );
+  }
   if (c.type === "listbox") {
     return (
       <div className="fc-input fc-list" style={{ ...ts, ...bs }}>
@@ -147,6 +160,7 @@ function LiveInput({ c, run, ts, bs, id }: { c: FormControl; run: RunProps; ts: 
   const { field, value } = run;
   const style = { ...ts, ...bs };
   if (run.missing) return <div className="fc-input readonly fc-error-text" style={style}>#Name?</div>;
+  if (c.type === "image") return <ImageInput c={c} run={run} style={style} id={id} />;
   const num = isNumericType(field?.type) ? "num" : "";
 
   if (c.type === "combobox" || c.type === "listbox") {
@@ -218,5 +232,57 @@ function LiveInput({ c, run, ts, bs, id }: { c: FormControl; run: RunProps; ts: 
       style={style}
       onBlur={(e) => e.target.value !== initial && run.onCommit(e.target.value)}
     />
+  );
+}
+
+/** An Image control: the record's picture; click it to view, replace or remove it. */
+function ImageInput({ c, run, style, id }: { c: FormControl; run: RunProps; style: CSSProperties; id?: string }) {
+  const [open, setOpen] = useState(false);
+  const [over, setOver] = useState(false);
+  const imageId = run.value ? String(run.value) : null;
+  const url = imageId && run.imageUrl ? run.imageUrl(imageId) : null;
+  const canEdit = !run.readOnly && !!run.uploadImage;
+  const put = async (file: Blob) => run.onCommit(await run.uploadImage!(file));
+  return (
+    <>
+      <button
+        type="button"
+        id={id}
+        className={`fc-input fc-image ${over ? "drop-over" : ""}`}
+        style={style}
+        title={canEdit ? "Click to view or change the picture, or drop an image file here" : "Click to view the picture"}
+        onClick={() => (url || canEdit) && setOpen(true)}
+        onDragOver={(e) => {
+          if (!canEdit) return;
+          e.preventDefault();
+          setOver(true);
+        }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setOver(false);
+          const f = canEdit ? pictureIn(e.dataTransfer.files) : null;
+          if (f) put(f).catch(() => setOpen(true));
+        }}
+      >
+        {url ? <img src={url} alt={c.label ?? c.field ?? "Picture"} /> : <span className="fc-muted">{canEdit ? "Add a picture" : "No picture"}</span>}
+      </button>
+      {open && (
+        <ImageDialog
+          title={c.label ?? c.field ?? "Picture"}
+          url={url}
+          canEdit={canEdit}
+          onPick={async (file) => {
+            await put(file);
+            setOpen(false);
+          }}
+          onRemove={() => {
+            run.onCommit("");
+            setOpen(false);
+          }}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
   );
 }

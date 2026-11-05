@@ -6,7 +6,7 @@
  */
 import { z } from "zod";
 
-export const FIELD_TYPES = ["AutoNumber", "ShortText", "LongText", "Number", "Currency", "DateTime", "YesNo"] as const;
+export const FIELD_TYPES = ["AutoNumber", "ShortText", "LongText", "Number", "Currency", "DateTime", "YesNo", "Image"] as const;
 export type FieldType = (typeof FIELD_TYPES)[number];
 
 export const FIELD_TYPE_LABELS: Record<FieldType, string> = {
@@ -17,7 +17,18 @@ export const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   Currency: "Currency",
   DateTime: "Date/Time",
   YesNo: "Yes/No",
+  Image: "Image",
 };
+
+/**
+ * Pictures in Image fields are stored on the server, apart from the database document; a cell holds
+ * the picture's id, like "img_" followed by 32 hex digits.
+ */
+export const IMAGE_ID = /^img_[0-9a-f]{32}$/;
+export const IMAGE_ID_ANYWHERE = /img_[0-9a-f]{32}/g;
+/** Picture formats an Image field accepts (no SVG: it can carry scripts). */
+export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 export const NUMBER_SIZES = ["Byte", "Integer", "Long", "Single", "Double"] as const;
 export const INDEX_OPTIONS = ["No", "YesDup", "YesNoDup"] as const;
@@ -90,6 +101,8 @@ export const tableSchema = z.object({
   nextAutoNumber: z.number().int().min(1),
   /** Saved datasheet column widths in pixels, by field id. */
   columnWidths: z.record(z.string(), z.number().int().min(20).max(2000)).optional(),
+  /** Saved datasheet row height in pixels (unset = standard height). */
+  rowHeight: z.number().int().min(16).max(300).optional(),
 });
 export type TableDef = z.infer<typeof tableSchema>;
 
@@ -196,7 +209,7 @@ export const sourceSchema = z.object({ kind: z.enum(["table", "query"]), id });
 export type SourceRef = z.infer<typeof sourceSchema>;
 
 /** Controls a form can hold, as the designer's toolbox offers them. */
-export const FORM_CONTROL_TYPES = ["label", "textbox", "combobox", "listbox", "checkbox", "button", "rectangle", "line"] as const;
+export const FORM_CONTROL_TYPES = ["label", "textbox", "combobox", "listbox", "checkbox", "button", "image", "rectangle", "line"] as const;
 export type FormControlType = (typeof FORM_CONTROL_TYPES)[number];
 export const FORM_SECTIONS = ["header", "detail", "footer"] as const;
 export type FormSection = (typeof FORM_SECTIONS)[number];

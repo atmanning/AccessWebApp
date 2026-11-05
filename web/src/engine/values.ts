@@ -1,4 +1,4 @@
-import type { CellValue, Field } from "../../../shared/model";
+import { IMAGE_ID, type CellValue, type Field } from "../../../shared/model";
 import { parseAccessDate } from "./accessSql";
 
 export type ParseResult = { ok: true; value: CellValue } | { ok: false; error: string };
@@ -45,6 +45,9 @@ export function parseInput(field: Field, input: string | boolean): ParseResult {
     }
     case "YesNo":
       return { ok: true, value: /^(yes|true|-1|1|on|y)$/i.test(s) };
+    case "Image":
+      // Pictures are added by choosing or dropping a file; the cell keeps the stored picture's id.
+      return IMAGE_ID.test(s) ? { ok: true, value: s } : { ok: false, error: `${field.name} holds a picture. Double-click the cell, or drop an image file on it.` };
   }
 }
 
@@ -59,6 +62,8 @@ export function formatValue(field: Pick<Field, "type"> | undefined, v: CellValue
       return formatDate(String(v));
     case "YesNo":
       return v === true || v === 1 ? "Yes" : "No";
+    case "Image":
+      return "(picture)";
     default:
       return typeof v === "boolean" ? (v ? "Yes" : "No") : String(v);
   }

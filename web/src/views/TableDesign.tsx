@@ -461,7 +461,7 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
                       <span className="prop-static">General Date</span>
                     </PropRow>
                   )}
-                  {field.type !== "AutoNumber" && (
+                  {field.type !== "AutoNumber" && field.type !== "Image" && (
                     <PropRow label="Default Value" onFocus={() => setHelp(HELP.defaultValue)}>
                       <input
                         defaultValue={field.defaultValue ?? ""}
@@ -480,7 +480,7 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
                       />
                     </PropRow>
                   )}
-                  {field.type !== "LongText" && (
+                  {field.type !== "LongText" && field.type !== "Image" && (
                     <PropRow label="Indexed" onFocus={() => setHelp(HELP.indexed)}>
                       <ComboBox
                         value={field.primaryKey ? "YesNoDup" : field.indexed ?? "No"}

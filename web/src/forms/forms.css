@@ -196,3 +196,12 @@ textarea.ps-input { height: auto; padding: 4px 6px; resize: vertical; }
 .fd.compact .fd-toolbox { grid-template-columns: repeat(4, 1fr); }
 .fd.compact .fd-tool { flex-direction: column; gap: 3px; font-size: 11px; text-align: center; padding: 6px 2px; }
 .fd.compact .fd-canvas { padding: 12px 28px 12px 12px; }
+
+/* Image control */
+.fc-image { display: flex; align-items: center; justify-content: center; flex: 1; min-height: 60px; height: 100%; width: 100%; padding: 4px; overflow: hidden; cursor: pointer; text-align: center; }
+.fc-image img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.fc-image.design { flex-direction: column; gap: 4px; cursor: inherit; color: var(--f-muted, #888); }
+.fc-image-icon { font-size: 28px; line-height: 1; opacity: 0.6; }
+.fc-image.drop-over { outline: 2px solid var(--f-accent, #2563eb); }
+.t-image .fc-bound { height: 100%; display: flex; flex-direction: column; }
+.t-image .fc-input-wrap { flex: 1; display: flex; min-height: 0; }

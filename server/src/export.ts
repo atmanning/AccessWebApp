@@ -30,10 +30,13 @@ export interface ExportDocument {
 export function toExportDocument(doc: ProjectDoc): ExportDocument {
   const tableById = new Map(doc.tables.map((t) => [t.id, t]));
   return {
-    tables: doc.tables.map((t) => ({
+    tables: doc.tables.map((t) => {
+      // Pictures aren't written to the .accdb yet (they're stored apart from the document).
+      const fields = t.fields.filter((f) => f.type !== "Image");
+      return {
       name: t.name,
       description: t.description,
-      columns: t.fields.map((f) => ({
+      columns: fields.map((f) => ({
         name: f.name,
         type: f.type,
         size: f.size,
@@ -45,8 +48,9 @@ export function toExportDocument(doc: ProjectDoc): ExportDocument {
         description: f.description,
         defaultValue: f.defaultValue,
       })),
-      rows: t.rows.map((r) => t.fields.map((f) => r[f.id] ?? null)),
-    })),
+      rows: t.rows.map((r) => fields.map((f) => r[f.id] ?? null)),
+      };
+    }),
     relationships: doc.relationships.flatMap((r) => {
       const from = tableById.get(r.fromTable);
       const to = tableById.get(r.toTable);

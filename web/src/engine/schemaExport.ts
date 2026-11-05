@@ -104,6 +104,8 @@ function sqlType(f: Field, d: SqlDialect): string {
       return d === "sqlite" ? "TEXT" : "DATETIME";
     case "YesNo":
       return d === "mysql" ? "TINYINT(1)" : d === "access" ? "YESNO" : "INTEGER";
+    case "Image":
+      return d === "mysql" ? "LONGBLOB" : d === "access" ? "LONGBINARY" : "BLOB";
   }
   return "TEXT";
 }
@@ -219,6 +221,7 @@ const TYPE_TEXT: Record<Field["type"], string> = {
   Currency: "Currency",
   DateTime: "Date/Time",
   YesNo: "Yes/No",
+  Image: "Image",
 };
 
 function typeText(f: Field) {

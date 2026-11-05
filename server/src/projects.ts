@@ -15,6 +15,7 @@ import {
   type ShareSettings,
 } from "../../shared/model.js";
 import { buildTemplate, TEMPLATES, type TemplateId } from "../../shared/templates.js";
+import { copyImages, removeUnusedImages } from "./images.js";
 
 interface ProjectRow {
   id: string;
@@ -231,6 +232,7 @@ export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise
       .prepare("UPDATE projects SET name = ?, doc = ?, revision = ?, updated_at = ?, updated_by = ? WHERE id = ? AND revision = ?")
       .run(next.name, next.doc, next.revision, next.updated_at, userId, row.id, row.revision);
     if (result.changes === 0) return void conflict(res);
+    if (body.doc) removeUnusedImages(db, row.id, next.doc);
     const saved = db.prepare(`${SELECT_PROJECT} WHERE p.id = ?`).get(row.id) as ProjectListRow;
     res.json({ project: summarize(saved, load(row.id, userId).role, body.doc) });
   });
@@ -252,7 +254,9 @@ export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise
     const { name } = copySchema.parse(req.body);
     const { row } = load(req.params.id, req.user!.id);
     ensureRoom(req.user!.id);
-    res.status(201).json({ project: insertProject(req.user!.id, name, JSON.parse(row.doc) as ProjectDoc) });
+    const project = insertProject(req.user!.id, name, JSON.parse(row.doc) as ProjectDoc);
+    copyImages(db, row.id, project.id);
+    res.status(201).json({ project });
   });
 
   router.get("/:id/export.accdb", async (req, res) => {
