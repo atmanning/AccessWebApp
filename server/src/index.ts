@@ -56,7 +56,15 @@ const app = createApp({
 
 // HOST=127.0.0.1 accepts connections from this computer only (the local launchers set it).
 const host = env.HOST?.trim() || undefined;
-const onListening = () => console.log(`Access Web listening on http://${host && host !== "0.0.0.0" ? host : "localhost"}:${port}`);
+// On Render the server runs inside Render's container on port 10000; people reach it at the site's
+// public address (RENDER_EXTERNAL_URL), so that's the one to show, not localhost.
+const publicUrl = env.RENDER_EXTERNAL_URL?.trim() || env.PUBLIC_URL?.trim();
+const onListening = () =>
+  console.log(
+    publicUrl
+      ? `Access Web is running. Open it at ${publicUrl} (port ${port} inside the server).`
+      : `Access Web listening on http://${host && host !== "0.0.0.0" ? host : "localhost"}:${port}`,
+  );
 const server = host ? app.listen(port, host, onListening) : app.listen(port, onListening);
 const shutdown = () => server.close(() => { db.close(); process.exit(0); });
 process.on("SIGINT", shutdown);
