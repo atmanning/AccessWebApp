@@ -300,7 +300,9 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
           <tbody ref={bodyRef}>
             {rows.map((f, i) => (
               <tr
-                key={f?.id ?? "__new"}
+                // The blank row gets a new key once a field is added, so it starts empty instead of
+                // keeping the text just typed into it.
+                key={f?.id ?? `__new:${table.fields.length}`}
                 data-field-row={f ? "" : undefined}
                 className={`${i === current ? "row-current" : ""} ${f && selected.has(f.id) ? "row-selected" : ""} ${drag && drag.to === i ? "drop-before" : ""} ${f && drag?.ids.includes(f.id) ? "row-dragging" : ""}`}
                 onFocusCapture={() => setCurrent(i)}
