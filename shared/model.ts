@@ -243,8 +243,10 @@ export const formControlSchema = z.object({
   y: px(0, 4000),
   w: px(1, 4000),
   h: px(1, 4000),
-  /** Control Source: the record source field it shows and edits. */
-  field: z.string().max(64).optional(),
+  /** Control Source: the record source field it shows and edits, or an expression ("=[A] & [B]") it calculates. */
+  field: z.string().max(4000).optional(),
+  /** How a calculated value is shown: Currency, Percent, Short Date, 0.00, mm/dd/yyyy… */
+  format: z.string().max(100).optional(),
   /** Label, button and check box text. */
   caption: z.string().max(500).optional(),
   /** Built-in label of a bound control, and where it goes. */

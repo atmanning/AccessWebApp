@@ -4,6 +4,8 @@ import type { CellValue, Field, FormControl, FormDef, ProjectDoc } from "../../.
 import { readSource } from "../engine/engine";
 import { formatValue } from "../engine/values";
 import { compileCriteria } from "../engine/findCriteria";
+import { isExpression } from "../engine/expr";
+import { makeFormCalc } from "./formCalc";
 import { useLayout } from "../ui/layout";
 import { useSource } from "../views/FormReportViews";
 import { useCommands, useWorkspace, type RecordTarget } from "../workspace/context";
@@ -174,7 +176,7 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
     setFinding(null);
     setIsNew(false);
     setAddedAt(i);
-    const shown = layout.controls.filter((c) => c.field && isBound(c.type) && c.type !== "image" && c.field.toLowerCase() !== goto.field.toLowerCase()).slice(0, 2).map((c) => data.rows[i][colOf(c.field!)]);
+    const shown = layout.controls.filter((c) => c.field && !isExpression(c.field) && isBound(c.type) && c.type !== "image" && c.field.toLowerCase() !== goto.field.toLowerCase()).slice(0, 2).map((c) => data.rows[i][colOf(c.field!)]);
     ws.setStatus(`Opened ${shown.filter((v) => v !== null && v !== "").join(" ") || "the record"} from its link.`);
   }, [goto?.n, data === undefined]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -237,12 +239,14 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
   };
   const sortBy = (dir: "ASC" | "DESC" | null) => {
     if (!dir) return setSort(null), ws.setStatus("Removed the sort.");
-    const field = focusField ?? layout.controls.find((c) => c.field && isBound(c.type))?.field;
+    const field = focusField ?? layout.controls.find((c) => c.field && !isExpression(c.field) && isBound(c.type))?.field;
     if (!field) return;
     setSort({ field, dir });
     setPos(0);
     ws.setStatus(`Sorted by ${field} (${dir === "ASC" ? "A→Z" : "Z→A"}). Click in another field first to sort by it.`);
   };
+
+  const calc = useMemo(() => (data ? makeFormCalc(ws.doc, layout, data.columns) : null), [ws.doc, layout, data]);
 
   useCommands(tabKey, {
     newRecord: goNew,
@@ -262,6 +266,8 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
   const colIdx = colOf;
   const rowIndex = order[pos];
   const row = isNew || rowIndex === undefined ? null : data.rows[rowIndex];
+  /** The records the form shows (for Sum, Count… in calculated controls). */
+  const foundRows = () => order.map((i) => data.rows[i]);
 
   const save = (c: FormControl, field: Field, input: string | boolean) => {
     const err = editing.commit(isNew ? "new" : rowIndex, field.id, input);
@@ -314,6 +320,11 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
   const renderControl = (c: FormControl) => {
     if (c.hidden) return null;
     const inputId = `fv-${form.id}-${c.id}`;
+    if (isExpression(c.field)) {
+      // Calculated: worked out from the record; nothing to type (or search) here.
+      const r = finding ? { text: "", value: null } : calc ? calc.value(c, row, foundRows) : { text: "", value: null };
+      return <FormControlView c={c} inputId={inputId} run={{ value: null, readOnly: true, isNew, display: { text: r.text, error: "error" in r ? r.error : undefined, numeric: typeof r.value === "number" }, onCommit: () => {}, onAction: () => {} }} />;
+    }
     if (finding && isBound(c.type)) return <FindField c={c} inputId={inputId} field={c.field ? data.fields[colIdx(c.field)] : undefined} finding={finding} setFinding={setFinding} options={options[c.id]} onEnter={runFind} />;
     if (!isBound(c.type)) return <FormControlView c={c} inputId={inputId} run={{ value: null, readOnly: true, isNew, onCommit: () => {}, onAction: () => act(c), buttonDisabled: !!finding || buttonDisabled(c) }} />;
     const i = c.field ? colIdx(c.field) : -1;
@@ -370,7 +381,7 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
     const list = ordered.filter((c) => c.section === s && !c.hidden);
     if (!compact) {
       return list.map((c) => (
-        <div key={valueKey(c)} className={`fv-ctl t-${c.type}`} data-field={c.field} style={{ left: c.x, top: c.y, width: c.w, height: c.h }}>
+        <div key={valueKey(c)} className={`fv-ctl t-${c.type}`} data-field={isExpression(c.field) ? undefined : c.field} style={{ left: c.x, top: c.y, width: c.w, height: c.h }}>
           {renderControl(c)}
         </div>
       ));
@@ -396,7 +407,7 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
       }
       flush();
       out.push(
-        <div key={valueKey(c)} className={`fv-ctl flow t-${c.type}`} data-field={c.field} style={c.multiline || c.type === "listbox" || c.type === "image" ? { minHeight: c.h } : undefined}>
+        <div key={valueKey(c)} className={`fv-ctl flow t-${c.type}`} data-field={isExpression(c.field) ? undefined : c.field} style={c.multiline || c.type === "listbox" || c.type === "image" ? { minHeight: c.h } : undefined}>
           {renderControl(c)}
         </div>,
       );

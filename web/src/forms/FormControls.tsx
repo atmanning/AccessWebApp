@@ -31,6 +31,8 @@ export interface RunProps {
   /** Image controls: where a picture is, and how to store a new one. */
   imageUrl?: (imageId: string) => string;
   uploadImage?: (file: Blob) => Promise<string>;
+  /** A calculated control's result (Control Source "=…"), shown read-only. */
+  display?: { text: string; error?: string; numeric?: boolean };
 }
 
 /** Font, colour and border properties as CSS. */
@@ -160,6 +162,14 @@ function LiveInput({ c, run, ts, bs, id }: { c: FormControl; run: RunProps; ts: 
   const { field, value } = run;
   const style = { ...ts, ...bs };
   if (run.missing) return <div className="fc-input readonly fc-error-text" style={style}>#Name?</div>;
+  if (run.display) {
+    const d = run.display;
+    return (
+      <div id={id} className={`fc-input readonly calculated ${c.multiline ? "multi" : ""} ${d.numeric ? "num" : ""} ${d.error ? "fc-error-text" : ""}`} style={style} tabIndex={-1} title={d.error ?? c.field}>
+        {d.text}
+      </div>
+    );
+  }
   if (c.type === "image") return <ImageInput c={c} run={run} style={style} id={id} />;
   const num = isNumericType(field?.type) ? "num" : "";
 

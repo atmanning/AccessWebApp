@@ -1,5 +1,5 @@
 /** Property Sheet for Form Design View: the form's properties, or the selected controls'. */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   BUTTON_ACTIONS,
   FORM_THEMES,
@@ -10,7 +10,10 @@ import {
   type FormDef,
   type FormLayout,
 } from "../../../shared/model";
-import { readSource } from "../engine/engine";
+import { readSource, type ResultSet } from "../engine/engine";
+import { compileExpression, isExpression, NAMED_FORMATS } from "../engine/expr";
+import { ExpressionBuilder } from "./ExpressionBuilder";
+import { makeFormCalc } from "./formCalc";
 import { ComboBox } from "../ui/ComboBox";
 import { useWorkspace } from "../workspace/context";
 import { ACTION_LABELS, CONTROL_LABELS, hasLabel, isBound, THEMES } from "./formLayout";
@@ -163,6 +166,8 @@ export function FormPropertySheet(props: {
   layout: FormLayout;
   selected: FormControl[];
   fields: { name: string; field?: Field }[];
+  /** The form's records, for the Expression Builder's live result. */
+  sample?: ResultSet;
   onPatch: (patch: Patch) => void;
   onForm: (fn: (f: FormDef, l: FormLayout) => void) => void;
   onClose?: () => void;
@@ -195,6 +200,20 @@ export function FormPropertySheet(props: {
       <ColorProp label={label} value={common(k)} onChange={(v) => onPatch({ [k]: v })} />
     </Row>
   );
+
+  /** Binds the selected control to a field (or unbinds it), keeping its label in step. */
+  const bindTo = (v: string) => {
+    if (!one) return;
+    const fd = fields.find((f) => f.name === v)?.field;
+    const patch: Patch = { field: v || undefined };
+    // Keep the label in step when it still shows the old field's name.
+    const auto = (t?: string) => !t || t === one.field || t === one.name;
+    if (hasLabel(one.type) && auto(one.label)) patch.label = v || one.name;
+    if (one.type === "checkbox" && auto(one.caption)) patch.caption = v || one.name;
+    if (fd?.type === "AutoNumber") patch.locked = true;
+    if (!isExpression(v)) patch.format = undefined;
+    onPatch(patch);
+  };
 
   const header = (
     <div className="ps-head">
@@ -287,22 +306,41 @@ export function FormPropertySheet(props: {
       {one && isBound(one.type) && (
         <Group title="Data">
           <Row label="Control Source">
-            <Select
-              label="Control Source"
-              value={one.field ?? ""}
-              options={one.field && !fields.some((f) => f.name === one.field) ? [...fieldOptions, { value: one.field, label: `${one.field} (not in source)` }] : fieldOptions}
-              onChange={(v) => {
-                const fd = fields.find((f) => f.name === v)?.field;
-                const patch: Patch = { field: v || undefined };
-                // Keep the label in step when it still shows the old field's name.
-                const auto = (t?: string) => !t || t === one.field || t === one.name;
-                if (hasLabel(one.type) && auto(one.label)) patch.label = v || one.name;
-                if (one.type === "checkbox" && auto(one.caption)) patch.caption = v || one.name;
-                if (fd?.type === "AutoNumber") patch.locked = true;
-                onPatch(patch);
-              }}
-            />
+            {one.type === "textbox" ? (
+              <ControlSourceProp c={one} form={form} layout={layout} fields={fields} sample={props.sample} onBind={bindTo} onPatch={onPatch} />
+            ) : (
+              <Select
+                label="Control Source"
+                value={one.field ?? ""}
+                options={one.field && !fields.some((f) => f.name === one.field) ? [...fieldOptions, { value: one.field, label: `${one.field} (not in source)` }] : fieldOptions}
+                onChange={bindTo}
+              />
+            )}
           </Row>
+          {one.type === "textbox" && isExpression(one.field) && (
+            <Row label="Format" hint="How the calculated value is shown">
+              <input
+                key={one.format ?? ""}
+                className="ps-input"
+                aria-label="Format"
+                list="ps-formats"
+                placeholder="General"
+                defaultValue={one.format ?? ""}
+                onBlur={(e) => e.target.value.trim() !== (one.format ?? "") && onPatch({ format: e.target.value.trim().slice(0, 100) || undefined })}
+                onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+              />
+              <datalist id="ps-formats">
+                {NAMED_FORMATS.map((f) => (
+                  <option key={f} value={f} />
+                ))}
+                <option value="0.00" />
+                <option value="#,##0" />
+                <option value="mm/dd/yyyy" />
+                <option value="mmmm d, yyyy" />
+                <option value="hh:nn AM/PM" />
+              </datalist>
+            </Row>
+          )}
           {(one.type === "combobox" || one.type === "listbox") && <RowSourceProps c={one} onPatch={onPatch} />}
           {bool("locked", "Locked")}
           {(one.type === "textbox" || one.type === "combobox") && (
@@ -471,6 +509,104 @@ function RowSourceProps({ c, onPatch }: { c: FormControl; onPatch: (p: Patch) =>
             <Select label="Display Column" value={c.displayColumn ?? ""} options={colOptions} onChange={(v) => onPatch({ displayColumn: v || undefined })} />
           </Row>
         </>
+      )}
+    </>
+  );
+}
+
+/**
+ * A text box's Control Source: type a field name or an expression starting with =, pick a field
+ * from the list, or click … for the Expression Builder.
+ */
+function ControlSourceProp(props: {
+  c: FormControl;
+  form: FormDef;
+  layout: FormLayout;
+  fields: { name: string; field?: Field }[];
+  sample?: ResultSet;
+  onBind: (field: string) => void;
+  onPatch: (p: Patch) => void;
+}) {
+  const { c, fields } = props;
+  const ws = useWorkspace();
+  const [err, setErr] = useState<string | null>(null);
+  const [building, setBuilding] = useState(false);
+  const listId = `ps-src-${c.id}`;
+
+  const apply = (raw: string): string | null => {
+    const v = raw.trim();
+    if (v === (c.field ?? "")) return null;
+    if (!v) {
+      props.onBind("");
+      return null;
+    }
+    if (isExpression(v)) {
+      const r = compileExpression(v);
+      if (!r.ok) return r.error;
+      props.onPatch({ field: "=" + v.replace(/^\s*=\s*/, "") });
+      return null;
+    }
+    const f = fields.find((x) => x.name.toLowerCase() === v.replace(/^\[|\]$/g, "").toLowerCase());
+    if (!f && fields.length) return `There's no field named ${v}. To calculate a value, start with = (or click … for the Expression Builder).`;
+    props.onBind(f?.name ?? v);
+    return null;
+  };
+  const commit = (el: HTMLInputElement) => {
+    const e = apply(el.value);
+    setErr(e);
+  };
+
+  const preview = useMemo(() => {
+    const data = props.sample;
+    if (!data) return undefined;
+    const calc = makeFormCalc(ws.doc, props.layout, data.columns);
+    return (expr: string) => calc.preview(expr, data.rows[0] ?? null, () => data.rows, c.format);
+  }, [props.sample, props.layout, ws.doc, c.format]);
+
+  return (
+    <>
+      <div className="ps-source">
+        <input
+          key={c.field ?? ""}
+          className={`ps-input ${err ? "has-error" : ""} ${isExpression(c.field) ? "expr" : ""}`}
+          aria-label="Control Source"
+          list={listId}
+          placeholder="Unbound"
+          defaultValue={c.field ?? ""}
+          title={c.field}
+          onBlur={(e) => commit(e.target)}
+          onKeyDown={(e) => e.key === "Enter" && commit(e.currentTarget)}
+        />
+        <datalist id={listId}>
+          {fields.map((f) => (
+            <option key={f.name} value={f.name} />
+          ))}
+        </datalist>
+        <button className="ps-build" title="Build an expression (Expression Builder)" aria-label="Open the Expression Builder" onClick={() => setBuilding(true)}>
+          …
+        </button>
+      </div>
+      {err && <div className="ps-error">{err}</div>}
+      {building && (
+        <ExpressionBuilder
+          initial={isExpression(c.field) ? (c.field ?? "").replace(/^\s*=\s*/, "") : c.field ? `[${c.field}]` : ""}
+          formName={props.form.name}
+          fields={fields}
+          controls={props.layout.controls.filter((x) => x.id !== c.id && x.type !== "label" && x.type !== "line" && x.type !== "rectangle" && x.type !== "button").map((x) => ({ name: x.name, source: x.field, type: x.type }))}
+          doc={ws.doc}
+          preview={preview}
+          previewLabel={props.sample?.rows.length ? "Result for the first record" : "Result (there are no records yet)"}
+          onClose={() => setBuilding(false)}
+          onOk={(expr) => {
+            setBuilding(false);
+            setErr(null);
+            const just = /^\[([^\]]+)\]$/.exec(expr.trim());
+            const f = just && fields.find((x) => x.name.toLowerCase() === just[1].toLowerCase());
+            if (!expr.trim()) props.onBind("");
+            else if (f) props.onBind(f.name);
+            else props.onPatch({ field: "=" + expr.trim() });
+          }}
+        />
       )}
     </>
   );

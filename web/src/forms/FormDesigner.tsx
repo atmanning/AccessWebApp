@@ -3,6 +3,7 @@
  * toolbox or fields from the field list, then move, resize and align them; the Property Sheet edits
  * whatever is selected. Every finished gesture is one undo step.
  */
+import { isExpression } from "../engine/expr";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type PointerEvent as RPointerEvent } from "react";
 import { FORM_CONTROL_TYPES, FORM_SECTIONS, type FormControl, type FormControlType, type FormDef, type FormLayout, type FormSection } from "../../../shared/model";
 import { useLayout } from "../ui/layout";
@@ -410,14 +411,22 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
     });
   };
   const relayout = (style: "stacked" | "columns") => {
-    const bound = layout.controls.filter((c) => c.section === "detail" && c.field);
+    const bound = layout.controls.filter((c) => c.section === "detail" && c.field && !isExpression(c.field));
     const names = bound.length ? bound.map((c) => c.field!) : fields.map((f) => f.name);
     mutate((l) => {
+      // Calculated controls aren't fields: put them back under the arranged fields.
+      const calculated = l.controls.filter((c) => c.section === "detail" && isExpression(c.field));
       layoutFields(
         l,
         names.map((n) => ({ name: n, field: fields.find((f) => f.name.toLowerCase() === n.toLowerCase())?.field })),
         style,
       );
+      let y = l.sections.detail;
+      for (const c of calculated) {
+        l.controls.push({ ...c, x: 24, y });
+        y += c.h + 16;
+      }
+      if (calculated.length) l.sections.detail = y;
       // Header and footer controls keep their places; stretch a full-width title with the form.
       fitSections(l);
     });
@@ -701,6 +710,7 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
               layout={layout}
               selected={selected}
               fields={fields}
+              sample={data}
               onPatch={(p) => patchSelected(p)}
               onForm={(fn) => mutate((l, f) => fn(f, l))}
               onClose={compact ? () => setShowProps(false) : undefined}
