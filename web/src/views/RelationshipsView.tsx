@@ -22,6 +22,24 @@ interface Box {
   linked?: boolean;
 }
 
+/** A field that names one record: the (single-field) primary key, or a unique index. */
+const isUniqueKey = (t: TableDef | undefined, f: Field | undefined) =>
+  !!f && ((f.primaryKey && (t?.fields.filter((x) => x.primaryKey).length ?? 1) === 1) || f.indexed === "YesNoDup");
+
+/**
+ * Like Access, the "one" side is whichever field is the primary key (or unique), whichever way you
+ * dragged: dragging Employees.DepartmentID onto Departments.DepartmentID still makes Departments
+ * the primary table.
+ */
+function oriented(doc: { tables: TableDef[] }, d: Draft): Draft {
+  const fromT = doc.tables.find((t) => t.id === d.fromTable);
+  const toT = doc.tables.find((t) => t.id === d.toTable);
+  const fromF = fromT?.fields.find((f) => f.id === d.fromField);
+  const toF = toT?.fields.find((f) => f.id === d.toField);
+  if (!isUniqueKey(fromT, fromF) && isUniqueKey(toT, toF)) return { ...d, fromTable: d.toTable, fromField: d.toField, toTable: d.fromTable, toField: d.fromField };
+  return d;
+}
+
 function compatible(a: Field, b: Field) {
   const norm = (f: Field) => (f.type === "AutoNumber" ? "Number:Long" : f.type === "Number" ? `Number:${f.numberSize ?? "Long"}` : f.type);
   return norm(a) === norm(b);
@@ -235,7 +253,7 @@ export function RelationshipsView({ tabKey }: { tabKey: string }) {
                       }
                       setPicked(null);
                       ws.setStatus("");
-                      setEditing({ fromTable: picked.table, fromField: picked.field, toTable: t.id, toField: f.id, enforce: true });
+                      setEditing(oriented(ws.doc, { fromTable: picked.table, fromField: picked.field, toTable: t.id, toField: f.id, enforce: true }));
                     }}
                     draggable={!touch}
                     onDragStart={(e) => {
@@ -248,7 +266,7 @@ export function RelationshipsView({ tabKey }: { tabKey: string }) {
                       const from = dragField.current;
                       dragField.current = null;
                       if (!from || from.table === t.id) return;
-                      setEditing({ fromTable: from.table, fromField: from.field, toTable: t.id, toField: f.id, enforce: true });
+                      setEditing(oriented(ws.doc, { fromTable: from.table, fromField: from.field, toTable: t.id, toField: f.id, enforce: true }));
                     }}
                     title={touch ? "Tap, then tap a field in another table to relate them" : "Drag onto a field in another table to relate them"}
                   >
@@ -280,7 +298,7 @@ export function RelationshipsView({ tabKey }: { tabKey: string }) {
 
 function EditRelationshipDialog({ draft, onClose, onDelete }: { draft: Draft; onClose: () => void; onDelete?: () => void }) {
   const ws = useWorkspace();
-  const [d, setD] = useState(draft);
+  const [d, setD] = useState(() => oriented(ws.doc, draft));
   const [error, setError] = useState<string | null>(null);
   const tables = ws.doc.tables;
   const fromT = tables.find((t) => t.id === d.fromTable);
@@ -289,14 +307,31 @@ function EditRelationshipDialog({ draft, onClose, onDelete }: { draft: Draft; on
   const toF = toT?.fields.find((f) => f.id === d.toField);
 
   const save = () => {
+    // The key side goes first, whichever way round the tables were picked.
+    const o = oriented(ws.doc, d);
+    if (o !== d) {
+      setD(o);
+      return saveAs(o);
+    }
+    saveAs(d);
+  };
+  const saveAs = (d: Draft) => {
+    const fromT = tables.find((t) => t.id === d.fromTable);
+    const toT = tables.find((t) => t.id === d.toTable);
+    const fromF = fromT?.fields.find((f) => f.id === d.fromField);
+    const toF = toT?.fields.find((f) => f.id === d.toField);
     if (!fromT || !toT || !fromF || !toF) return setError("Choose a table and field on each side.");
     if (fromT.id === toT.id) return setError("Pick two different tables.");
     if (!compatible(fromF, toF)) {
       return setError(`Relationship must be on the same number of fields with the same data types. '${fromF.name}' is ${fromF.type} and '${toF.name}' is ${toF.type}.`);
     }
     if (d.enforce) {
-      if (!fromF.primaryKey && fromF.indexed !== "YesNoDup") {
-        return setError(`To enforce referential integrity, '${fromF.name}' in '${fromT.name}' must be the primary key or have a unique index.`);
+      if (!isUniqueKey(fromT, fromF)) {
+        return setError(
+          `To enforce referential integrity, one of the two fields must be its table's primary key, or have Indexed set to "Yes (No Duplicates)". ` +
+            `Neither '${fromT.name}.${fromF.name}' nor '${toT.name}.${toF.name}' is. Usually the key is the ID in the table being pointed to (for example Departments.DepartmentID): make it the primary key in Table Design. ` +
+            `"Yes (Duplicates OK)" isn't enough, because many records can share that value.`,
+        );
       }
       const keys = new Set(fromT.rows.map((r) => r[fromF.id]));
       const orphan = toT.rows.find((r) => r[toF.id] !== null && r[toF.id] !== undefined && !keys.has(r[toF.id]));
