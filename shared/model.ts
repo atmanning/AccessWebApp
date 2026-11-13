@@ -103,8 +103,21 @@ export const tableSchema = z.object({
   columnWidths: z.record(z.string(), z.number().int().min(20).max(2000)).optional(),
   /** Saved datasheet row height in pixels (unset = standard height). */
   rowHeight: z.number().int().min(16).max(300).optional(),
+  /** Indexes on more than one field (Access's Indexes window), e.g. PetType + Breed must be unique together. */
+  indexes: z
+    .array(
+      z.object({
+        id,
+        name: nameSchema,
+        fields: z.array(id).min(1).max(10),
+        unique: z.boolean(),
+      }),
+    )
+    .max(32)
+    .optional(),
 });
 export type TableDef = z.infer<typeof tableSchema>;
+export type TableIndex = NonNullable<TableDef["indexes"]>[number];
 
 export const QUERY_TYPES = ["select", "makeTable", "append", "update", "delete", "crosstab"] as const;
 export type QueryType = (typeof QUERY_TYPES)[number];

@@ -2,6 +2,7 @@ import type { CellValue, Field, Row, TableDef } from "../../../shared/model";
 import { defaultFor, formatDate, parseInput } from "../engine/values";
 import { useDialogs } from "../ui/dialogs";
 import { applyCascadeDeletes, applyKeyChange, describeCascades, planDelete, planKeyChange } from "../engine/integrity";
+import { combinationError, uniqueCombinations } from "../engine/combos";
 import { useWorkspace } from "./context";
 import { newId } from "./docOps";
 
@@ -50,6 +51,15 @@ export function useRecordEditing() {
     if (!parsed.ok) return parsed.error;
     const uniq = uniquenessError(table, f, parsed.value, rowIdx);
     if (uniq) return uniq;
+    // Fields that must be unique together (a multi-field primary key or unique index), e.g. PetType + Breed.
+    if (uniqueCombinations(table).some((c) => c.fields.some((x) => x.id === f.id))) {
+      const candidate: Row =
+        rowIdx === "new"
+          ? { ...Object.fromEntries(table.fields.map((x) => [x.id, x.type === "AutoNumber" ? null : defaultFor(x)])), ...preset, [f.id]: parsed.value, _id: "" }
+          : { ...table.rows[rowIdx], [f.id]: parsed.value };
+      const combo = combinationError(table, candidate, rowIdx);
+      if (combo) return combo;
+    }
     // Changing a key that related records point to would orphan them, unless the relationship
     // cascades the change to them.
     const keyChange = rowIdx !== "new" ? planKeyChange(ws.doc, table.id, f.id, table.rows[rowIdx][f.id], parsed.value) : null;

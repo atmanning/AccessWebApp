@@ -14,6 +14,7 @@ import {
   FormDesignIcon,
   ImportIcon,
   InsertRowIcon,
+  IndexesIcon,
   KeyIcon,
   NewRecordIcon,
   PrintIcon,
@@ -382,6 +383,7 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
             <Group label="Views">{viewButton}</Group>
             <Group label="Tools">
               <Big icon={<KeyIcon size={32} />} label="Primary Key" onClick={c.primaryKey} />
+              <Big icon={<IndexesIcon size={32} />} label="Indexes" onClick={c.indexes} title="Make fields unique together (e.g. PetType + Breed), or speed up searching" />
               <div className="rb-stack">
                 <Small icon={<InsertRowIcon />} label="Insert Rows" onClick={c.insertRows} />
                 <Small icon={<DeleteRowIcon />} label="Delete Rows" onClick={c.deleteRows} />

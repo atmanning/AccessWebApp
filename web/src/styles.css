@@ -791,3 +791,32 @@ button.props-tab.active { background: #fff; font-weight: 600; }
 .rel-cascade-help { margin-top: 2px; line-height: 1.4; }
 .rel-line.bad .stroke { stroke: #c42b1c; stroke-dasharray: 5 3; }
 .rel-warning { margin: 0 0 8px; padding: 6px 10px; border: 1px solid #f0b4ae; background: #fdecea; color: #a4262c; font-size: 12.5px; border-radius: 4px; }
+
+/* Table Design → Indexes */
+.ix { display: flex; flex-direction: column; gap: 8px; }
+.ix-intro { margin: 0; color: #444; line-height: 1.45; }
+.ix-pk { padding: 6px 8px; background: #fbf7e8; border: 1px solid #eadb9c; border-radius: 4px; font-size: 12.5px; }
+.ix-key { margin-right: 4px; }
+.ix-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid #dfe2e6; border-radius: 4px; background: #fff; }
+.ix-name { width: 130px; height: 28px; border: 1px solid #c6cbd3; border-radius: 4px; padding: 0 6px; font: inherit; }
+.ix-fields { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.ix-chip { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 4px 0 8px; border: 1px solid #9ec3e6; background: #eef5fc; border-radius: 12px; font-size: 12.5px; }
+.ix-plus { color: #777; margin-right: 2px; }
+.ix-chip button { width: 18px; height: 18px; padding: 0; border: none; border-radius: 9px; background: transparent; cursor: pointer; color: #555; line-height: 1; }
+.ix-chip button:hover { background: #d6e8f8; }
+.ix-add { height: 26px; border: 1px dashed #9aa3ad; border-radius: 12px; background: #fff; font: inherit; font-size: 12.5px; padding: 0 6px; }
+.ix-unique { display: flex; align-items: center; gap: 4px; font-size: 12.5px; white-space: nowrap; }
+.ix-del { width: 28px; height: 28px; padding: 0; border: 1px solid transparent; border-radius: 4px; background: transparent; cursor: pointer; }
+.ix-del:hover { border-color: #e2b6b2; background: #fdecea; }
+.ix-empty { padding: 8px; text-align: center; border: 1px dashed #d4d8dd; border-radius: 4px; }
+.ix-singles { margin-top: 2px; }
+@media (max-width: 600px) {
+  .ix-row { flex-wrap: wrap; }
+  .ix-name { width: 100%; }
+}
+.ix .ix-fields > * { flex: none; }
+.ix .ix-chip button, .ix .ix-del { min-width: 0; box-shadow: none; }
+.ix .ix-chip button { width: 18px; height: 18px; }
+.ix .ix-del { width: 30px; height: 28px; flex: none; }
+.ix .ix-chip { height: 24px; min-height: 0; }
+.ix .ix-add { width: auto; min-width: 0; height: 26px; }

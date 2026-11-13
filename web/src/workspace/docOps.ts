@@ -222,6 +222,12 @@ export function countLostOnTypeChange(table: TableDef, fieldId: string, type: Fi
 export function deleteField(doc: ProjectDoc, table: TableDef, fieldId: string) {
   const name = table.fields.find((f) => f.id === fieldId)?.name;
   table.fields = table.fields.filter((f) => f.id !== fieldId);
+  // Indexes lose the field; one with no fields left goes.
+  if (table.indexes) {
+    for (const ix of table.indexes) ix.fields = ix.fields.filter((id) => id !== fieldId);
+    table.indexes = table.indexes.filter((ix) => ix.fields.length > 0);
+    if (!table.indexes.length) delete table.indexes;
+  }
   // Lookups that stored or showed this field fall back to their defaults.
   for (const t of doc.tables) {
     for (const lf of t.fields) {

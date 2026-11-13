@@ -13,6 +13,7 @@ import {
   type TableDef,
 } from "../../../shared/model";
 import { relationshipsBrokenBy } from "../engine/integrity";
+import { IndexesDialog } from "./IndexesDialog";
 import { useDialogs } from "../ui/dialogs";
 import { ComboBox } from "../ui/ComboBox";
 import { KeyIcon } from "../ui/icons";
@@ -293,7 +294,8 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
     window.addEventListener("pointercancel", up);
   };
 
-  useCommands(tabKey, { primaryKey: togglePrimaryKey, insertRows: insertRow, deleteRows });
+  const [indexesOpen, setIndexesOpen] = useState(false);
+  useCommands(tabKey, { primaryKey: togglePrimaryKey, insertRows: insertRow, deleteRows, indexes: () => setIndexesOpen(true) });
 
   const rows = [...table.fields, undefined];
 
@@ -580,6 +582,31 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
             const f = table.fields.find((x) => x.id === wizardFor)!;
             setWizardFor(null);
             void finishWizard(f, r);
+          }}
+        />
+      )}
+      {indexesOpen && (
+        <IndexesDialog
+          table={table}
+          selected={table.fields.filter((f) => selected.has(f.id)).map((f) => f.id)}
+          onClose={() => setIndexesOpen(false)}
+          onOk={(indexes, single) => {
+            setIndexesOpen(false);
+            mutate((t) => {
+              if (indexes.length) t.indexes = indexes;
+              else delete t.indexes;
+              // A one-field index is that field's Indexed property.
+              for (const s of single) {
+                const f = t.fields.find((x) => x.id === s.fieldId);
+                if (f && !f.primaryKey) f.indexed = s.unique ? "YesNoDup" : "YesDup";
+              }
+            });
+            const u = indexes.filter((ix) => ix.unique);
+            ws.setStatus(
+              u.length
+                ? `Saved. ${u.map((ix) => ix.fields.map((id) => table.fields.find((f) => f.id === id)?.name).join(" + ")).join("; ")} must now be unique together.`
+                : "Indexes saved.",
+            );
           }}
         />
       )}

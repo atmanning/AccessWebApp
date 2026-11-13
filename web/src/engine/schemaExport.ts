@@ -192,6 +192,12 @@ function sqlSchema(tables: TableDef[], rels: Rel[], d: SqlDialect, dbName?: stri
       if (autoNotKey === f && unique) continue;
       lines.push(`CREATE ${unique ? "UNIQUE " : ""}INDEX ${q(`ix_${t.name}_${f.name}`.replace(/[^\w]+/g, "_"))} ON ${q(t.name)} (${q(f.name)});`);
     }
+    // Indexes on several fields (e.g. PetType + Breed unique together).
+    for (const ix of t.indexes ?? []) {
+      const cols = ix.fields.map((id) => t.fields.find((f) => f.id === id)).filter((f): f is Field => !!f);
+      if (!cols.length) continue;
+      lines.push(`CREATE ${ix.unique ? "UNIQUE " : ""}INDEX ${q(`ix_${t.name}_${ix.name}`.replace(/[^\w]+/g, "_"))} ON ${q(t.name)} (${cols.map((f) => q(f.name)).join(", ")});`);
+    }
     created.add(t);
   }
   if (later.length) {
@@ -256,6 +262,11 @@ function markdownSchema(doc: ProjectDoc, tables: TableDef[], rels: Rel[], dbName
         `| ${cell(f.name)} | ${typeText(f)} | ${f.primaryKey ? "PK" : ""} | ${f.required || f.primaryKey ? "Yes" : ""} | ${f.primaryKey ? "Unique" : f.indexed === "YesNoDup" ? "Unique" : f.indexed === "YesDup" ? "Yes" : ""} | ${cell(f.defaultValue ?? "")} | ${cell(lookupText(doc, f))} | ${cell(f.description ?? "")} |`,
       );
     }
+    const multi = (t.indexes ?? []).filter((ix) => ix.fields.length > 1);
+    if (multi.length) {
+      out.push("", "Indexes:", "");
+      for (const ix of multi) out.push(`- ${ix.name}: ${ix.fields.map((id) => t.fields.find((f) => f.id === id)?.name ?? "?").join(" + ")}${ix.unique ? " (unique together)" : ""}`);
+    }
     const mine = rels.filter((r) => r.child === t || r.parent === t);
     if (mine.length) {
       out.push("", "Relationships:", "");
@@ -274,6 +285,7 @@ function jsonSchema(doc: ProjectDoc, tables: TableDef[], rels: Rel[]): string {
       name: t.name,
       records: t.rows.length,
       primaryKey: t.fields.filter((f) => f.primaryKey).map((f) => f.name),
+      ...(t.indexes?.length ? { indexes: t.indexes.map((ix) => ({ name: ix.name, fields: ix.fields.map((id) => t.fields.find((f) => f.id === id)?.name), unique: ix.unique })) } : {}),
       fields: t.fields.map((f) => ({
         name: f.name,
         type: f.type,

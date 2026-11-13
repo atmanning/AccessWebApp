@@ -38,6 +38,8 @@ export interface ViewCommands {
   find?: () => void;
   primaryKey?: () => void;
   insertRows?: () => void;
+  /** Table Design: the Indexes window. */
+  indexes?: () => void;
   deleteRows?: () => void;
   run?: () => void;
   showTable?: () => void;

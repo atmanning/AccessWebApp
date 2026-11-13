@@ -7,6 +7,7 @@
  * typing in a datasheet. Like Access, records that would break a rule are skipped and
  * counted rather than failing the whole query.
  */
+import { uniqueCombinations } from "./combos";
 import { applyCascadeDeletes, applyKeyChange, describeCascades, planDelete as planCascadeDelete, planKeyChange, type DeletePlan } from "./integrity";
 import {
   checkProjectIntegrity,
@@ -67,13 +68,14 @@ function violations(doc: ProjectDoc, table: TableDef, rows: Row[], changed: Set<
   const pk = table.fields.filter((f) => f.primaryKey);
   const unique = table.fields.filter((f) => f.indexed === "YesNoDup" && !f.primaryKey);
   // Duplicates: a changed row loses to any row that already had the value.
-  const seen = (fields: Field[]) => {
-    const keyOf = (r: Row) => JSON.stringify(fields.map((f) => r[f.id] ?? null));
+  const seen = (fields: Field[], skipIfAnyEmpty = false) => {
+    // Text is unique regardless of capitals, like Access.
+    const keyOf = (r: Row) => JSON.stringify(fields.map((f) => (typeof r[f.id] === "string" ? (r[f.id] as string).toLowerCase() : (r[f.id] ?? null))));
     const owners = new Map<string, string>();
     for (const r of rows) if (!changed.has(r._id as string)) owners.set(keyOf(r), r._id as string);
     for (const r of rows) {
       if (!changed.has(r._id as string)) continue;
-      if (fields.every((f) => empty(r[f.id]))) continue;
+      if (fields.every((f) => empty(r[f.id])) || (skipIfAnyEmpty && fields.some((f) => empty(r[f.id])))) continue;
       const k = keyOf(r);
       if (owners.has(k)) key.add(r._id as string);
       else owners.set(k, r._id as string);
@@ -81,6 +83,8 @@ function violations(doc: ProjectDoc, table: TableDef, rows: Row[], changed: Set<
   };
   if (pk.length) seen(pk);
   for (const f of unique) seen([f]);
+  // Unique indexes on several fields (PetType + Breed): checked once every part has a value.
+  for (const c of uniqueCombinations(table)) if (!c.primary) seen(c.fields, true);
   for (const r of rows) {
     if (!changed.has(r._id as string)) continue;
     if (pk.some((f) => empty(r[f.id])) || table.fields.some((f) => f.required && f.type !== "AutoNumber" && empty(r[f.id]))) {

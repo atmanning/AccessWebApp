@@ -48,6 +48,14 @@ export const KeyIcon = svg(
     <path d="M8 8h6.5M12 8v2.5M14 8v2" stroke="#9a7a12" strokeWidth="1.3" />
   </>,
 );
+/** Indexes: a list with a lightning bolt (Table Design → Indexes). */
+export const IndexesIcon = svg(
+  <>
+    <rect x="1.5" y="2" width="8" height="12" rx="1" fill="#fff" stroke="#5a6270" />
+    <path d="M3.5 5h4M3.5 8h4M3.5 11h4" stroke="#5a6270" />
+    <path d="M12.5 1.5 10 8h2.5l-1 6.5L15 7h-2.5l1-5.5z" fill="#f2c94c" stroke="#9a7a12" strokeWidth=".8" strokeLinejoin="round" />
+  </>,
+);
 export const DatasheetIcon = TableIcon;
 /** A form with a pencil: Create > Form Design. */
 export const FormDesignIcon = svg(
