@@ -328,8 +328,14 @@ const isNum = (f: Field) => f.type === "Number" || f.type === "AutoNumber";
 
 function friendlySqlError(msg: string) {
   const m = /no such (table|column): (.+)/.exec(msg);
-  if (m) return `Access Web can't find the ${m[1] === "table" ? "table or query" : "field"} '${m[2]}'. Check the spelling.`;
-  if (/syntax error/.test(msg)) return `Syntax error in query: ${msg.replace(/^.*?syntax error/, "syntax error")}.`;
+  if (m) return `There's no ${m[1] === "table" ? "table or query" : "field"} called ${m[2].replace(/^\w+\./, "")}. Please check the spelling, or pick it from the list in Design View.`;
+  const near = /near "([^"]*)": syntax error/.exec(msg);
+  if (near) return `The query has a mistake near "${near[1]}". Please check that part of the SQL (a missing comma, quote or bracket is the usual cause).`;
+  if (/incomplete input/.test(msg)) return "The query ends too soon. Something is missing at the end (a closing bracket or quote?).";
+  if (/syntax error/.test(msg)) return "The query has a mistake in its SQL. Please check it, or build it in Design View.";
+  if (/ambiguous column name: (.+)/.test(msg)) return `${/ambiguous column name: (.+)/.exec(msg)![1].replace(/^\w+\./, "")} is in more than one table. Put the table's name in front of it, like [Orders].[CustomerID].`;
+  if (/misuse of aggregate/.test(msg)) return "Totals (Sum, Count, Avg…) can't be used there. Use them in a Totals query, or in HAVING instead of WHERE.";
+  if (/no such function: (.+)/.test(msg)) return `There's no function called ${/no such function: (.+)/.exec(msg)![1]}. Please check the spelling.`;
   return msg;
 }
 

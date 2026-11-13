@@ -102,7 +102,7 @@ describe("query engine", () => {
     expect(d.rows).toEqual([["Hopper", 89.99], ["Lovelace", 45.5], ["Turing", 640]]);
   });
   it("gives friendly errors and refuses non-SELECT", async () => {
-    await expect(runQuery(doc, "SELECT * FROM Nope")).rejects.toThrow(/can't find the table or query 'Nope'/);
+    await expect(runQuery(doc, "SELECT * FROM Nope")).rejects.toThrow(/no table or query called Nope/);
     await expect(runQuery(doc, "DELETE FROM Customers")).rejects.toThrow(/action query/);
   });
 });
@@ -211,7 +211,7 @@ describe("query types", () => {
     expect(next.tables[1].rows.map((r) => r.o_amount)).toEqual([1250, 45.5, 89.99, 640, 32, 25.5, 7]);
     const dup = await planAction(doc, "UPDATE Customers SET Email = 'ada@example.com' WHERE CustomerID = 2");
     expect(dup.count).toBe(0);
-    expect(dup.problems[0]).toMatch(/key violations/);
+    expect(dup.problems[0]).toMatch(/must be unique is already used/);
     const preview = await previewAction(doc, "UPDATE Orders SET Orders.Amount = 0 WHERE Amount < 20");
     expect(preview.rows).toEqual([[12.75], [3.5]]);
   });
@@ -223,7 +223,7 @@ describe("query types", () => {
     expect(next.tables[1].rows).toHaveLength(5);
     const blocked = await planAction(doc, "DELETE * FROM Customers WHERE City = 'London'");
     expect(blocked.count).toBe(0);
-    expect(blocked.problems[0]).toMatch(/related records/);
+    expect(blocked.problems[0]).toMatch(/records in another table still use them/);
   });
 
   it("cascades deletes and key changes in action queries when the relationship says so", async () => {
@@ -253,7 +253,7 @@ describe("query types", () => {
     expect(next.tables[1].nextAutoNumber).toBe(12);
     const orphan = await planAction(doc, "INSERT INTO Orders (CustomerID, Item) VALUES (99, 'Nobody')");
     expect(orphan.count).toBe(0);
-    expect(orphan.problems[0]).toMatch(/key violations/);
+    expect(orphan.problems[0]).toMatch(/related record they need/);
   });
 
   it("runs make-table queries, inferring field types", async () => {

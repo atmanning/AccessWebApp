@@ -727,8 +727,8 @@ export function Workspace(props: {
 
         {saveState === "conflict" && (
           <div className="message-bar">
-            <strong>Changed elsewhere.</strong> {status.kind === "error" ? status.message : "This database was changed elsewhere."} Your
-            latest changes weren't saved.
+            <strong>Changed elsewhere.</strong> {status.kind === "error" ? status.message : "Someone (or you, in another window) changed this database."} Your
+            latest changes weren't saved. Reload to get the newest version, then make them again.
             <button onClick={() => reloadFromServer()}>Reload latest</button>
           </div>
         )}

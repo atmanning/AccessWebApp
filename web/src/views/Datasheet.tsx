@@ -260,7 +260,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
     const low = t.toLowerCase();
     const opt = lk.options.find((o) => o.label.toLowerCase() === low) ?? lk.options.find((o) => o.value.toLowerCase() === low);
     if (opt) return { value: opt.value };
-    if (lk.limit && !lk.loading) return { error: "The text you entered isn't an item in the list. Select an item from the list, or enter text that matches one of the listed items." };
+    if (lk.limit && !lk.loading) return { error: "Please pick one of the choices in the list (press Alt+↓ to see them)." };
     return { value: t };
   };
   const lookupMatches = (c: number, text: string, typed?: boolean) => {

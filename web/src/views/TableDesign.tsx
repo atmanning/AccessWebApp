@@ -113,13 +113,13 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
     if (type !== f.type && (await breaksRelationships(f, { type }))) return;
     if (type === "AutoNumber") {
       if (table.fields.some((x) => x.type === "AutoNumber" && x.id !== f.id)) {
-        await dialogs.alert("Microsoft Access Web", "A table can have only one AutoNumber field.");
+        await dialogs.alert("Microsoft Access Web", "A table can have only one AutoNumber field, and this one already has one.");
         return;
       }
       if (table.rows.length) {
         await dialogs.alert(
           "Microsoft Access Web",
-          "Once you enter data in a table, you can't change the data type of any field to AutoNumber, even if you haven't yet added data to that field.",
+          "A field can only become an AutoNumber while the table has no records. To number existing records, add a Number field instead.",
         );
         return;
       }
@@ -128,7 +128,7 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
     if (lost > 0) {
       const ok = await dialogs.confirm(
         "Microsoft Access Web",
-        `Some data may be lost. ${lost} record(s) contain values in '${f.name}' that can't be converted to ${FIELD_TYPE_LABELS[type]} and will be deleted. Do you want to continue anyway?`,
+        `${lost} record(s) have values in ${f.name} that can't become ${FIELD_TYPE_LABELS[type]}, so those values would be cleared. Change the type anyway? (Undo, Ctrl+Z, brings them back.)`,
         { okLabel: "Yes", danger: true },
       );
       if (!ok) return;
@@ -147,14 +147,14 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
       for (const r of table.rows) {
         const parts = ids.map((id) => r[id]);
         if (parts.some((v) => v === null || v === undefined || v === "")) {
-          await dialogs.alert("Microsoft Access Web", "Index or primary key cannot contain a Null value. Fill in the empty values first.");
+          await dialogs.alert("Microsoft Access Web", `A primary key can't have empty values, and some records have ${ids.map((id) => table.fields.find((f) => f.id === id)?.name).join(" or ")} empty. Please fill those in first.`);
           return;
         }
         const k = JSON.stringify(parts);
         if (keys.has(k)) {
           await dialogs.alert(
             "Microsoft Access Web",
-            "The changes you requested to the table were not successful because they would create duplicate values in the primary key.",
+            `A primary key must be unique, but some records have the same ${ids.map((id) => table.fields.find((f) => f.id === id)?.name).join(" + ")}${ids.length === 1 ? ` (${String(parts[0])})` : ""}. Please fix the duplicates first.`,
           );
           return;
         }
@@ -553,7 +553,7 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
                           if (v === "YesNoDup") {
                             const vals = table.rows.map((r) => r[field.id]).filter((x) => x !== null && x !== "");
                             if (new Set(vals).size !== vals.length) {
-                              await dialogs.alert("Microsoft Access Web", `'${field.name}' already contains duplicate values, so it can't be indexed with No Duplicates.`);
+                              await dialogs.alert("Microsoft Access Web", `${field.name} can't be set to "No Duplicates" yet, because some records already share the same value. Please fix the duplicates first.`);
                               return;
                             }
                           }

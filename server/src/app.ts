@@ -67,7 +67,7 @@ export function createApp(opts: AppOptions) {
   app.use("/api/public/:id/images", publicImagesRouter(opts.db));
   app.use("/api/projects", projectsRouter(opts.db, opts.exportAccdb, opts.importAccess));
   app.use("/api/public", publicRouter(opts.db));
-  app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
+  app.use("/api", (_req, res) => res.status(404).json({ error: "That isn't something this server can do. Try reloading the page." }));
 
   if (opts.staticDir && fs.existsSync(opts.staticDir)) {
     app.use(express.static(opts.staticDir, { index: false, maxAge: "1h" }));
@@ -76,16 +76,27 @@ export function createApp(opts: AppOptions) {
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof ZodError) {
-      res.status(400).json({ error: err.issues[0]?.message ?? "Invalid request" });
+      res.status(400).json({ error: err.issues[0]?.message ?? "Something in that request wasn't right. Please try again." });
       return;
     }
     const status = (err as { status?: number }).status;
+    // Errors from reading the request body (express), in plain words.
+    const type = (err as { type?: string }).type;
+    if (type === "entity.too.large") {
+      res.status(413).json({ error: "That's too much to save at once (over 25 MB). Large pictures or imports are the usual cause; try removing some." });
+      return;
+    }
+    if (type === "entity.parse.failed") {
+      res.status(400).json({ error: "That request couldn't be read. Please reload the page and try again." });
+      return;
+    }
     if (status && status >= 400 && status < 500) {
       res.status(status).json({ error: (err as Error).message });
       return;
     }
     console.error(err);
-    res.status(500).json({ error: err instanceof Error ? err.message : "Something went wrong" });
+    // The details go to the server log; people get a plain message.
+    res.status(500).json({ error: "Something went wrong on the server. Please try again in a moment; your work up to the last save is safe." });
   });
 
   return app;

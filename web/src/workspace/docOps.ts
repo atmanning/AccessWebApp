@@ -35,12 +35,12 @@ function nameTaken(doc: ProjectDoc, kind: ObjectKind, name: string, exceptId?: s
 export function validateObjectName(doc: ProjectDoc, kind: ObjectKind, name: string, exceptId?: string): string | null {
   const n = name.trim();
   if (!n) return "Enter a name.";
-  if (n.length > 64) return "Names can be at most 64 characters.";
-  if (!NAME_PATTERN.test(n)) return "Names can't contain a period (.), exclamation point (!), accent grave (`) or brackets ([ ]).";
+  if (n.length > 64) return "Names can be up to 64 characters. Please shorten it.";
+  if (!NAME_PATTERN.test(n)) return "Names can't contain a period (.), exclamation point (!), accent grave (`) or brackets ([ ]). Please remove them.";
   if (nameTaken(doc, kind, n, exceptId)) {
     return kind === "table" || kind === "query"
-      ? `A table or query named '${n}' already exists.`
-      : `A ${KIND_LABEL[kind].toLowerCase()} named '${n}' already exists.`;
+      ? `There's already a table or query called ${n}. Please choose a different name.`
+      : `There's already a ${KIND_LABEL[kind].toLowerCase()} called ${n}. Please choose a different name.`;
   }
   return null;
 }
@@ -58,9 +58,9 @@ export function uniqueObjectName(doc: ProjectDoc, kind: ObjectKind, base: string
 export function validateFieldName(table: TableDef, name: string, exceptId?: string): string | null {
   const n = name.trim();
   if (!n) return "Enter a field name.";
-  if (!NAME_PATTERN.test(n)) return "Field names can't contain . ! ` [ or ] and can be at most 64 characters.";
+  if (!NAME_PATTERN.test(n)) return "Field names can be up to 64 characters and can't contain a period (.), exclamation point (!), accent grave (`) or brackets ([ ]).";
   if (table.fields.some((f) => f.id !== exceptId && f.name.toLowerCase() === n.toLowerCase())) {
-    return `The field name '${n}' is already used in this table.`;
+    return `This table already has a field called ${n}. Please choose a different name.`;
   }
   return null;
 }

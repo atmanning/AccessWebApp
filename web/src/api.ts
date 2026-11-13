@@ -22,8 +22,33 @@ export class ApiError extends Error {
   }
 }
 
+/** What to tell people when there's no usable answer from the server. */
+function statusMessage(status: number, what: string) {
+  if (status === 401) return "You've been signed out. Please sign in again.";
+  if (status === 403) return "You don't have permission to do that.";
+  if (status === 404) return "That couldn't be found. It may have been deleted.";
+  if (status === 413) return "That's too large to send. Try a smaller file.";
+  if (status === 429) return "Too many requests in a short time. Please wait a minute and try again.";
+  if (status >= 500) return `The server had a problem with this ${what}. Please try again in a moment.`;
+  return `The ${what} didn't work (error ${status}). Please try again.`;
+}
+
+/** fetch, with "you're offline" in plain words instead of "Failed to fetch". */
+async function send(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new ApiError(
+      navigator.onLine === false
+        ? "You're offline. Check your internet connection, then try again."
+        : "Couldn't reach the server. Check your internet connection, or wait a moment while it starts up, then try again.",
+      0,
+    );
+  }
+}
+
 async function call<T>(method: string, url: string, body?: unknown): Promise<T> {
-  const res = await fetch(url, {
+  const res = await send(url, {
     method,
     credentials: "same-origin",
     headers: {
@@ -33,20 +58,20 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(data.error ?? `Request failed (${res.status})`, res.status, data);
+  if (!res.ok) throw new ApiError(data.error ?? statusMessage(res.status, "request"), res.status, data);
   return data as T;
 }
 
 async function upload<T>(url: string, file: Blob): Promise<T> {
   if (file.size > 100 * 1024 * 1024) throw new ApiError("That file is larger than 100 MB.", 413);
-  const res = await fetch(url, {
+  const res = await send(url, {
     method: "POST",
     credentials: "same-origin",
     headers: { "X-Requested-With": "fetch", "Content-Type": "application/octet-stream" },
     body: file,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(data.error ?? `Upload failed (${res.status})`, res.status, data);
+  if (!res.ok) throw new ApiError(data.error ?? statusMessage(res.status, "upload"), res.status, data);
   return data as T;
 }
 
@@ -114,10 +139,10 @@ export const api = {
 
   /** Downloads the .accdb via fetch so server errors can be shown instead of a broken file. */
   async downloadAccdb(id: string, fallbackName: string) {
-    const res = await fetch(`/api/projects/${id}/export.accdb`, { credentials: "same-origin" });
+    const res = await send(`/api/projects/${id}/export.accdb`, { credentials: "same-origin" });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      throw new ApiError(data.error ?? `Export failed (${res.status})`, res.status);
+      throw new ApiError(data.error ?? statusMessage(res.status, "export"), res.status);
     }
     const blob = await res.blob();
     const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? `${fallbackName}.accdb`;

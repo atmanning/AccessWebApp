@@ -116,7 +116,7 @@ export function translateAccessSql(sql: string): string {
         break;
       case "date": {
         const d = parseAccessDate(t.text);
-        if (!d) throw new SqlSyntaxError(`#${t.text}# isn't a date I understand. Use #2026-12-31# or #12/31/2026#.`);
+        if (!d) throw new SqlSyntaxError(`#${t.text}# isn't a date. Please write it like #12/31/2026#.`);
         out.push(quote(d));
         break;
       }

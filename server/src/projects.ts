@@ -96,7 +96,7 @@ const SELECT_PROJECT = `
 export function projectLoader(db: DB) {
   return (id: string, userId: string, need: "view" | "edit" | "owner" = "view") => {
     const row = db.prepare(`${SELECT_PROJECT} WHERE p.id = ?`).get(id) as ProjectListRow | undefined;
-    if (!row) throw httpError(404, "Database not found.");
+    if (!row) throw httpError(404, "This database doesn't exist, or it isn't shared with you.");
     let role: ProjectRole | null = null;
     if (row.user_id === userId) role = "owner";
     else {
@@ -106,7 +106,7 @@ export function projectLoader(db: DB) {
       const perms = [share?.permission, row.link_access === "none" ? undefined : row.link_access];
       role = perms.includes("edit") ? "edit" : perms.includes("view") ? "view" : null;
     }
-    if (!role) throw httpError(404, "Database not found.");
+    if (!role) throw httpError(404, "This database doesn't exist, or it isn't shared with you.");
     if (need === "owner" && role !== "owner") throw httpError(403, "Only the owner can do that.");
     if (need === "edit" && role === "view") throw httpError(403, "You have view-only access to this database.");
     return { row, role };

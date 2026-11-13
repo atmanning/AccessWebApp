@@ -109,9 +109,9 @@ function violations(doc: ProjectDoc, table: TableDef, rows: Row[], changed: Set<
 
 function report(verb: string, conversion: number, key: number, validation: number): string[] {
   const out: string[] = [];
-  if (conversion) out.push(`${conversion} field(s) were set to Null due to a type conversion failure.`);
-  if (key) out.push(`${key} record(s) weren't ${verb} due to key violations (duplicate keys or missing related records).`);
-  if (validation) out.push(`${validation} record(s) weren't ${verb} because a required field or the primary key would be empty.`);
+  if (conversion) out.push(`${conversion} value(s) don't fit their field's data type (for example text in a Number field), so they'll be left empty.`);
+  if (key) out.push(`${key} record(s) won't be ${verb}, because a value that must be unique is already used, or a related record they need doesn't exist.`);
+  if (validation) out.push(`${validation} record(s) won't be ${verb}, because a required field or the primary key would be empty.`);
   return out;
 }
 
@@ -198,7 +198,7 @@ function planUpdate(doc: ProjectDoc, db: Db, st: Extract<Statement, { kind: "upd
     return { si, field: fieldIn(sources[si].table, s.field), expr: s.expr };
   });
   if (!sets.length) throw new SqlSyntaxError("Type a value or expression in the Update To row.");
-  if (sets.some((s) => s.field.type === "AutoNumber")) throw new SqlSyntaxError("AutoNumber fields can't be updated.");
+  if (sets.some((s) => s.field.type === "AutoNumber")) throw new SqlSyntaxError("AutoNumber fields are numbered automatically and can't be changed. Please take it out of the Update To row.");
   const used = [...new Set(sets.map((s) => s.si))];
   const select =
     `SELECT ${used.map((si) => `[${sources[si].alias}].rowid AS __r${si}`).join(", ")}, ` +
@@ -289,7 +289,7 @@ function planDelete(doc: ProjectDoc, db: Db, st: Extract<Statement, { kind: "del
     kind: "delete",
     count: ids.size,
     confirm: `You are about to delete ${ids.size} row(s) from the table '${src.table.name}'${also ? `, and by cascading deletes ${also}` : ""}.`,
-    problems: key ? [`${key} record(s) weren't deleted because related records in another table still use them.`] : [],
+    problems: key ? [`${key} record(s) won't be deleted, because records in another table still use them. (Turn on "Cascade Delete Related Records" for that relationship to delete them together.)`] : [],
     done: `${ids.size} row(s) deleted from ${src.table.name}${also ? `, with ${also}` : ""}.`,
     apply: (draft) => {
       const t = draft.tables.find((x) => x.id === tableId);
@@ -305,7 +305,7 @@ function planAppend(doc: ProjectDoc, db: Db, st: Extract<Statement, { kind: "app
   const { columns, rows } = selectRows(db, st.select, 1_000_000);
   const targetFields = (st.columns ?? table.fields.filter((f) => f.type !== "AutoNumber").map((f) => f.name)).map((n) => fieldIn(table, n));
   if (targetFields.length !== columns.length) {
-    throw new SqlSyntaxError(`The query appends ${columns.length} column(s) but names ${targetFields.length} field(s) to append to.`);
+    throw new SqlSyntaxError(`The query gives ${columns.length} column(s) but names ${targetFields.length} field(s) to put them in. Please make the two lists the same length.`);
   }
   return appendRowsPlan(doc, table, targetFields, rows);
 }
@@ -406,7 +406,7 @@ function planMakeTable(doc: ProjectDoc, db: Db, st: Extract<Statement, { kind: "
     count: newRows.length,
     confirm: `You are about to paste ${newRows.length} row(s) into a new table '${name}'.`,
     replaces: existing ? `The existing table '${existing.name}' will be deleted before the query runs.` : undefined,
-    problems: conversion ? [`${conversion} value(s) couldn't be converted and were left empty.`] : [],
+    problems: conversion ? [`${conversion} value(s) don't fit their field's data type, so they'll be left empty.`] : [],
     done: `Created table ${name} with ${newRows.length} row(s).`,
     apply: (draft) => {
       const i = draft.tables.findIndex((t) => t.id === table.id);
@@ -415,7 +415,7 @@ function planMakeTable(doc: ProjectDoc, db: Db, st: Extract<Statement, { kind: "
         // Relationships pointed at the old table's fields, which no longer exist.
         draft.relationships = draft.relationships.filter((r) => r.fromTable !== table.id && r.toTable !== table.id);
       } else draft.tables.push(table);
-      if (checkProjectIntegrity(draft).length) throw new SqlSyntaxError("The new table would make the database inconsistent.");
+      if (checkProjectIntegrity(draft).length) throw new SqlSyntaxError("The new table couldn't be made from this query. Please check its fields and try again.");
     },
   };
 }

@@ -19,7 +19,7 @@ export function parseInput(field: Field, input: string | boolean): ParseResult {
   switch (field.type) {
     case "ShortText": {
       const max = field.size ?? 255;
-      if (input.length > max) return { ok: false, error: `${field.name} can hold at most ${max} characters.` };
+      if (input.length > max) return { ok: false, error: `${field.name} can hold up to ${max} characters, and this is ${input.length}. Please shorten it.` };
       return { ok: true, value: input };
     }
     case "LongText":
@@ -27,20 +27,20 @@ export function parseInput(field: Field, input: string | boolean): ParseResult {
     case "AutoNumber":
     case "Number": {
       const n = Number(s.replace(/,/g, ""));
-      if (!Number.isFinite(n)) return { ok: false, error: `The value you entered isn't valid for ${field.name} (a number).` };
       const [min, max, whole] = NUMBER_LIMITS[field.numberSize ?? "Long"];
+      if (!Number.isFinite(n)) return { ok: false, error: `${field.name} needs a number, like ${whole ? "42" : "42 or 3.5"}. Please re-try.` };
       const v = whole ? Math.round(n) : n;
-      if (v < min || v > max) return { ok: false, error: `${field.name} must be between ${min} and ${max}.` };
+      if (v < min || v > max) return { ok: false, error: `${field.name} needs a number from ${min.toLocaleString("en-US")} to ${max.toLocaleString("en-US")}. Please re-try.` };
       return { ok: true, value: v };
     }
     case "Currency": {
       const n = Number(s.replace(/[$,\s]/g, ""));
-      if (!Number.isFinite(n)) return { ok: false, error: `The value you entered isn't valid for ${field.name} (currency).` };
+      if (!Number.isFinite(n)) return { ok: false, error: `${field.name} needs an amount, like 12.50. Please re-try.` };
       return { ok: true, value: Math.round(n * 10000) / 10000 };
     }
     case "DateTime": {
       const d = parseAccessDate(s);
-      if (!d) return { ok: false, error: `${field.name} needs a date, like 2026-12-31 or 12/31/2026.` };
+      if (!d) return { ok: false, error: `${field.name} needs a date, like 12/31/2026. Please re-try, or pick one from the calendar.` };
       return { ok: true, value: d };
     }
     case "YesNo":

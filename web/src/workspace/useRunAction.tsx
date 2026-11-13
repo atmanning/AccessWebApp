@@ -33,7 +33,7 @@ export function useRunAction() {
     }
     ws.setStatus("");
     if (plan.count === 0 && !plan.problems.length && plan.kind !== "makeTable") {
-      await dialogs.alert("Microsoft Access Web", "The query didn't find any records to change.");
+      await dialogs.alert("Microsoft Access Web", "There's nothing to change: no records match this query.");
       return true;
     }
     const ok = await dialogs.confirm(

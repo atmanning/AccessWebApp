@@ -344,20 +344,19 @@ function EditRelationshipDialog({ draft, onClose, onDelete }: { draft: Draft; on
     if (!fromT || !toT || !fromF || !toF) return setError("Choose a table and field on each side.");
     if (fromT.id === toT.id) return setError("Pick two different tables.");
     if (!compatible(fromF, toF)) {
-      return setError(`Relationship must be on the same number of fields with the same data types. '${fromF.name}' is ${fromF.type} and '${toF.name}' is ${toF.type}.`);
+      return setError(`These fields can't be related, because their data types are different: ${fromT.name}.${fromF.name} is ${typeName(fromF)} and ${toT.name}.${toF.name} is ${typeName(toF)}. Change one in Table Design so they match.`);
     }
     if (d.enforce) {
       if (!isUniqueKey(fromT, fromF)) {
         return setError(
-          `To enforce referential integrity, one of the two fields must be its table's primary key, or have Indexed set to "Yes (No Duplicates)". ` +
-            `Neither '${fromT.name}.${fromF.name}' nor '${toT.name}.${toF.name}' is. Usually the key is the ID in the table being pointed to (for example Departments.DepartmentID): make it the primary key in Table Design. ` +
-            `"Yes (Duplicates OK)" isn't enough, because many records can share that value.`,
+          `To enforce referential integrity, one of these fields must be its table's primary key (or set to Indexed "Yes (No Duplicates)"), and neither ${fromT.name}.${fromF.name} nor ${toT.name}.${toF.name} is. ` +
+            `Usually it's the ID of the table being pointed to, for example Departments.DepartmentID: make it the primary key in Table Design, then try again.`,
         );
       }
       const keys = new Set(fromT.rows.map((r) => r[fromF.id]));
       const orphan = toT.rows.find((r) => r[toF.id] !== null && r[toF.id] !== undefined && !keys.has(r[toF.id]));
       if (orphan) {
-        return setError(`Data in the table '${toT.name}' violates referential integrity rules: '${toF.name}' = ${String(orphan[toF.id])} has no matching record in '${fromT.name}'.`);
+        return setError(`Referential integrity can't be turned on yet: some ${toT.name} records have ${toF.name} ${String(orphan[toF.id])}, which isn't in ${fromT.name}. Fix or clear those records first, or leave "Enforce Referential Integrity" off.`);
       }
     }
     const dup = ws.doc.relationships.find(
