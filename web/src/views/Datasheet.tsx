@@ -224,8 +224,26 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
       setError(null);
       return;
     }
-    setEditing({ text: initial ?? (field ? editText(field, valueAt(cell.r, cell.c)) : String(valueAt(cell.r, cell.c) ?? "")) });
+    // Typing into a cell replaces it, and the arrow keys then save and move; F2 or a double-click edits
+    // the text, where ← and → move within it.
+    setEditing({ text: initial ?? (field ? editText(field, valueAt(cell.r, cell.c)) : String(valueAt(cell.r, cell.c) ?? "")), typed: initial !== undefined });
     setError(null);
+  };
+
+  /** Saves the cell being edited (or `override`), then moves by rows/columns. */
+  const commitAndMove = (dr: number, dc: number, override?: string) => {
+    const wasNew = isNewRow(cell.r);
+    const added = wasNew && (override ?? editing?.text ?? "") !== "";
+    if (!commit(override)) return;
+    // A record typed into the new row is now the last record; the new row is below it.
+    const from = added ? count : cell.r;
+    const last = added ? count + 1 : totalRows - 1;
+    const r = Math.max(0, Math.min(last, from + dr));
+    const c = Math.max(0, Math.min(colCount - 1, cell.c + dc));
+    setCell({ r, c });
+    setSelRows(new Set());
+    scrollIntoView(r);
+    scroller.current?.focus();
   };
 
   /** A lookup's text as the value to store: a listed choice (by what's shown, or its value), else what was typed. */
@@ -376,11 +394,23 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
       return;
     }
     if (editing) {
-      if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey)) {
+      const ed = e.currentTarget instanceof HTMLInputElement ? e.currentTarget : null;
+      const allSelected = !!ed && ed.selectionStart === 0 && ed.selectionEnd === ed.value.length && ed.value.length > 0;
+      if (e.key === "Enter" && !e.altKey) {
+        // Enter saves and goes to the next row, same field (Shift+Enter goes up).
+        e.preventDefault();
+        commitAndMove(e.shiftKey ? -1 : 1, 0);
+      } else if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !e.altKey) {
+        e.preventDefault();
+        commitAndMove(e.key === "ArrowDown" ? 1 : -1, 0);
+      } else if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && (editing.typed || allSelected)) {
+        e.preventDefault();
+        commitAndMove(0, e.key === "ArrowRight" ? 1 : -1);
+      } else if (e.key === "Tab" && !e.shiftKey) {
         e.preventDefault();
         const wasNew = isNewRow(cell.r);
         if (!commit()) return;
-        // Like Access, Enter and Tab both move to the next field, wrapping to the next record.
+        // Tab moves to the next field, wrapping to the next record.
         if (cell.c < colCount - 1) setCell({ r: wasNew ? count : cell.r, c: cell.c + 1 });
         else setCell({ r: wasNew ? count + 1 : Math.min(cell.r + 1, totalRows - 1), c: firstEditableCol() });
         scroller.current?.focus();
@@ -408,7 +438,8 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
     else if (k === "End") moveTo(e.ctrlKey ? totalRows - 1 : cell.r, colCount - 1);
     else if (k === "PageDown") moveTo(cell.r + Math.floor(viewH / ROW_H) - 1, cell.c);
     else if (k === "PageUp") moveTo(cell.r - Math.floor(viewH / ROW_H) + 1, cell.c);
-    else if (k === "Enter" || k === "F2") startEdit();
+    else if (k === "Enter") moveTo(cell.r + (e.shiftKey ? -1 : 1), cell.c);
+    else if (k === "F2") startEdit();
     else if (p.columns[cell.c]?.lookup && (k === "F4" || (e.altKey && k === "ArrowDown"))) startEdit(undefined, true);
     else if (k === " " && p.columns[cell.c]?.field?.type === "YesNo") toggle();
     else if (k === "Delete") {
@@ -655,13 +686,9 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
                                 e.preventDefault();
                                 setEditing({ ...editing, list: false });
                               } else if (open && e.key === "Enter" && matches[hi]) {
-                                // Take the highlighted choice, then move on like Enter does.
+                                // Take the highlighted choice, then go to the next row like Enter does.
                                 e.preventDefault();
-                                const wasNew = isNewRow(cell.r);
-                                if (!commit(matches[hi].value)) return;
-                                if (cell.c < colCount - 1) setCell({ r: wasNew ? count : cell.r, c: cell.c + 1 });
-                                else setCell({ r: wasNew ? count + 1 : Math.min(cell.r + 1, totalRows - 1), c: firstEditableCol() });
-                                scroller.current?.focus();
+                                commitAndMove(1, 0, matches[hi].value);
                               } else onKeyDown(e);
                             }}
                             onBlur={(e) => {
@@ -704,7 +731,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
                             value={editing.text}
                             aria-label={col.label}
                             onChange={(e) => {
-                              setEditing({ text: e.target.value });
+                              setEditing({ text: e.target.value, typed: editing.typed });
                               setError(null);
                             }}
                             onKeyDown={(e) => {
