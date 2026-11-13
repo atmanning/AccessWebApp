@@ -71,3 +71,12 @@ export const ColumnsIcon = svg(<><rect x="1.5" y="2" width="5.5" height="3" fill
 export const FieldListIcon = svg(<><rect x="2" y="1.5" width="12" height="13" fill="#fff" stroke={C} /><path d="M4 4.5h8M4 7.5h8M4 10.5h6" stroke={A} /></>);
 export const PropertySheetIcon = svg(<><rect x="2" y="1.5" width="12" height="13" fill="#fff" stroke={C} /><path d="M2 5h12M7 5v9.5" stroke={C} /><path d="M3.5 7.5h2M3.5 10.5h2M8.5 7.5h4M8.5 10.5h3" stroke={A} /></>);
 export const ThemeIcon = svg(<><circle cx="8" cy="8" r="6.5" fill="#fff" stroke={C} /><circle cx="5.5" cy="6" r="1.4" fill="#e11d48" /><circle cx="9" cy="4.8" r="1.4" fill="#4f46e5" /><circle cx="11.3" cy="8" r="1.4" fill="#16a34a" /><circle cx="6" cy="10" r="1.4" fill="#ea580c" /></>);
+
+export const TabOrderIcon = svg(
+  <>
+    <rect x="1.5" y="2" width="9" height="3" rx="1" fill="#fff" stroke={C} />
+    <rect x="1.5" y="6.5" width="9" height="3" rx="1" fill="#fff" stroke={C} />
+    <rect x="1.5" y="11" width="9" height="3" rx="1" fill="#fff" stroke={C} />
+    <path d="M13 3.5v9m-1.6-1.6L13 12.5l1.6-1.6" fill="none" stroke="#c42b1c" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+  </>,
+);

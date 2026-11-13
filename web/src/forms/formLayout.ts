@@ -328,6 +328,33 @@ export function readingOrder(controls: FormControl[]) {
   return [...controls].sort((a, b) => rank[a.section] - rank[b.section] || a.y - b.y || a.x - b.x);
 }
 
+/** Controls you can Tab to (labels, lines and rectangles can't take the focus). */
+export const takesFocus = (t: FormControlType) => t !== "label" && t !== "line" && t !== "rectangle";
+
+/** One section's controls in tab order: the custom order first, then any others top to bottom, left to right. */
+export function sectionTabOrder(layout: FormLayout, section: FormSection): FormControl[] {
+  const here = layout.controls.filter((c) => c.section === section && takesFocus(c.type));
+  const byId = new Map(here.map((c) => [c.id, c]));
+  const listed = (layout.tabOrder ?? []).map((id) => byId.get(id)).filter((c): c is FormControl => !!c);
+  const rest = readingOrder(here.filter((c) => !listed.includes(c)));
+  return [...listed, ...rest];
+}
+
+/** All controls in the order Tab visits them (header, detail, footer), then the ones that can't take the focus. */
+export function tabSequence(layout: FormLayout): FormControl[] {
+  const sections: FormSection[] = ["header", "detail", "footer"];
+  return [...sections.flatMap((s) => sectionTabOrder(layout, s)), ...readingOrder(layout.controls.filter((c) => !takesFocus(c.type)))];
+}
+
+/** Saves a section's tab order; drops the custom order altogether when every section is back to top-to-bottom. */
+export function setSectionTabOrder(layout: FormLayout, section: FormSection, ids: string[]) {
+  const sections: FormSection[] = ["header", "detail", "footer"];
+  const next = sections.flatMap((s) => (s === section ? ids : sectionTabOrder(layout, s).map((c) => c.id)));
+  const auto = sections.flatMap((s) => readingOrder(layout.controls.filter((c) => c.section === s && takesFocus(c.type))).map((c) => c.id));
+  if (next.length === auto.length && next.every((id, i) => id === auto[i])) delete layout.tabOrder;
+  else layout.tabOrder = next;
+}
+
 /** Choices of a typed value list: "A;B;C" or "\"A\";\"B\"". */
 export function parseValueList(s: string | undefined): string[] {
   if (!s) return [];

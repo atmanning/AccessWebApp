@@ -16,7 +16,7 @@ import { ExpressionBuilder } from "./ExpressionBuilder";
 import { makeFormCalc } from "./formCalc";
 import { ComboBox } from "../ui/ComboBox";
 import { useWorkspace } from "../workspace/context";
-import { ACTION_LABELS, CONTROL_LABELS, hasLabel, isBound, THEMES } from "./formLayout";
+import { ACTION_LABELS, CONTROL_LABELS, hasLabel, isBound, SECTION_LABELS, sectionTabOrder, setSectionTabOrder, takesFocus, THEMES } from "./formLayout";
 
 type Patch = Partial<FormControl>;
 
@@ -301,6 +301,28 @@ export function FormPropertySheet(props: {
           <Row label="Name">
             <TextProp label="Name" value={one.name} validate={nameError} onCommit={(v) => onPatch({ name: v.trim() })} />
           </Row>
+          {takesFocus(one.type) && (
+            <>
+              <Row label="Tab Stop" hint="Whether Tab and Enter stop at this control">
+                <BoolProp label="Tab Stop" value={one.tabStop !== false} onChange={(b) => onPatch({ tabStop: b ? undefined : false })} />
+              </Row>
+              <Row label="Tab Index" hint={`Where this control comes in the ${SECTION_LABELS[one.section]}'s tab order (0 is first). Form Design → Tab Order shows them all.`}>
+                <NumberProp
+                  label="Tab Index"
+                  value={sectionTabOrder(layout, one.section).findIndex((c) => c.id === one.id)}
+                  min={0}
+                  max={Math.max(0, sectionTabOrder(layout, one.section).length - 1)}
+                  onCommit={(v) =>
+                    onForm((_, l) => {
+                      const ids = sectionTabOrder(l, one.section).map((c) => c.id).filter((id) => id !== one.id);
+                      ids.splice(v ?? 0, 0, one.id);
+                      setSectionTabOrder(l, one.section, ids);
+                    })
+                  }
+                />
+              </Row>
+            </>
+          )}
         </Group>
       )}
       {one && isBound(one.type) && (

@@ -245,6 +245,8 @@ export const formControlSchema = z.object({
   h: px(1, 4000),
   /** Control Source: the record source field it shows and edits, or an expression ("=[A] & [B]") it calculates. */
   field: z.string().max(4000).optional(),
+  /** False: Tab and Enter skip this control (you can still click it). */
+  tabStop: z.boolean().optional(),
   /** How a calculated value is shown: Currency, Percent, Short Date, 0.00, mm/dd/yyyy… */
   format: z.string().max(100).optional(),
   /** Label, button and check box text. */
@@ -285,6 +287,8 @@ export const formLayoutSchema = z.object({
   sections: z.object({ header: px(0, 2000), detail: px(16, 4000), footer: px(0, 2000) }),
   theme: z.enum(FORM_THEMES),
   controls: z.array(formControlSchema).max(1000),
+  /** Tab order: control ids in the order Tab moves through them, section by section. Controls not listed follow in reading order. */
+  tabOrder: z.array(id).max(1000).optional(),
   /** Record navigation bar under the form (on unless false). */
   navigationButtons: z.boolean().optional(),
   allowEdits: z.boolean().optional(),

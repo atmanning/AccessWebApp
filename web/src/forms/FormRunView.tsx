@@ -1,5 +1,5 @@
 /** Form View: the designed form, bound to one record at a time. */
-import { Fragment, useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { CellValue, Field, FormControl, FormDef, ProjectDoc } from "../../../shared/model";
 import { readSource } from "../engine/engine";
 import { formatValue } from "../engine/values";
@@ -11,7 +11,7 @@ import { useSource } from "../views/FormReportViews";
 import { useCommands, useWorkspace, type RecordTarget } from "../workspace/context";
 import { useTableEditing } from "../workspace/useTableEditing";
 import { FormControlView, type ChoiceOption } from "./FormControls";
-import { isBound, layoutOf, parseValueList, readingOrder, themeStyle } from "./formLayout";
+import { isBound, layoutOf, parseValueList, readingOrder, tabSequence, themeStyle } from "./formLayout";
 
 /** Choices for combo and list boxes, by control id. Table and query row sources are read once per change. */
 export function useRowSources(doc: ProjectDoc, controls: FormControl[]) {
@@ -246,6 +246,14 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
     ws.setStatus(`Sorted by ${field} (${dir === "ASC" ? "A→Z" : "Z→A"}). Click in another field first to sort by it.`);
   };
 
+  // Controls with Tab Stop = No: Tab (and Enter) pass over them; a click still works.
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    rootRef.current?.querySelectorAll<HTMLElement>(".no-tab").forEach((box) =>
+      box.querySelectorAll<HTMLElement>("input, select, textarea, button, [tabindex]").forEach((el) => (el.tabIndex = -1)),
+    );
+  });
+
   const calc = useMemo(() => (data ? makeFormCalc(ws.doc, layout, data.columns) : null), [ws.doc, layout, data]);
 
   useCommands(tabKey, {
@@ -358,7 +366,7 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
     const t = e.target as HTMLElement;
     if (e.key !== "Enter" || t.tagName === "TEXTAREA" || t.tagName === "BUTTON" || e.ctrlKey || e.altKey) return;
     const root = e.currentTarget as HTMLElement;
-    const items = [...root.querySelectorAll<HTMLElement>("input:not([disabled]), select:not([disabled]), textarea, [role=listbox][tabindex='0']")];
+    const items = [...root.querySelectorAll<HTMLElement>("input:not([disabled]), select:not([disabled]), textarea, [role=listbox][tabindex='0']")].filter((el) => el.tabIndex >= 0 || el === t);
     const i = items.indexOf(t);
     if (i < 0) return;
     e.preventDefault();
@@ -375,13 +383,14 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
   };
   const recordKey = isNew ? "new" : `${pos}`;
   const sectionHeight = (s: "header" | "detail" | "footer") => layout.sections[s];
-  const ordered = readingOrder(layout.controls);
+  // Desktop: the controls go into the page in tab order, so Tab follows it; phones stack them top to bottom.
+  const ordered = compact ? readingOrder(layout.controls) : tabSequence(layout);
 
   const sectionBody = (s: "header" | "detail" | "footer") => {
     const list = ordered.filter((c) => c.section === s && !c.hidden);
     if (!compact) {
       return list.map((c) => (
-        <div key={valueKey(c)} className={`fv-ctl t-${c.type}`} data-field={isExpression(c.field) ? undefined : c.field} style={{ left: c.x, top: c.y, width: c.w, height: c.h }}>
+        <div key={valueKey(c)} className={`fv-ctl t-${c.type} ${c.tabStop === false ? "no-tab" : ""}`} data-field={isExpression(c.field) ? undefined : c.field} style={{ left: c.x, top: c.y, width: c.w, height: c.h }}>
           {renderControl(c)}
         </div>
       ));
@@ -407,7 +416,7 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
       }
       flush();
       out.push(
-        <div key={valueKey(c)} className={`fv-ctl flow t-${c.type}`} data-field={isExpression(c.field) ? undefined : c.field} style={c.multiline || c.type === "listbox" || c.type === "image" ? { minHeight: c.h } : undefined}>
+        <div key={valueKey(c)} className={`fv-ctl flow t-${c.type} ${c.tabStop === false ? "no-tab" : ""}`} data-field={isExpression(c.field) ? undefined : c.field} style={c.multiline || c.type === "listbox" || c.type === "image" ? { minHeight: c.h } : undefined}>
           {renderControl(c)}
         </div>,
       );
@@ -417,7 +426,7 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
   };
 
   return (
-    <div className={`fv theme-${layout.theme} ${compact ? "compact" : ""} ${finding ? "finding" : ""}`} style={themeStyle(layout.theme)}>
+    <div ref={rootRef} className={`fv theme-${layout.theme} ${compact ? "compact" : ""} ${finding ? "finding" : ""}`} style={themeStyle(layout.theme)}>
       {finding && (
         <FindBar
           finding={finding}

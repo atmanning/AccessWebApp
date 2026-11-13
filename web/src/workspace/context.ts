@@ -74,6 +74,8 @@ export interface FormDesignCommands {
   togglePropertySheet: () => void;
   relayout: (style: "stacked" | "columns") => void;
   remove: () => void;
+  /** Opens the Tab Order dialog. */
+  tabOrder: () => void;
 }
 
 export type StatusKind = "info" | "error";

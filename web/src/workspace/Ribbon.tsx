@@ -54,6 +54,7 @@ import {
   FieldListIcon,
   FrontIcon,
   PropertySheetIcon,
+  TabOrderIcon,
   SameHeightIcon,
   SameWidthIcon,
   StackedIcon,
@@ -425,6 +426,7 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
               <Group label="Tools">
                 <Big icon={<FieldListIcon size={32} />} label="Add Existing Fields" pressed={f.fieldList} onClick={f.toggleFieldList} title="Show or hide the toolbox and field list" />
                 <Big icon={<PropertySheetIcon size={32} />} label="Property Sheet" pressed={f.propertySheet} onClick={f.togglePropertySheet} />
+                <Big icon={<TabOrderIcon size={32} />} label="Tab Order" onClick={f.tabOrder} title="Change the order Tab and Enter move through the controls" />
               </Group>
               <Group label="Layout">
                 <Big icon={<StackedIcon size={32} />} label="Stacked" onClick={() => f.relayout("stacked")} title="Arrange the fields in one column" />

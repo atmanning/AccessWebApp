@@ -4,6 +4,7 @@
  * whatever is selected. Every finished gesture is one undo step.
  */
 import { isExpression } from "../engine/expr";
+import { TabOrderDialog } from "./TabOrderDialog";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type PointerEvent as RPointerEvent } from "react";
 import { FORM_CONTROL_TYPES, FORM_SECTIONS, type FormControl, type FormControlType, type FormDef, type FormLayout, type FormSection } from "../../../shared/model";
 import { useLayout } from "../ui/layout";
@@ -22,6 +23,7 @@ import {
   nextControlName,
   SECTION_LABELS,
   sectionContentBottom,
+  setSectionTabOrder,
   snap,
   syncColumns,
   themeStyle,
@@ -78,6 +80,8 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
   const [showProps, setShowProps] = useState(!compact);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [tabOrderOpen, setTabOrderOpen] = useState(false);
+  const [tabNumbers, setTabNumbers] = useState<Map<string, number> | null>(null);
   const formRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Partial<Record<FormSection, HTMLDivElement | null>>>({});
@@ -450,6 +454,7 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
       togglePropertySheet: () => setShowProps((v) => !v),
       relayout,
       remove: removeSelected,
+      tabOrder: () => setTabOrderOpen(true),
     },
   });
 
@@ -648,6 +653,7 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
                         <div className="fd-ctl-body">
                           <FormControlView c={c} />
                         </div>
+                        {tabNumbers?.has(c.id) && <span className={`fd-tabnum ${tabNumbers.get(c.id) ? "" : "off"}`}>{tabNumbers.get(c.id) || "–"}</span>}
                         {editing === c.id && (
                           <textarea
                             className="fd-inline-edit"
@@ -716,6 +722,25 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
               onClose={compact ? () => setShowProps(false) : undefined}
             />
           </aside>
+        )}
+        {tabOrderOpen && (
+          <TabOrderDialog
+            layout={layout}
+            initialSection={selected[0]?.section ?? "detail"}
+            onDraft={setTabNumbers}
+            onClose={() => setTabOrderOpen(false)}
+            onOk={(r) => {
+              setTabOrderOpen(false);
+              mutate((l) => {
+                for (const sec of FORM_SECTIONS) setSectionTabOrder(l, sec, r.order[sec]);
+                for (const c of l.controls) {
+                  if (r.skip.has(c.id)) c.tabStop = false;
+                  else delete c.tabStop;
+                }
+              });
+              ws.setStatus("Tab order saved. Tab and Enter follow it in Form View.");
+            }}
+          />
         )}
       </div>
     </div>
