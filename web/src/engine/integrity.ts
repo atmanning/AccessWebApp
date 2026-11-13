@@ -9,7 +9,27 @@
  * Both follow chains (Departments → Employees → Timesheets) when each link allows it. A link that
  * doesn't block the change, naming its table, like Access's message.
  */
-import type { CellValue, ProjectDoc, Row } from "../../../shared/model";
+import type { CellValue, Field, ProjectDoc, Row } from "../../../shared/model";
+
+/** Whether two fields can be related: the same data type (an AutoNumber matches a Long Integer Number). */
+export function fieldsCompatible(a: Pick<Field, "type" | "numberSize">, b: Pick<Field, "type" | "numberSize">) {
+  const norm = (f: Pick<Field, "type" | "numberSize">) => (f.type === "AutoNumber" ? "Number:Long" : f.type === "Number" ? `Number:${f.numberSize ?? "Long"}` : f.type);
+  return norm(a) === norm(b);
+}
+
+/** The relationships a field change would leave with mismatched types: the other side's table names. */
+export function relationshipsBrokenBy(doc: ProjectDoc, tableId: string, field: Field, change: Partial<Pick<Field, "type" | "numberSize">>): string[] {
+  const next = { ...field, ...change };
+  const out: string[] = [];
+  for (const r of doc.relationships) {
+    const mine = r.fromTable === tableId && r.fromField === field.id ? "from" : r.toTable === tableId && r.toField === field.id ? "to" : null;
+    if (!mine) continue;
+    const otherT = doc.tables.find((t) => t.id === (mine === "from" ? r.toTable : r.fromTable));
+    const otherF = otherT?.fields.find((f) => f.id === (mine === "from" ? r.toField : r.fromField));
+    if (otherT && otherF && fieldsCompatible(field, otherF) && !fieldsCompatible(next, otherF)) out.push(`${otherT.name}.${otherF.name}`);
+  }
+  return out;
+}
 
 const same = (a: CellValue | undefined, b: CellValue | undefined) => a === b || (a !== null && a !== undefined && b !== null && b !== undefined && String(a) === String(b));
 

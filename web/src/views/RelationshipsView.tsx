@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Field, Relationship, TableDef } from "../../../shared/model";
+import { fieldsCompatible } from "../engine/integrity";
 import { linkedRelations } from "../engine/queryDesign";
 import { sourceFieldNames } from "./sqlDesignReader";
 import { Modal, useDialogs } from "../ui/dialogs";
@@ -40,10 +41,9 @@ function oriented(doc: { tables: TableDef[] }, d: Draft): Draft {
   return d;
 }
 
-function compatible(a: Field, b: Field) {
-  const norm = (f: Field) => (f.type === "AutoNumber" ? "Number:Long" : f.type === "Number" ? `Number:${f.numberSize ?? "Long"}` : f.type);
-  return norm(a) === norm(b);
-}
+const typeName = (f: Field) => (f.type === "Number" ? `Number, ${f.numberSize ?? "Long"}` : f.type === "ShortText" ? "Short Text" : f.type === "LongText" ? "Long Text" : f.type === "DateTime" ? "Date/Time" : f.type === "YesNo" ? "Yes/No" : f.type);
+
+const compatible = fieldsCompatible;
 
 export function RelationshipsView({ tabKey }: { tabKey: string }) {
   const ws = useWorkspace();
@@ -185,8 +185,13 @@ export function RelationshipsView({ tabKey }: { tabKey: string }) {
             const dx = leftToRight ? 14 : -14;
             const d = `M${a.x} ${a.y} h${dx} L${b.x - dx} ${b.y} h${dx}`;
             const sel = selected === r.id;
+            // A relationship whose fields no longer have matching types (changed before that was blocked).
+            const ff = ws.doc.tables.find((t) => t.id === r.fromTable)?.fields.find((f) => f.id === r.fromField);
+            const tf = ws.doc.tables.find((t) => t.id === r.toTable)?.fields.find((f) => f.id === r.toField);
+            const bad = !!ff && !!tf && !compatible(ff, tf);
             return (
-              <g key={r.id} className={`rel-line ${sel ? "selected" : ""}`} onClick={() => (setSelected(r.id), touch && setEditing({ ...r }))} onDoubleClick={() => setEditing({ ...r })}>
+              <g key={r.id} className={`rel-line ${sel ? "selected" : ""} ${bad ? "bad" : ""}`} onClick={() => (setSelected(r.id), touch && setEditing({ ...r }))} onDoubleClick={() => setEditing({ ...r })}>
+                {bad && <title>{`${ff!.name} (${typeName(ff!)}) and ${tf!.name} (${typeName(tf!)}) no longer have the same data type. Change one in Table Design so they match.`}</title>}
                 <path d={d} className="hit" />
                 <path d={d} className="stroke" />
                 {r.enforce && (
@@ -280,6 +285,22 @@ export function RelationshipsView({ tabKey }: { tabKey: string }) {
         {!ws.doc.tables.length && !remoteLinks.length && <div className="empty-view">Create some tables first, then relate them here.</div>}
       </div>
       </div>
+      {(() => {
+        const bad = ws.doc.relationships.filter((r) => {
+          const ff = ws.doc.tables.find((t) => t.id === r.fromTable)?.fields.find((f) => f.id === r.fromField);
+          const tf = ws.doc.tables.find((t) => t.id === r.toTable)?.fields.find((f) => f.id === r.toField);
+          return ff && tf && !compatible(ff, tf);
+        });
+        if (!bad.length) return null;
+        const desc = bad.map((r) => {
+          const ft = ws.doc.tables.find((t) => t.id === r.fromTable)!;
+          const tt = ws.doc.tables.find((t) => t.id === r.toTable)!;
+          const ff = ft.fields.find((f) => f.id === r.fromField)!;
+          const tf = tt.fields.find((f) => f.id === r.toField)!;
+          return `${ft.name}.${ff.name} (${typeName(ff)}) ↔ ${tt.name}.${tf.name} (${typeName(tf)})`;
+        });
+        return <div className="rel-warning" role="alert">⚠ Related fields with different data types (dashed red line): {desc.join("; ")}. Change one in Table Design so they match.</div>;
+      })()}
       <div className="rel-help muted small">
         {touch
           ? "Tap a field (usually the primary key), then the matching field in another table, to relate them. Tap a line to edit or delete it. Drag a table by its title to move it."

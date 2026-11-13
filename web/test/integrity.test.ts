@@ -66,3 +66,20 @@ describe("referential integrity with cascades", () => {
     expect(planDelete(doc, customers.id, [ada._id as string]).blockedBy).toBe("Lines");
   });
 });
+
+import { fieldsCompatible, relationshipsBrokenBy } from "../src/engine/integrity";
+describe("data types of related fields", () => {
+  it("refuses changes that break a relationship, allows ones that keep or fix it", () => {
+    const { doc, orders, customers } = setup();
+    const ocid = orders.fields.find((f) => f.name === "CustomerID")!;
+    expect(relationshipsBrokenBy(doc, orders.id, ocid, { type: "ShortText" })).toEqual(["Customers.CustomerID"]);
+    expect(relationshipsBrokenBy(doc, orders.id, ocid, { numberSize: "Integer" })).toEqual(["Customers.CustomerID"]);
+    // The AutoNumber key can become a plain (Long) Number.
+    const cid = customers.fields.find((f) => f.name === "CustomerID")!;
+    expect(relationshipsBrokenBy(doc, customers.id, cid, { type: "Number" })).toEqual([]);
+    // A relationship that's already broken can be repaired.
+    ocid.type = "ShortText";
+    expect(relationshipsBrokenBy(doc, orders.id, ocid, { type: "Number" })).toEqual([]);
+    expect(fieldsCompatible({ type: "AutoNumber" }, { type: "Number" })).toBe(true);
+  });
+});

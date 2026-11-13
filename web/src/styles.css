@@ -789,3 +789,5 @@ button.props-tab.active { background: #fff; font-weight: 600; }
 .rel-cascades { margin: 2px 0 6px 22px; display: flex; flex-direction: column; gap: 2px; }
 .rel-cascades.off { opacity: 0.55; }
 .rel-cascade-help { margin-top: 2px; line-height: 1.4; }
+.rel-line.bad .stroke { stroke: #c42b1c; stroke-dasharray: 5 3; }
+.rel-warning { margin: 0 0 8px; padding: 6px 10px; border: 1px solid #f0b4ae; background: #fdecea; color: #a4262c; font-size: 12.5px; border-radius: 4px; }

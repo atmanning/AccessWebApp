@@ -12,6 +12,7 @@ import {
   type ProjectDoc,
   type TableDef,
 } from "../../../shared/model";
+import { relationshipsBrokenBy } from "../engine/integrity";
 import { useDialogs } from "../ui/dialogs";
 import { ComboBox } from "../ui/ComboBox";
 import { KeyIcon } from "../ui/icons";
@@ -93,7 +94,20 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
     }
   };
 
+  /** Refuses a type or size change that would leave a relationship with mismatched types (Access refuses any). */
+  const breaksRelationships = async (f: Field, change: Partial<Pick<Field, "type" | "numberSize">>, title = "Microsoft Access Web") => {
+    const broken = relationshipsBrokenBy(ws.doc, table.id, f, change);
+    if (!broken.length) return false;
+    await dialogs.alert(
+      title,
+      `You can't change the ${change.type ? "data type" : "field size"} of '${f.name}' because it's related to ${broken.join(", ")}, and related fields must have the same data type. ` +
+        `To change it, first delete the relationship in Database Tools → Relationships, change the field here, then relate the tables again.`,
+    );
+    return true;
+  };
+
   const changeType = async (f: Field, type: FieldType) => {
+    if (type !== f.type && (await breaksRelationships(f, { type }))) return;
     if (type === "AutoNumber") {
       if (table.fields.some((x) => x.type === "AutoNumber" && x.id !== f.id)) {
         await dialogs.alert("Microsoft Access Web", "A table can have only one AutoNumber field.");
@@ -190,6 +204,7 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
     if (bound) type = bound.type === "AutoNumber" || bound.type === "Number" ? "Number" : bound.type === "ShortText" ? "ShortText" : f.type;
     else if (r.lookup.rowSourceType === "values" && f.type !== "ShortText" && f.type !== "Number") type = "ShortText";
     if (!LOOKUP_TYPES.includes(type)) type = "ShortText";
+    if (type !== f.type && (await breaksRelationships(f, { type }, "Lookup Wizard"))) return;
     if (type !== f.type) {
       const lost = countLostOnTypeChange(table, f.id, type);
       if (lost > 0) {
@@ -297,7 +312,26 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
               <th>Description (Optional)</th>
             </tr>
           </thead>
-          <tbody ref={bodyRef}>
+          <tbody
+            ref={bodyRef}
+            // ↑ and ↓ move between fields, staying in the same column (as in Access), instead of
+            // changing a closed Data Type box's choice.
+            onKeyDownCapture={(e) => {
+              if ((e.key !== "ArrowUp" && e.key !== "ArrowDown") || e.altKey || e.shiftKey || e.ctrlKey || e.metaKey) return;
+              const el = e.target as HTMLElement;
+              if (el.getAttribute("aria-expanded") === "true") return;
+              const label = el.getAttribute("aria-label");
+              const tr = el.closest("tr");
+              if (!label || !tr) return;
+              const next = (e.key === "ArrowUp" ? tr.previousElementSibling : tr.nextElementSibling) as HTMLElement | null;
+              const target = next?.querySelector<HTMLElement>(`[aria-label="${label}"]`) ?? next?.querySelector<HTMLElement>('[aria-label="Field Name"]');
+              e.preventDefault();
+              e.stopPropagation();
+              if (!target) return;
+              target.focus();
+              if (target instanceof HTMLInputElement) target.select();
+            }}
+          >
             {rows.map((f, i) => (
               <tr
                 // The blank row gets a new key once a field is added, so it starts empty instead of
@@ -439,7 +473,9 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
                         value={field.numberSize ?? "Long"}
                         ariaLabel="Field Size"
                         options={NUMBER_SIZE_OPTIONS}
-                        onChange={(v) => setProp(field.id, "numberSize", v)}
+                        onChange={async (v) => {
+                          if (!(await breaksRelationships(field, { numberSize: v as Field["numberSize"] }))) setProp(field.id, "numberSize", v);
+                        }}
                       />
                     </PropRow>
                   )}
