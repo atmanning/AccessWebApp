@@ -820,3 +820,10 @@ button.props-tab.active { background: #fff; font-weight: 600; }
 .ix .ix-del { width: 30px; height: 28px; flex: none; }
 .ix .ix-chip { height: 24px; min-height: 0; }
 .ix .ix-add { width: auto; min-width: 0; height: 26px; }
+
+/* Table Design: actions for several selected fields */
+.td-selbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 10px; background: #e6effc; border-bottom: 1px solid #b8cff0; font-size: 12.5px; }
+.td-selbar > span { flex: 1 1 200px; min-width: 0; }
+.td-selbar button { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px; border: 1px solid #9ab7e0; border-radius: 4px; background: #fff; font: inherit; cursor: pointer; }
+.td-selbar button:hover { background: #f4f8fe; }
+[data-touch] .td-selbar button { height: 36px; }

@@ -178,6 +178,14 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
     return () => window.removeEventListener("pointerdown", away);
   }, [compact, open]);
   useEffect(() => setOpen(false), [compact, tab?.key]);
+  // On a phone the tabs scroll sideways: bring a design tab (Table Design…) into view when it appears.
+  const tabsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!compact || !designContext) return;
+    const el = tabsRef.current?.querySelector<HTMLElement>(".contextual");
+    const box = tabsRef.current;
+    if (el && box) box.scrollTo({ left: el.offsetLeft + el.offsetWidth - box.clientWidth + 8, behavior: "smooth" });
+  }, [compact, designContext]);
   const pickTab = (id: RibbonTab) => {
     if (!compact) return setActive(id);
     if (active === id && open) return setOpen(false);
@@ -255,7 +263,7 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
 
   return (
     <div className={`ribbon ${compact ? "compact" : ""} ${compact && open ? "open" : ""}`} ref={ribbonRef}>
-      <div className="ribbon-tabs" role="tablist">
+      <div className="ribbon-tabs" role="tablist" ref={tabsRef}>
         <button className="ribbon-file" onClick={actions.openBackstage}>File</button>
         {(
           [

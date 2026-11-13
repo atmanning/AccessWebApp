@@ -14,6 +14,7 @@ import {
 } from "../../../shared/model";
 import { relationshipsBrokenBy } from "../engine/integrity";
 import { IndexesDialog } from "./IndexesDialog";
+import { useLayout } from "../ui/layout";
 import { useDialogs } from "../ui/dialogs";
 import { ComboBox } from "../ui/ComboBox";
 import { KeyIcon } from "../ui/icons";
@@ -42,6 +43,8 @@ const HELP: Record<string, string> = {
   numberSize: "The size and type of numbers to enter in the field. Long Integer is the most common setting.",
   defaultValue: "A value that is automatically entered in this field for new records. Use =Now() or =Date() for the current date.",
   required: "Require data entry in this field?",
+  primaryKey:
+    "The primary key identifies each record, so its value must be filled in and unique. Choose 'together with' to make a combination key, where only the combination must be unique (for example PetType + Breed).",
   indexed: "An index speeds up searches and sorting on the field, but may slow updates. 'Yes (No Duplicates)' prohibits duplicate values.",
 };
 
@@ -53,6 +56,8 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
   const dialogs = useDialogs();
   const [current, setCurrent] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const layout = useLayout();
+  const pkFields = table.fields.filter((f) => f.primaryKey);
   const [help, setHelp] = useState(HELP.name);
   const [propsTab, setPropsTab] = useState<"general" | "lookup">("general");
   const [wizardFor, setWizardFor] = useState<string | null>(null);
@@ -142,6 +147,17 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
     if (!ids.length) return;
     const already = ids.every((id) => table.fields.find((f) => f.id === id)?.primaryKey) &&
       table.fields.filter((f) => f.primaryKey).length === ids.length;
+    await setPrimaryKey(already ? [] : ids);
+  };
+
+  /** Makes these fields the primary key (several: their combination); [] removes the key. */
+  const setPrimaryKey = async (ids: string[]) => {
+    const unsuitable = ids.map((id) => table.fields.find((f) => f.id === id)).find((f) => f && (f.type === "LongText" || f.type === "Image"));
+    if (unsuitable) {
+      await dialogs.alert("Microsoft Access Web", `${unsuitable.name} can't be part of a primary key, because it's ${unsuitable.type === "Image" ? "a picture" : "Long Text"}.`);
+      return;
+    }
+    const already = !ids.length;
     if (!already) {
       // Check existing data can support the key.
       const keys = new Set<string>();
@@ -171,6 +187,8 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
         } else delete f.primaryKey;
       }
     });
+    const names = ids.map((id) => table.fields.find((f) => f.id === id)?.name);
+    ws.setStatus(already ? "The table has no primary key now." : names.length > 1 ? `Primary key: ${names.join(" + ")} (unique together).` : `Primary key: ${names[0]}.`);
   };
 
   const insertRow = () =>
@@ -301,12 +319,34 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
 
   return (
     <div className="design-view">
+      {selected.size > 1 && (
+        // Several fields selected (Ctrl+click, or tap the grey boxes on a phone): what you can do with them together.
+        <div className="td-selbar" role="toolbar" aria-label="Selected fields">
+          <span>
+            <strong>{selected.size} fields selected:</strong> {table.fields.filter((f) => selected.has(f.id)).map((f) => f.name).join(" + ")}
+          </span>
+          <button
+            disabled={ws.readOnly}
+            onClick={async () => {
+              await setPrimaryKey(table.fields.filter((f) => selected.has(f.id)).map((f) => f.id));
+              setSelected(new Set());
+            }}
+          >
+            <KeyIcon size={14} /> Make Primary Key
+          </button>
+          <button disabled={ws.readOnly} onClick={() => setIndexesOpen(true)}>
+            Unique Together…
+          </button>
+          <button onClick={() => setSelected(new Set())}>Clear</button>
+        </div>
+      )}
       <div className="design-grid-wrap">
         <table className="design-grid">
           <colgroup>
-            <col style={{ width: 24 }} />
-            <col style={{ width: "28%" }} />
-            <col style={{ width: "18%" }} />
+            <col style={{ width: layout.touch ? 32 : 24 }} />
+            {/* On a phone the description gets less room, so the data type stays readable. */}
+            <col style={{ width: layout.compact ? "38%" : "28%" }} />
+            <col style={{ width: layout.compact ? "38%" : "18%" }} />
             <col />
           </colgroup>
           <thead>
@@ -376,7 +416,8 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
                     setCurrent(i);
                     if (!f) return;
                     setSelected((s) => {
-                      if (e.ctrlKey || e.metaKey) {
+                      // Phones and tablets have no Ctrl key: a tap adds or removes the field.
+                      if (e.ctrlKey || e.metaKey || layout.touch) {
                         const n = new Set(s);
                         if (n.has(f.id)) n.delete(f.id);
                         else n.add(f.id);
@@ -531,6 +572,25 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
                         defaultValue={field.defaultValue ?? ""}
                         maxLength={255}
                         onBlur={(e) => e.target.value !== (field.defaultValue ?? "") && setProp(field.id, "defaultValue", e.target.value)}
+                      />
+                    </PropRow>
+                  )}
+                  {field.type !== "LongText" && field.type !== "Image" && (
+                    <PropRow label="Primary Key" onFocus={() => setHelp(HELP.primaryKey)}>
+                      <ComboBox
+                        value={!field.primaryKey ? "no" : pkFields.length > 1 ? "with" : "alone"}
+                        ariaLabel="Primary Key"
+                        options={[
+                          { value: "no", label: "No" },
+                          { value: "alone", label: pkFields.some((f) => f.id !== field.id) ? "Yes (this field alone)" : "Yes" },
+                          ...(pkFields.some((f) => f.id !== field.id)
+                            ? [{ value: "with", label: `Yes, together with ${pkFields.filter((f) => f.id !== field.id).map((f) => f.name).join(" + ")}` }]
+                            : []),
+                        ]}
+                        onChange={(v) => {
+                          const others = pkFields.filter((f) => f.id !== field.id).map((f) => f.id);
+                          void setPrimaryKey(v === "no" ? others : v === "alone" ? [field.id] : table.fields.filter((f) => others.includes(f.id) || f.id === field.id).map((f) => f.id));
+                        }}
                       />
                     </PropRow>
                   )}
