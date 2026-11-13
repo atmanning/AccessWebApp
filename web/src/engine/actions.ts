@@ -7,6 +7,7 @@
  * typing in a datasheet. Like Access, records that would break a rule are skipped and
  * counted rather than failing the whole query.
  */
+import { applyCascadeDeletes, applyKeyChange, describeCascades, planDelete as planCascadeDelete, planKeyChange, type DeletePlan } from "./integrity";
 import {
   checkProjectIntegrity,
   defaultFieldProps,
@@ -93,14 +94,12 @@ function violations(doc: ProjectDoc, table: TableDef, rows: Row[], changed: Set<
       const keys = new Set(parent?.rows.map((p) => p[rel.fromField]));
       for (const r of rows) if (changed.has(r._id as string) && !empty(r[rel.toField]) && !keys.has(r[rel.toField])) key.add(r._id as string);
     }
-    // ...and a key that related records use can't change.
+    // ...and a key that related records use can't change, unless the change cascades to them.
     if (rel.fromTable === table.id) {
-      const child = doc.tables.find((t) => t.id === rel.toTable);
-      const used = new Set(child?.rows.map((c) => c[rel.toField]));
       for (const r of rows) {
         const before = original.get(r._id as string);
-        if (changed.has(r._id as string) && before && before[rel.fromField] !== r[rel.fromField] && used.has(before[rel.fromField])) {
-          key.add(r._id as string);
+        if (changed.has(r._id as string) && before && before[rel.fromField] !== r[rel.fromField]) {
+          if (planKeyChange(doc, table.id, rel.fromField, before[rel.fromField], r[rel.fromField]).blockedBy) key.add(r._id as string);
         }
       }
     }
@@ -226,6 +225,7 @@ function planUpdate(doc: ProjectDoc, db: Db, st: Extract<Statement, { kind: "upd
   let validation = 0;
   let count = 0;
   const accepted = new Map<string, Map<string, Record<string, CellValue>>>();
+  const cascades: { plan: ReturnType<typeof planKeyChange>; next: CellValue }[] = [];
   for (const [tableId, perRow] of changes) {
     const table = doc.tables.find((t) => t.id === tableId)!;
     const original = new Map(table.rows.map((r) => [r._id as string, r]));
@@ -236,13 +236,22 @@ function planUpdate(doc: ProjectDoc, db: Db, st: Extract<Statement, { kind: "upd
     const ok = new Map([...perRow].filter(([id]) => !v.key.has(id) && !v.validation.has(id)));
     count += ok.size;
     accepted.set(tableId, ok);
+    // Key changes that carry over to related records (Cascade Update Related Fields).
+    const keyFields = new Set(doc.relationships.filter((r) => r.enforce && r.cascadeUpdate && r.fromTable === tableId).map((r) => r.fromField));
+    for (const [id, c] of ok) {
+      const before = original.get(id);
+      for (const fid of Object.keys(c)) {
+        if (before && keyFields.has(fid) && before[fid] !== c[fid]) cascades.push({ plan: planKeyChange(doc, tableId, fid, before[fid], c[fid]), next: c[fid] });
+      }
+    }
   }
+  const carried = cascades.reduce((n, x) => n + x.plan.updates.reduce((m, u) => m + u.rowIds.length, 0), 0);
   return {
     kind: "update",
     count,
     confirm: `You are about to update ${count} row(s).`,
     problems: report("updated", conversion, key, validation),
-    done: `${count} row(s) updated.`,
+    done: `${count} row(s) updated${carried ? `, and ${carried} related record(s) by Cascade Update` : ""}.`,
     apply: (draft) => {
       for (const [tableId, perRow] of accepted) {
         const t = draft.tables.find((x) => x.id === tableId);
@@ -252,6 +261,7 @@ function planUpdate(doc: ProjectDoc, db: Db, st: Extract<Statement, { kind: "upd
           if (c) Object.assign(row, c);
         }
       }
+      for (const c of cascades) applyKeyChange(draft, c.plan, c.next);
     },
   };
 }
@@ -261,28 +271,30 @@ function planDelete(doc: ProjectDoc, db: Db, st: Extract<Statement, { kind: "del
   const src = sources[findSource(sources, st.qualifier)];
   const { rows } = selectRows(db, `SELECT [${src.alias}].rowid FROM ${st.from}${st.where ? ` WHERE ${st.where}` : ""}`, 1_000_000);
   const ids = new Set(rows.map((r) => (typeof r[0] === "number" ? (src.table.rows[r[0] - 1]?._id as string) : "")).filter(Boolean));
-  // Records that related records still use can't be deleted (no cascading deletes here).
+  // Records that related records still use can't be deleted, unless the relationship cascades the delete.
   let key = 0;
-  for (const rel of doc.relationships.filter((x) => x.enforce && x.fromTable === src.table.id)) {
-    const child = doc.tables.find((t) => t.id === rel.toTable);
-    const used = new Set(child?.rows.map((c) => c[rel.toField]));
-    for (const r of src.table.rows) {
-      if (ids.has(r._id as string) && used.has(r[rel.fromField])) {
-        ids.delete(r._id as string);
-        key++;
-      }
+  const cascades: DeletePlan["cascades"] = new Map();
+  for (const id of [...ids]) {
+    const plan = planCascadeDelete(doc, src.table.id, [id]);
+    if (plan.blockedBy) {
+      ids.delete(id);
+      key++;
+      continue;
     }
+    for (const [t, rows] of plan.cascades) cascades.set(t, new Set([...(cascades.get(t) ?? []), ...rows]));
   }
   const tableId = src.table.id;
+  const also = describeCascades(doc, { cascades });
   return {
     kind: "delete",
     count: ids.size,
-    confirm: `You are about to delete ${ids.size} row(s) from the table '${src.table.name}'.`,
+    confirm: `You are about to delete ${ids.size} row(s) from the table '${src.table.name}'${also ? `, and by cascading deletes ${also}` : ""}.`,
     problems: key ? [`${key} record(s) weren't deleted because related records in another table still use them.`] : [],
-    done: `${ids.size} row(s) deleted from ${src.table.name}.`,
+    done: `${ids.size} row(s) deleted from ${src.table.name}${also ? `, with ${also}` : ""}.`,
     apply: (draft) => {
       const t = draft.tables.find((x) => x.id === tableId);
       if (t) t.rows = t.rows.filter((r) => !ids.has(r._id as string));
+      applyCascadeDeletes(draft, { cascades });
     },
   };
 }

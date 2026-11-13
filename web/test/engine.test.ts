@@ -226,6 +226,23 @@ describe("query types", () => {
     expect(blocked.problems[0]).toMatch(/related records/);
   });
 
+  it("cascades deletes and key changes in action queries when the relationship says so", async () => {
+    const doc = fresh();
+    for (const r of doc.relationships) Object.assign(r, { enforce: true, cascadeDelete: true, cascadeUpdate: true });
+    const ordersBefore = doc.tables[1].rows.length;
+    const del = await apply(doc, "DELETE * FROM Customers WHERE City = 'London'");
+    expect(del.plan.count).toBe(1);
+    expect(del.plan.confirm).toMatch(/cascading deletes 2 in Orders/);
+    expect(del.next.tables[1].rows).toHaveLength(ordersBefore - 2);
+    // Cascade Update matters for keys you type (a Number or code), not AutoNumbers, which can't change.
+    doc.tables[0].fields.find((f) => f.name === "CustomerID")!.type = "Number";
+    const upd = await apply(doc, "UPDATE Customers SET CustomerID = 101 WHERE CustomerID = 1");
+    expect(upd.plan.count).toBe(1);
+    expect(upd.plan.done).toMatch(/2 related record/);
+    const cid = upd.next.tables[1].fields.find((f) => f.name === "CustomerID")!.id;
+    expect(upd.next.tables[1].rows.filter((r) => r[cid] === 101)).toHaveLength(2);
+  });
+
   it("runs append queries with AutoNumbers, defaults and relationship checks", async () => {
     const doc = fresh();
     const { plan, next } = await apply(doc, `INSERT INTO Orders (CustomerID, Item, Amount, OrderDate) SELECT CustomerID, "Gift card", 25, #11/1/2026# FROM Customers WHERE Active`);

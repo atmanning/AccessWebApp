@@ -384,6 +384,10 @@ export const relationshipSchema = z.object({
   toTable: id,
   toField: id,
   enforce: z.boolean(),
+  /** With referential integrity: changing the key changes it in the related records (Cascade Update Related Fields). */
+  cascadeUpdate: z.boolean().optional(),
+  /** With referential integrity: deleting a record deletes its related records (Cascade Delete Related Records). */
+  cascadeDelete: z.boolean().optional(),
 });
 export type Relationship = z.infer<typeof relationshipSchema>;
 

@@ -343,9 +343,20 @@ function EditRelationshipDialog({ draft, onClose, onDelete }: { draft: Draft; on
       (r) => r.id !== d.id && r.fromTable === d.fromTable && r.fromField === d.fromField && r.toTable === d.toTable && r.toField === d.toField,
     );
     if (dup) return setError("This relationship already exists.");
+    // The cascade options only mean something while integrity is enforced.
+    const rel = { ...d, cascadeUpdate: (d.enforce && d.cascadeUpdate) || undefined, cascadeDelete: (d.enforce && d.cascadeDelete) || undefined };
     ws.update((doc) => {
-      if (d.id) Object.assign(doc.relationships.find((r) => r.id === d.id)!, d);
-      else doc.relationships.push({ ...d, id: newId("rel") });
+      if (d.id) {
+        const r = doc.relationships.find((x) => x.id === d.id)!;
+        Object.assign(r, rel);
+        if (!rel.cascadeUpdate) delete r.cascadeUpdate;
+        if (!rel.cascadeDelete) delete r.cascadeDelete;
+      } else {
+        const r = { ...rel, id: newId("rel") };
+        if (!r.cascadeUpdate) delete r.cascadeUpdate;
+        if (!r.cascadeDelete) delete r.cascadeDelete;
+        doc.relationships.push(r);
+      }
     });
     onClose();
   };
@@ -390,6 +401,21 @@ function EditRelationshipDialog({ draft, onClose, onDelete }: { draft: Draft; on
       <label className="check-label">
         <input type="checkbox" checked={d.enforce} onChange={(e) => setD({ ...d, enforce: e.target.checked })} /> Enforce Referential Integrity
       </label>
+      <div className={`rel-cascades ${d.enforce ? "" : "off"}`}>
+        <label className="check-label" title="Changing the key in the primary table changes it in the related records too, instead of being refused.">
+          <input type="checkbox" disabled={!d.enforce} checked={d.enforce && !!d.cascadeUpdate} onChange={(e) => setD({ ...d, cascadeUpdate: e.target.checked })} /> Cascade Update Related Fields
+        </label>
+        <label className="check-label" title="Deleting a record in the primary table deletes its related records too, instead of being refused.">
+          <input type="checkbox" disabled={!d.enforce} checked={d.enforce && !!d.cascadeDelete} onChange={(e) => setD({ ...d, cascadeDelete: e.target.checked })} /> Cascade Delete Related Records
+        </label>
+        {d.enforce && (
+          <div className="small muted rel-cascade-help">
+            {d.cascadeUpdate ? `Changing a ${fromF?.name ?? "key"} in ${fromT?.name ?? "the primary table"} also changes it in ${toT?.name ?? "the related table"}. ` : ""}
+            {d.cascadeDelete ? `Deleting a ${fromT?.name ?? "primary"} record also deletes its ${toT?.name ?? "related"} records. ` : ""}
+            {!d.cascadeUpdate && !d.cascadeDelete ? `A ${fromT?.name ?? "primary"} record that has ${toT?.name ?? "related"} records can't be deleted, and its ${fromF?.name ?? "key"} can't be changed.` : ""}
+          </div>
+        )}
+      </div>
       <div className="small muted">Relationship Type: {fromF?.primaryKey || fromF?.indexed === "YesNoDup" ? (toF?.primaryKey ? "One-To-One" : "One-To-Many") : "Indeterminate"}</div>
       {error && <div className="field-error">{error}</div>}
     </Modal>

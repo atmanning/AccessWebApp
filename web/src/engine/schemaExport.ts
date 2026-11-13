@@ -31,6 +31,8 @@ interface Rel {
   child: TableDef;
   childField: Field;
   enforce: boolean;
+  cascadeUpdate: boolean;
+  cascadeDelete: boolean;
 }
 
 export function exportSchema(doc: ProjectDoc, tableIds: string[], format: SchemaFormat, opts: { databaseName?: string } = {}): SchemaExport {
@@ -58,7 +60,7 @@ function relationsOf(doc: ProjectDoc, tables: TableDef[]): Rel[] {
     let name = `fk_${child.name}_${childField.name}`.replace(/[^\w]+/g, "_").slice(0, 60);
     for (let n = 2; used.has(name.toLowerCase()); n++) name = `${name.replace(/_\d+$/, "")}_${n}`;
     used.add(name.toLowerCase());
-    out.push({ name, parent, parentField, child, childField, enforce: r.enforce });
+    out.push({ name, parent, parentField, child, childField, enforce: r.enforce, cascadeUpdate: r.enforce && !!r.cascadeUpdate, cascadeDelete: r.enforce && !!r.cascadeDelete });
   }
   return out;
 }
@@ -208,7 +210,11 @@ function sqlSchema(tables: TableDef[], rels: Rel[], d: SqlDialect, dbName?: stri
 }
 
 function fkClause(r: Rel, q: (n: string) => string) {
-  return `CONSTRAINT ${q(r.name)} FOREIGN KEY (${q(r.childField.name)}) REFERENCES ${q(r.parent.name)} (${q(r.parentField.name)})`;
+  return (
+    `CONSTRAINT ${q(r.name)} FOREIGN KEY (${q(r.childField.name)}) REFERENCES ${q(r.parent.name)} (${q(r.parentField.name)})` +
+    (r.cascadeUpdate ? " ON UPDATE CASCADE" : "") +
+    (r.cascadeDelete ? " ON DELETE CASCADE" : "")
+  );
 }
 
 // ---- Document and JSON ------------------------------------------------------------------------
@@ -254,7 +260,7 @@ function markdownSchema(doc: ProjectDoc, tables: TableDef[], rels: Rel[], dbName
     if (mine.length) {
       out.push("", "Relationships:", "");
       for (const r of mine) {
-        out.push(`- ${r.parent.name}.${r.parentField.name} (one) → ${r.child.name}.${r.childField.name} (many)${r.enforce ? ", referential integrity enforced" : ""}`);
+        out.push(`- ${r.parent.name}.${r.parentField.name} (one) → ${r.child.name}.${r.childField.name} (many)${r.enforce ? ", referential integrity enforced" : ""}${r.cascadeUpdate ? ", cascade updates" : ""}${r.cascadeDelete ? ", cascade deletes" : ""}`);
       }
     }
   }
@@ -280,7 +286,7 @@ function jsonSchema(doc: ProjectDoc, tables: TableDef[], rels: Rel[]): string {
         ...(f.lookup ? { lookup: lookupText(doc, f) } : {}),
       })),
     })),
-    relationships: rels.map((r) => ({ name: r.name, from: `${r.parent.name}.${r.parentField.name}`, to: `${r.child.name}.${r.childField.name}`, enforce: r.enforce })),
+    relationships: rels.map((r) => ({ name: r.name, from: `${r.parent.name}.${r.parentField.name}`, to: `${r.child.name}.${r.childField.name}`, enforce: r.enforce, cascadeUpdate: r.cascadeUpdate, cascadeDelete: r.cascadeDelete })),
   };
   return JSON.stringify(data, null, 2) + "\n";
 }

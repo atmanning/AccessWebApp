@@ -1,6 +1,7 @@
 import type { CellValue, Field, Row, TableDef } from "../../../shared/model";
 import { defaultFor, parseInput } from "../engine/values";
 import { useDialogs } from "../ui/dialogs";
+import { applyCascadeDeletes, applyKeyChange, describeCascades, planDelete, planKeyChange } from "../engine/integrity";
 import { useWorkspace } from "./context";
 import { newId } from "./docOps";
 
@@ -41,15 +42,11 @@ export function useRecordEditing() {
     if (!parsed.ok) return parsed.error;
     const uniq = uniquenessError(table, f, parsed.value, rowIdx);
     if (uniq) return uniq;
-    // Changing a key that related records point to would orphan them.
-    if (rowIdx !== "new") {
-      const old = table.rows[rowIdx][f.id];
-      for (const rel of ws.doc.relationships.filter((r) => r.enforce && r.fromTable === table.id && r.fromField === f.id)) {
-        const child = ws.doc.tables.find((t) => t.id === rel.toTable);
-        if (old !== parsed.value && child?.rows.some((cr) => cr[rel.toField] === old)) {
-          return `The record cannot be changed because table '${child.name}' includes related records.`;
-        }
-      }
+    // Changing a key that related records point to would orphan them, unless the relationship
+    // cascades the change to them.
+    const keyChange = rowIdx !== "new" ? planKeyChange(ws.doc, table.id, f.id, table.rows[rowIdx][f.id], parsed.value) : null;
+    if (keyChange?.blockedBy) {
+      return `The record cannot be changed because table '${keyChange.blockedBy}' includes related records. (To change related records along with it, tick Cascade Update Related Fields for the relationship in Database Tools → Relationships.)`;
     }
     for (const rel of ws.doc.relationships.filter((r) => r.enforce && r.toTable === table.id && r.toField === f.id)) {
       const parent = ws.doc.tables.find((t) => t.id === rel.fromTable);
@@ -68,36 +65,51 @@ export function useRecordEditing() {
         t.rows.push(row);
       } else {
         t.rows[rowIdx][f.id] = parsed.value;
+        if (keyChange) applyKeyChange(d, keyChange, parsed.value);
       }
     });
+    const carried = keyChange?.updates.reduce((n, u) => n + u.rowIds.length, 0) ?? 0;
     // Access checks required fields when you leave the record; here we remind instead of blocking.
     const valueOf = (x: Field) => (rowIdx === "new" ? defaultFor(x) : table.rows[rowIdx][x.id]);
     const missing = table.fields.filter((x) => x.required && x.id !== f.id && x.type !== "AutoNumber" && (valueOf(x) ?? "") === "");
-    ws.setStatus(missing.length ? `Fill in the required field${missing.length > 1 ? "s" : ""}: ${missing.map((x) => x.name).join(", ")}.` : "");
+    ws.setStatus(
+      missing.length
+        ? `Fill in the required field${missing.length > 1 ? "s" : ""}: ${missing.map((x) => x.name).join(", ")}.`
+        : carried
+          ? `Also changed ${f.name} in ${carried} related record${carried === 1 ? "" : "s"} (Cascade Update).`
+          : "",
+    );
     return null;
   };
 
   /** Asks for confirmation and deletes records (by index). Returns true if deleted. */
   const deleteFrom = async (table: TableDef, rows: number[]): Promise<boolean> => {
     if (!rows.length) return false;
-    for (const rel of ws.doc.relationships.filter((r) => r.enforce && r.fromTable === table.id)) {
-      const child = ws.doc.tables.find((t) => t.id === rel.toTable);
-      if (!child) continue;
-      const keys = new Set(rows.map((r) => table.rows[r][rel.fromField]));
-      if (child.rows.some((cr) => keys.has(cr[rel.toField]))) {
-        await dialogs.alert(
-          "Microsoft Access Web",
-          `The record cannot be deleted or changed because table '${child.name}' includes related records.`,
-        );
-        return false;
-      }
+    const plan = planDelete(ws.doc, table.id, rows.map((r) => table.rows[r]._id as string));
+    if (plan.blockedBy) {
+      await dialogs.alert(
+        "Microsoft Access Web",
+        `The record cannot be deleted or changed because table '${plan.blockedBy}' includes related records. (To delete related records along with it, tick Cascade Delete Related Records for the relationship in Database Tools → Relationships.)`,
+      );
+      return false;
     }
+    const also = describeCascades(ws.doc, plan);
     const ok = await dialogs.confirm(
       "Microsoft Access Web",
-      <>
-        <p>You are about to delete {rows.length} record(s).</p>
-        <p>Are you sure you want to delete these records? You can bring them back with Undo (Ctrl+Z).</p>
-      </>,
+      also ? (
+        <>
+          <p>
+            Relationships that specify cascading deletes are about to cause {rows.length} record(s) in this table and related records in other tables to be deleted:{" "}
+            <strong>{also}</strong>.
+          </p>
+          <p>Are you sure you want to delete these records? You can bring them back with Undo (Ctrl+Z).</p>
+        </>
+      ) : (
+        <>
+          <p>You are about to delete {rows.length} record(s).</p>
+          <p>Are you sure you want to delete these records? You can bring them back with Undo (Ctrl+Z).</p>
+        </>
+      ),
       { okLabel: "Yes", danger: true },
     );
     if (!ok) return false;
@@ -105,8 +117,9 @@ export function useRecordEditing() {
     ws.update((d) => {
       const t = d.tables.find((x) => x.id === table.id)!;
       t.rows = t.rows.filter((_, i) => !drop.has(i));
+      applyCascadeDeletes(d, plan);
     });
-    ws.setStatus(`${rows.length} record(s) deleted.`);
+    ws.setStatus(`${rows.length} record(s) deleted${also ? `, with ${also}` : ""}.`);
     return true;
   };
 

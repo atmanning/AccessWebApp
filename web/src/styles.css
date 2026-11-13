@@ -784,3 +784,8 @@ button.props-tab.active { background: #fff; font-weight: 600; }
 .dp-foot button:hover { background: #e6effc; border-color: #2563eb; }
 [data-touch] .dp-day { height: 36px; }
 [data-touch] .date-picker { width: 280px; }
+
+/* Edit Relationships: cascade options under Enforce Referential Integrity */
+.rel-cascades { margin: 2px 0 6px 22px; display: flex; flex-direction: column; gap: 2px; }
+.rel-cascades.off { opacity: 0.55; }
+.rel-cascade-help { margin-top: 2px; line-height: 1.4; }
