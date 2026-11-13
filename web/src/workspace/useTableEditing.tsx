@@ -34,7 +34,7 @@ export function useRecordEditing() {
   };
 
   /** Validates and saves one value. Returns an error message, or null on success. */
-  const commitTo = (table: TableDef, rowIdx: number | "new", fieldId: string, input: string | boolean): string | null => {
+  const commitTo = (table: TableDef, rowIdx: number | "new", fieldId: string, input: string | boolean, preset?: Record<string, CellValue>): string | null => {
     const f = table.fields.find((x) => x.id === fieldId);
     if (!f) return "That field no longer exists.";
     const parsed = parseInput(f, input);
@@ -62,6 +62,8 @@ export function useRecordEditing() {
       if (rowIdx === "new") {
         const row: Row = { _id: newId("r") };
         for (const fld of t.fields) row[fld.id] = fld.type === "AutoNumber" ? t.nextAutoNumber++ : defaultFor(fld);
+        // A subform's new record gets the link to the form's record (e.g. CustomerID).
+        Object.assign(row, preset);
         row[f.id] = parsed.value;
         t.rows.push(row);
       } else {

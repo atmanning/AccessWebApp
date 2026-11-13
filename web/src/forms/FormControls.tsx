@@ -4,7 +4,9 @@
  * design is what you get.
  */
 import "./forms.css";
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { SubformDesign } from "./subform";
+import { CalendarButton, DatePicker, type DatePickerHandle } from "../ui/DatePicker";
 import { ImageDialog } from "../views/ImageDialog";
 import { pictureIn } from "../ui/images";
 import type { CellValue, Field, FormControl } from "../../../shared/model";
@@ -31,6 +33,8 @@ export interface RunProps {
   /** Image controls: where a picture is, and how to store a new one. */
   imageUrl?: (imageId: string) => string;
   uploadImage?: (file: Blob) => Promise<string>;
+  /** What a subform shows (its related records). */
+  content?: ReactNode;
   /** A calculated control's result (Control Source "=…"), shown read-only. */
   display?: { text: string; error?: string; numeric?: boolean };
 }
@@ -63,6 +67,19 @@ export function FormControlView({ c, run, inputId }: { c: FormControl; run?: Run
   const bs = boxStyle(c);
 
   switch (c.type) {
+    case "subform": {
+      const pos = c.labelPos ?? "top";
+      return (
+        <div className={`fc-subform ${pos === "left" ? "left" : ""}`}>
+          {pos !== "none" && (
+            <div className="fc-caption" style={pos === "left" ? { width: c.labelWidth ?? 110, flex: "none" } : undefined}>
+              {c.label}
+            </div>
+          )}
+          <div className="fc-subform-body">{design ? <SubformDesign c={c} /> : run!.content}</div>
+        </div>
+      );
+    }
     case "label":
       return (
         <div className="fc-label" style={{ ...ts, ...bs, justifyContent: c.align === "center" ? "center" : c.align === "right" ? "flex-end" : undefined }}>
@@ -230,18 +247,58 @@ function LiveInput({ c, run, ts, bs, id }: { c: FormControl; run: RunProps; ts: 
       />
     );
   }
+  if (field.type === "DateTime") return <DateInput c={c} run={run} style={style} id={id} initial={initial} label={c.label ?? field.name} />;
   return (
     <input
       id={id}
       className={`fc-input ${num}`}
       data-accepts-date={String(acceptsDateText(field.type))}
       defaultValue={initial}
-      placeholder={c.placeholder ?? (field.type === "DateTime" ? "m/d/yyyy" : undefined)}
+      placeholder={c.placeholder}
       inputMode={isNumericType(field.type) ? "decimal" : undefined}
       enterKeyHint="next"
       style={style}
       onBlur={(e) => e.target.value !== initial && run.onCommit(e.target.value)}
     />
+  );
+}
+
+/** A date text box with the drop-down calendar (the button, Alt+↓ or F4). */
+function DateInput({ c, run, style, id, initial, label }: { c: FormControl; run: RunProps; style: CSSProperties; id?: string; initial: string; label: string }) {
+  const box = useRef<HTMLInputElement>(null);
+  const picker = useRef<DatePickerHandle>(null);
+  const [open, setOpen] = useState(false);
+  const put = (text: string) => {
+    setOpen(false);
+    if (box.current) box.current.value = text;
+    if (text !== initial) run.onCommit(text);
+  };
+  return (
+    <div className="fc-date">
+      <input
+        ref={box}
+        id={id}
+        className="fc-input"
+        data-accepts-date="true"
+        defaultValue={initial}
+        placeholder={c.placeholder ?? "m/d/yyyy"}
+        enterKeyHint="next"
+        style={style}
+        onKeyDown={(e) => {
+          if (open && picker.current?.handleKey(e)) {
+            e.stopPropagation();
+            return;
+          }
+          if ((e.altKey && e.key === "ArrowDown") || e.key === "F4") {
+            e.preventDefault();
+            setOpen(true);
+          }
+        }}
+        onBlur={(e) => e.target.value !== initial && run.onCommit(e.target.value)}
+      />
+      <CalendarButton label={label} onClick={() => setOpen((o) => !o)} />
+      {open && <DatePicker ref={picker} anchor={box} value={box.current?.value ?? initial} onPick={put} onClear={() => put("")} onClose={() => setOpen(false)} />}
+    </div>
   );
 }
 

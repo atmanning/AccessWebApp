@@ -149,8 +149,12 @@ export function renameField(doc: ProjectDoc, table: TableDef, fieldId: string, n
         }
       }
     }
-    // Combo and list boxes that look values up in this table.
+    // Combo and list boxes that look values up in this table, and subforms linked by this field.
     for (const c of ("layout" in o && o.layout?.controls) || []) {
+      if (c.type === "subform") {
+        if (c.sourceObject === table.id && c.linkChild === old) c.linkChild = name;
+        if (o.source.kind === "table" && o.source.id === table.id && c.linkMaster === old) c.linkMaster = name;
+      }
       if (c.rowSourceType === "table" && c.rowSource === table.id) {
         if (c.boundColumn === old) c.boundColumn = name;
         if (c.displayColumn === old) c.displayColumn = name;

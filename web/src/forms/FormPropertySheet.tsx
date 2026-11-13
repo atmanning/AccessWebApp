@@ -14,6 +14,7 @@ import { readSource, type ResultSet } from "../engine/engine";
 import { compileExpression, isExpression, NAMED_FORMATS } from "../engine/expr";
 import { ExpressionBuilder } from "./ExpressionBuilder";
 import { makeFormCalc } from "./formCalc";
+import { suggestLink } from "./subform";
 import { ComboBox } from "../ui/ComboBox";
 import { useWorkspace } from "../workspace/context";
 import { ACTION_LABELS, CONTROL_LABELS, hasLabel, isBound, SECTION_LABELS, sectionTabOrder, setSectionTabOrder, takesFocus, THEMES } from "./formLayout";
@@ -322,6 +323,37 @@ export function FormPropertySheet(props: {
                 />
               </Row>
             </>
+          )}
+        </Group>
+      )}
+      {one?.type === "subform" && (
+        <Group title="Data">
+          <Row label="Source Object" hint="The table whose records the subform shows">
+            <Select
+              label="Source Object"
+              value={one.sourceObject ?? ""}
+              options={[{ value: "", label: "(choose a table)" }, ...ws.doc.tables.filter((t) => !(form.source.kind === "table" && t.id === form.source.id)).map((t) => ({ value: t.id, label: `Table: ${t.name}` }))]}
+              onChange={(id) => {
+                const t = ws.doc.tables.find((x) => x.id === id);
+                const link = id ? suggestLink(ws.doc, form, id) : null;
+                const auto = !one.label || one.label === one.name || ws.doc.tables.some((x) => x.name === one.label);
+                onPatch({ sourceObject: id || undefined, linkMaster: link?.master, linkChild: link?.child, ...(auto && t ? { label: t.name } : {}) });
+              }}
+            />
+          </Row>
+          <Row label="Link Master Fields" hint="The field of this form's record that the subform's records point to (usually its ID)">
+            <Select label="Link Master Fields" value={one.linkMaster ?? ""} options={[{ value: "", label: "(none: show all records)" }, ...fields.map((f) => ({ value: f.name, label: f.name }))]} onChange={(v) => onPatch({ linkMaster: v || undefined })} />
+          </Row>
+          <Row label="Link Child Fields" hint="The field of the subform's table that holds this form's ID">
+            <Select
+              label="Link Child Fields"
+              value={one.linkChild ?? ""}
+              options={[{ value: "", label: "(none: show all records)" }, ...(ws.doc.tables.find((t) => t.id === one.sourceObject)?.fields ?? []).map((f) => ({ value: f.name, label: f.name }))]}
+              onChange={(v) => onPatch({ linkChild: v || undefined })}
+            />
+          </Row>
+          {one.sourceObject && !(one.linkMaster && one.linkChild) && (
+            <p className="ps-note small">Without both link fields, the subform shows every record of its table. Relate the tables (Database Tools → Relationships) and pick the table again to fill them in.</p>
           )}
         </Group>
       )}

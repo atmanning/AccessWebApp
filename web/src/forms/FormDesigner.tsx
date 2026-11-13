@@ -5,6 +5,7 @@
  */
 import { isExpression } from "../engine/expr";
 import { TabOrderDialog } from "./TabOrderDialog";
+import { relatedTables, type SubformLink } from "./subform";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type PointerEvent as RPointerEvent } from "react";
 import { FORM_CONTROL_TYPES, FORM_SECTIONS, type FormControl, type FormControlType, type FormDef, type FormLayout, type FormSection } from "../../../shared/model";
 import { useLayout } from "../ui/layout";
@@ -178,8 +179,30 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
   /** Next free spot at the bottom of the detail section, for click-to-add. */
   const nextSpot = (l: FormLayout) => ({ section: "detail" as FormSection, x: 24, y: snap(sectionContentBottom(l, "detail") + 16) });
   const addField = (name: string, at?: { section: FormSection; x: number; y: number }) => addControls((l) => [fieldControl(l, name, at ?? nextSpot(l))]);
-  const addTool = (type: FormControlType, at?: { section: FormSection; x: number; y: number; w?: number; h?: number }) =>
+  const addTool = (type: FormControlType, at?: { section: FormSection; x: number; y: number; w?: number; h?: number }) => {
+    if (type === "subform") {
+      // Like Access's Subform Wizard: start with the table related to this one, when there is one.
+      const rel = relatedTables(ws.doc, form)[0];
+      return addSubform(rel, at);
+    }
     addControls((l) => [makeControl(l, type, at ?? nextSpot(l))], { edit: type === "label" });
+  };
+  /** A subform showing a related table's records, linked to this form's record. */
+  const addSubform = (rel: SubformLink | undefined, at?: { section: FormSection; x: number; y: number; w?: number; h?: number }) =>
+    addControls((l) => {
+      const spot = at ?? { section: "detail" as FormSection, x: 24, y: sectionContentBottom(l, "detail") + 16 };
+      const c = makeControl(l, "subform", spot);
+      if (!at?.w) c.w = Math.max(320, Math.min(l.width - spot.x - 24, 760));
+      if (rel) {
+        c.sourceObject = rel.table.id;
+        c.linkMaster = rel.master;
+        c.linkChild = rel.child;
+        c.label = rel.table.name;
+        c.name = nextControlName(l, rel.table.name.replace(/[^A-Za-z0-9_]/g, "") || "Child");
+      }
+      return [c];
+    });
+  const related = relatedTables(ws.doc, form);
 
   const dropAt = (e: DragEvent) => {
     const f = e.dataTransfer.getData(DT_FIELD);
@@ -585,6 +608,29 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
         ))}
         {!fields.length && <li className="muted small">{data ? "The record source has no fields." : "Loading fields…"}</li>}
       </ul>
+      {related.length > 0 && (
+        <>
+          <div className="fd-pane-title">
+            Related records
+            <span className="fd-pane-sub">Add as a subform</span>
+          </div>
+          <ul className="fd-fields">
+            {related.map((r) => (
+              <li key={`${r.table.id}:${r.child}`}>
+                <button
+                  className={`fd-field ${layout.controls.some((c) => c.type === "subform" && c.sourceObject === r.table.id) ? "used" : ""}`}
+                  disabled={readOnly}
+                  onClick={() => addSubform(r)}
+                  title={`Show each record's ${r.table.name} (where ${r.table.name}.${r.child} = ${r.master}) in a list you can edit and add to`}
+                >
+                  <span className="fd-field-name">▦ {r.table.name}</span>
+                  <span className="fd-field-type">by {r.child}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </aside>
   );
 

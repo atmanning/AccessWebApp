@@ -757,3 +757,30 @@ button.props-tab.active { background: #fff; font-weight: 600; }
 .ls-sheet { display: block; align-self: center; margin-top: 8px; }
 .new-labels { display: flex; flex-direction: column; gap: 10px; }
 .new-labels label { display: flex; flex-direction: column; gap: 3px; }
+
+/* Drop-down calendar for Date/Time fields */
+.dp-button { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); width: 24px; height: 22px; display: flex; align-items: center; justify-content: center; padding: 0; border: none; border-radius: 3px; background: transparent; color: #5a6270; cursor: pointer; }
+.dp-button:hover { background: #e6effc; color: #1f5fbf; }
+.datasheet td.editing:has(.dp-button) { position: relative; }
+.datasheet td.editing:has(.dp-button) .cell-editor { padding-right: 26px; }
+.fc-date { position: relative; height: 100%; }
+.fc-date .fc-input { width: 100%; height: 100%; box-sizing: border-box; padding-right: 30px; }
+.fc-date .dp-button { right: 5px; }
+.date-picker { position: fixed; z-index: 1000; width: 236px; padding: 8px; background: #fff; border: 1px solid #b9bfc8; border-radius: 6px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18); font-size: 12.5px; user-select: none; }
+.dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.dp-head button { width: 26px; height: 24px; border: none; border-radius: 4px; background: transparent; font-size: 17px; line-height: 1; cursor: pointer; color: #333; }
+.dp-head button:hover { background: #eef2f7; }
+.dp-title { font-weight: 600; }
+.dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.dp-dow { text-align: center; font-size: 11px; color: #777; padding: 2px 0 4px; }
+.dp-day { height: 28px; border: none; border-radius: 4px; background: transparent; font: inherit; cursor: pointer; color: #222; }
+.dp-day:hover { background: #eef4fd; }
+.dp-day.other { color: #aab0b8; }
+.dp-day.today { box-shadow: inset 0 0 0 1px #c42b1c; font-weight: 600; }
+.dp-day.focus { background: #dbe8fb; }
+.dp-day.sel { background: #2563eb; color: #fff; }
+.dp-foot { display: flex; justify-content: space-between; margin-top: 6px; padding-top: 6px; border-top: 1px solid #eceef1; }
+.dp-foot button { height: 26px; padding: 0 12px; border: 1px solid #c6cbd3; border-radius: 4px; background: #f7f8fa; cursor: pointer; font: inherit; }
+.dp-foot button:hover { background: #e6effc; border-color: #2563eb; }
+[data-touch] .dp-day { height: 36px; }
+[data-touch] .date-picker { width: 280px; }

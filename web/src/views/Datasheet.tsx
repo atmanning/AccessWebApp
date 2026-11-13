@@ -4,6 +4,7 @@ import type { CellValue, Field } from "../../../shared/model";
 import { editText, formatValue, isNumericType } from "../engine/values";
 import { acceptsDateText, dateShortcut, insertAtCaret, nowText, type DateShortcut } from "../ui/dateKeys";
 import { FindIcon } from "../ui/icons";
+import { CalendarButton, DatePicker, type DatePickerHandle } from "../ui/DatePicker";
 import { useLayout } from "../ui/layout";
 import type { ColumnLookup } from "./lookups";
 import { ImageDialog } from "./ImageDialog";
@@ -46,6 +47,8 @@ export interface DatasheetProps {
   /** Highlight cells that need attention (e.g. required but empty). */
   cellWarning?: (row: number, col: number) => boolean;
   emptyMessage?: string;
+  /** Take the keyboard when it opens (not in a subform, where the form's first field should). */
+  autoFocus?: boolean;
   onStatus?: (message: string, kind?: "info" | "error") => void;
 }
 
@@ -88,6 +91,9 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
   }));
   const [selRows, setSelRows] = useState<Set<number>>(new Set()); // display indexes
   // `list`: a lookup's drop-down is open; `hi`: its highlighted choice; `typed`: filter the list by the text.
+  // The drop-down calendar of a Date/Time cell being edited.
+  const [calOpen, setCalOpen] = useState(false);
+  const picker = useRef<DatePickerHandle>(null);
   const [editing, setEditing] = useState<{ text: string; list?: boolean; hi?: number; typed?: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [widths, setWidths] = useState<Record<string, number>>(() => ({ ...(p.savedWidths ?? {}) }));
@@ -199,8 +205,8 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
   };
 
   useEffect(() => {
-    scroller.current?.focus({ preventScroll: true });
-  }, []);
+    if (p.autoFocus !== false) scroller.current?.focus({ preventScroll: true });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const valueAt = (r: number, c: number): CellValue => (isNewRow(r) ? null : p.getValue(order[r], c));
 
@@ -394,6 +400,12 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
       return;
     }
     if (editing) {
+      if (calOpen && picker.current?.handleKey(e)) return;
+      if (p.columns[cell.c]?.field?.type === "DateTime" && ((e.altKey && e.key === "ArrowDown") || e.key === "F4")) {
+        e.preventDefault();
+        setCalOpen(true);
+        return;
+      }
       const ed = e.currentTarget instanceof HTMLInputElement ? e.currentTarget : null;
       const allSelected = !!ed && ed.selectionStart === 0 && ed.selectionEnd === ed.value.length && ed.value.length > 0;
       if (e.key === "Enter" && !e.altKey) {
@@ -427,7 +439,11 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
       return;
     }
     const k = e.key;
-    if (p.columns[cell.c]?.lookup && e.altKey && k === "ArrowDown") startEdit(undefined, true);
+    const isDate = p.columns[cell.c]?.field?.type === "DateTime";
+    if (isDate && ((e.altKey && k === "ArrowDown") || k === "F4") && canEdit(cell.c)) {
+      startEdit();
+      setCalOpen(true);
+    } else if (p.columns[cell.c]?.lookup && e.altKey && k === "ArrowDown") startEdit(undefined, true);
     else if (k === "ArrowDown") moveTo(cell.r + 1, cell.c);
     else if (k === "ArrowUp") moveTo(cell.r - 1, cell.c);
     else if (k === "ArrowRight" || (k === "Tab" && !e.shiftKey)) {
@@ -459,6 +475,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
 
   useEffect(() => {
     if (editing) editorRef.current?.focus();
+    else setCalOpen(false);
   }, [editing !== null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Column resizing: drag a header edge; double-click it to fit the contents (like Access).
@@ -743,6 +760,27 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
                               if (!scroller.current?.contains(e.relatedTarget as Node)) commit();
                             }}
                           />
+                          {col.field?.type === "DateTime" && (
+                            <>
+                              <CalendarButton label={col.label} onClick={() => setCalOpen((o) => !o)} />
+                              {calOpen && (
+                                <DatePicker
+                                  ref={picker}
+                                  anchor={editorRef}
+                                  value={editing.text}
+                                  onPick={(t) => {
+                                    setCalOpen(false);
+                                    if (commit(t)) scroller.current?.focus();
+                                  }}
+                                  onClear={() => {
+                                    setCalOpen(false);
+                                    if (commit("")) scroller.current?.focus();
+                                  }}
+                                  onClose={() => setCalOpen(false)}
+                                />
+                              )}
+                            </>
+                          )}
                         </td>
                       );
                     }

@@ -6,6 +6,7 @@ import { formatValue } from "../engine/values";
 import { compileCriteria } from "../engine/findCriteria";
 import { isExpression } from "../engine/expr";
 import { makeFormCalc } from "./formCalc";
+import { SubformView } from "./subform";
 import { useLayout } from "../ui/layout";
 import { useSource } from "../views/FormReportViews";
 import { useCommands, useWorkspace, type RecordTarget } from "../workspace/context";
@@ -328,6 +329,17 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
   const renderControl = (c: FormControl) => {
     if (c.hidden) return null;
     const inputId = `fv-${form.id}-${c.id}`;
+    if (c.type === "subform") {
+      // Related records of this record (Link Child Fields = this record's Link Master Fields).
+      const mi = c.linkMaster ? colIdx(c.linkMaster) : -1;
+      const master = c.linkMaster ? (row && mi >= 0 ? row[mi] : undefined) : null;
+      const content = finding ? (
+        <div className="sf-box sf-message">Related records aren't searched in Find.</div>
+      ) : (
+        <SubformView c={c} master={master} newRecord={isNew} masterMissing={!!c.linkMaster && mi < 0} readOnly={layout.allowEdits === false} />
+      );
+      return <FormControlView c={c} inputId={inputId} run={{ value: null, readOnly: true, isNew, content, onCommit: () => {}, onAction: () => {} }} />;
+    }
     if (isExpression(c.field)) {
       // Calculated: worked out from the record; nothing to type (or search) here.
       const r = finding ? { text: "", value: null } : calc ? calc.value(c, row, foundRows) : { text: "", value: null };
@@ -416,7 +428,7 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
       }
       flush();
       out.push(
-        <div key={valueKey(c)} className={`fv-ctl flow t-${c.type} ${c.tabStop === false ? "no-tab" : ""}`} data-field={isExpression(c.field) ? undefined : c.field} style={c.multiline || c.type === "listbox" || c.type === "image" ? { minHeight: c.h } : undefined}>
+        <div key={valueKey(c)} className={`fv-ctl flow t-${c.type} ${c.tabStop === false ? "no-tab" : ""}`} data-field={isExpression(c.field) ? undefined : c.field} style={c.multiline || c.type === "listbox" || c.type === "image" || c.type === "subform" ? { minHeight: c.h } : undefined}>
           {renderControl(c)}
         </div>,
       );

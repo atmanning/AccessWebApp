@@ -392,7 +392,7 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
         {active === "design" && designContext === "form" && c.formDesign && (() => {
           const f = c.formDesign;
           const many = f.selectionCount > 1;
-          const chunks = [FORM_CONTROL_TYPES.slice(0, 3), FORM_CONTROL_TYPES.slice(3, 6), FORM_CONTROL_TYPES.slice(6)];
+          const chunks = [FORM_CONTROL_TYPES.slice(0, 3), FORM_CONTROL_TYPES.slice(3, 6), FORM_CONTROL_TYPES.slice(6, 8), FORM_CONTROL_TYPES.slice(8)];
           return (
             <>
               <Group label="Views">{viewButton}</Group>

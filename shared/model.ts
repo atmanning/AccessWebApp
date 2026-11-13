@@ -209,7 +209,7 @@ export const sourceSchema = z.object({ kind: z.enum(["table", "query"]), id });
 export type SourceRef = z.infer<typeof sourceSchema>;
 
 /** Controls a form can hold, as the designer's toolbox offers them. */
-export const FORM_CONTROL_TYPES = ["label", "textbox", "combobox", "listbox", "checkbox", "button", "image", "rectangle", "line"] as const;
+export const FORM_CONTROL_TYPES = ["label", "textbox", "combobox", "listbox", "checkbox", "button", "image", "subform", "rectangle", "line"] as const;
 export type FormControlType = (typeof FORM_CONTROL_TYPES)[number];
 export const FORM_SECTIONS = ["header", "detail", "footer"] as const;
 export type FormSection = (typeof FORM_SECTIONS)[number];
@@ -245,6 +245,10 @@ export const formControlSchema = z.object({
   h: px(1, 4000),
   /** Control Source: the record source field it shows and edits, or an expression ("=[A] & [B]") it calculates. */
   field: z.string().max(4000).optional(),
+  /** Subforms: the table whose records they show (Source Object), and the fields that link them to the form's record. */
+  sourceObject: id.optional(),
+  linkMaster: z.string().max(64).optional(),
+  linkChild: z.string().max(64).optional(),
   /** False: Tab and Enter skip this control (you can still click it). */
   tabStop: z.boolean().optional(),
   /** How a calculated value is shown: Currency, Percent, Short Date, 0.00, mm/dd/yyyy… */

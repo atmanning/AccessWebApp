@@ -46,6 +46,13 @@ export const CONTROL_ICONS: Record<FormControlType, (p: P) => ReactNode> = {
       <path d="M5 8h6" stroke="#fff" strokeWidth="1.4" />
     </>,
   ),
+  subform: svg(
+    <>
+      <rect x="1.5" y="2.5" width="13" height="11" rx="1" fill="#fff" stroke={C} />
+      <path d="M1.5 5.5h13M1.5 8.5h13M1.5 11h13M6 5.5v8" stroke={C} strokeWidth=".8" />
+      <rect x="1.5" y="2.5" width="13" height="3" fill={C} opacity=".35" />
+    </>,
+  ),
   image: svg(
     <>
       <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="#fff" stroke={C} />
