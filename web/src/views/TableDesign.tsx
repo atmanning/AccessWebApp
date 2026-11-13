@@ -44,6 +44,9 @@ const HELP: Record<string, string> = {
   indexed: "An index speeds up searches and sorting on the field, but may slow updates. 'Yes (No Duplicates)' prohibits duplicate values.",
 };
 
+/** The design grid's columns, left to right (by their labels), for arrow-key moves. */
+const GRID_COLUMNS = ["Field Name", "Data Type", "Description"];
+
 export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string }) {
   const ws = useWorkspace();
   const dialogs = useDialogs();
@@ -314,17 +317,38 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
           </thead>
           <tbody
             ref={bodyRef}
-            // ↑ and ↓ move between fields, staying in the same column (as in Access), instead of
-            // changing a closed Data Type box's choice.
+            // Arrow keys move around the grid like a datasheet: ↑ ↓ to the field above or below (same
+            // column), ← → to the column beside, wrapping to the next or previous field. In a text box,
+            // ← → move within the text until the caret reaches its start or end (or all of it is selected).
+            // A closed Data Type box is never changed by an arrow key.
             onKeyDownCapture={(e) => {
-              if ((e.key !== "ArrowUp" && e.key !== "ArrowDown") || e.altKey || e.shiftKey || e.ctrlKey || e.metaKey) return;
+              const k = e.key;
+              if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(k) || e.altKey || e.shiftKey || e.ctrlKey || e.metaKey) return;
               const el = e.target as HTMLElement;
               if (el.getAttribute("aria-expanded") === "true") return;
               const label = el.getAttribute("aria-label");
               const tr = el.closest("tr");
-              if (!label || !tr) return;
-              const next = (e.key === "ArrowUp" ? tr.previousElementSibling : tr.nextElementSibling) as HTMLElement | null;
-              const target = next?.querySelector<HTMLElement>(`[aria-label="${label}"]`) ?? next?.querySelector<HTMLElement>('[aria-label="Field Name"]');
+              if (!label || !tr || !GRID_COLUMNS.includes(label)) return;
+              if ((k === "ArrowLeft" || k === "ArrowRight") && el instanceof HTMLInputElement) {
+                const all = el.selectionStart === 0 && el.selectionEnd === el.value.length;
+                const atEdge = el.selectionStart === el.selectionEnd && el.selectionStart === (k === "ArrowLeft" ? 0 : el.value.length);
+                if (!all && !atEdge) return;
+              }
+              const cellIn = (row: Element | null, col: string) => row?.querySelector<HTMLElement>(`[aria-label="${col}"]`) ?? null;
+              let target: HTMLElement | null = null;
+              if (k === "ArrowUp" || k === "ArrowDown") {
+                const next = k === "ArrowUp" ? tr.previousElementSibling : tr.nextElementSibling;
+                target = cellIn(next, label) ?? cellIn(next, "Field Name");
+              } else {
+                const step = k === "ArrowRight" ? 1 : -1;
+                // The next column in this row that's there; past the end, the next field's first (or the previous field's last).
+                for (let i = GRID_COLUMNS.indexOf(label) + step; i >= 0 && i < GRID_COLUMNS.length && !target; i += step) target = cellIn(tr, GRID_COLUMNS[i]);
+                if (!target) {
+                  const row = step > 0 ? tr.nextElementSibling : tr.previousElementSibling;
+                  const cols = step > 0 ? GRID_COLUMNS : [...GRID_COLUMNS].reverse();
+                  for (const c of cols) if ((target = cellIn(row, c))) break;
+                }
+              }
               e.preventDefault();
               e.stopPropagation();
               if (!target) return;
