@@ -22,10 +22,11 @@ export interface RecordTarget {
 
 /** A link into a database: open this form or table at the record whose key field has this value. */
 export interface DeepLink {
-  kind: "form" | "table";
+  kind: "form" | "table" | "report";
   id: string;
-  field: string;
-  value: string;
+  /** The record to show (forms and tables); none for a report. */
+  field?: string;
+  value?: string;
 }
 
 /** Commands the ribbon can send to whichever view is active. */

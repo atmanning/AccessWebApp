@@ -114,7 +114,13 @@ export function PublicReportPage({ token }: { token: string }) {
       {report.labels ? (
         <LabelsBody report={report} data={data} qr={qrIdx >= 0 ? { link: (row) => String(row[qrIdx] ?? "") } : {}} hideTips highlight={highlight} fitWidth />
       ) : (
-        <ReportBody report={report} data={data} imageUrl={imageUrl} highlight={highlight} />
+        <ReportBody
+          report={report}
+          data={data}
+          imageUrl={imageUrl}
+          highlight={highlight}
+          pageQr={report.pageQr ? { ...report.pageQr, link: (snap.report as { pageQrLink?: string | null }).pageQrLink ?? null } : null}
+        />
       )}
       <div className="public-report-foot small muted">Shared with Access Web</div>
     </div>

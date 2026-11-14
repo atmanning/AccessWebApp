@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { PublicLinkButton } from "../reports/PublicReportDialog";
+import { QrCode } from "../reports/QrCode";
+import { pageQrFor, type PageQr } from "../reports/pageQr";
+import { usePublicLinks } from "../reports/PublicReportDialog";
 import type { CellValue, FormDef, ReportDef, SourceRef } from "../../../shared/model";
 import { readSource, type ResultSet } from "../engine/engine";
 import { formatValue, isNumericType } from "../engine/values";
@@ -43,9 +46,25 @@ export function ReportView({ report, tabKey }: { report: ReportDef; tabKey: stri
   const { data, error } = useSource(report.source);
   const ws = useWorkspace();
   useCommands(tabKey, { print: () => window.print() });
+  // Redraw when public links load (a page QR code to this report's public link needs it).
+  usePublicLinks(ws.projectId);
   if (error) return <div className="query-error"><strong>This report can't open.</strong><p>{error}</p></div>;
   if (!data) return <div className="empty-view">Loading…</div>;
-  return <ReportBody report={report} data={data} imageUrl={ws.imageUrl} toolbar={<PublicLinkButton report={report} />} />;
+  const qr = pageQrFor(ws, report);
+  return (
+    <ReportBody
+      report={report}
+      data={data}
+      imageUrl={ws.imageUrl}
+      pageQr={qr}
+      toolbar={
+        <>
+          {qr?.note && <span className="report-note">{qr.note}</span>}
+          <PublicLinkButton report={report} />
+        </>
+      }
+    />
+  );
 }
 
 /** A list report drawn from its data: in the app, and on a public report link. */
@@ -55,6 +74,7 @@ export function ReportBody({
   imageUrl,
   toolbar,
   highlight,
+  pageQr,
 }: {
   report: ReportDef;
   data: ResultSet;
@@ -62,6 +82,8 @@ export function ReportBody({
   toolbar?: ReactNode;
   /** Rows to pick out (a public report opened from someone's name tag). */
   highlight?: (row: CellValue[]) => boolean;
+  /** A QR code printed in a corner of the page. */
+  pageQr?: PageQr | null;
 }) {
   const prepared = useMemo(() => {
     const idx = (n?: string) => (n ? data.columns.findIndex((c) => c.toLowerCase() === n.toLowerCase()) : -1);
@@ -95,7 +117,20 @@ export function ReportBody({
     <div className="report-view">
       {toolbar && <div className="report-toolbar">{toolbar}</div>}
       <div className="report-page printable">
-        <div className="report-header">
+        {pageQr?.link && (
+          <div className={`report-qr ${pageQr.position}`} style={{ width: `${pageQr.size}in` }}>
+            <QrCode text={pageQr.link} size={`${pageQr.size}in`} title={pageQr.caption || "Scan to open"} />
+            {pageQr.caption && <div className="report-qr-caption">{pageQr.caption}</div>}
+          </div>
+        )}
+        <div
+          className="report-header"
+          style={
+            pageQr?.link && pageQr.position.startsWith("top")
+              ? { [pageQr.position === "top-right" ? "paddingRight" : "paddingLeft"]: `${pageQr.size + 0.15}in`, minHeight: `${pageQr.size}in` }
+              : undefined
+          }
+        >
           <h1>{report.title || report.name}</h1>
           <div className="report-date">{today}</div>
         </div>
@@ -154,7 +189,16 @@ export function ReportBody({
             </tr>
           </tfoot>
         </table>
-        <div className="report-footer">Page 1 of 1</div>
+        <div
+          className="report-footer"
+          style={
+            pageQr?.link && pageQr.position.startsWith("bottom")
+              ? { minHeight: `${pageQr.size + (pageQr.caption ? 0.3 : 0.05)}in`, [pageQr.position === "bottom-right" ? "paddingRight" : "paddingLeft"]: `${pageQr.size + 0.15}in` }
+              : undefined
+          }
+        >
+          Page 1 of 1
+        </div>
       </div>
     </div>
   );
@@ -233,6 +277,7 @@ export function FormReportDesign({ kind, obj }: { kind: "form" | "report"; obj: 
           </>
         )}
       </div>
+      {report && <PageQrSettings report={report} mutate={mutate} />}
       <div className="od-panel">
         <h3>Fields on this {kind}</h3>
         <p className="muted small">Tick fields to show them. Use the arrows to change their order.</p>
@@ -262,6 +307,115 @@ export function FormReportDesign({ kind, obj }: { kind: "form" | "report"; obj: 
           })}
         </ul>
       </div>
+    </div>
+  );
+}
+
+/** Design View → QR code: a code printed in a corner of the report's page. */
+function PageQrSettings({ report, mutate }: { report: ReportDef; mutate: (fn: (o: FormDef & ReportDef) => void) => void }) {
+  const ws = useWorkspace();
+  const q = report.pageQr;
+  const isPublic = usePublicLinks(ws.projectId).has(report.id);
+  const set = (patch: Partial<NonNullable<ReportDef["pageQr"]>>) => mutate((o) => void (o.pageQr = { ...o.pageQr!, ...patch }));
+  return (
+    <div className="od-panel">
+      <h3>QR code</h3>
+      <label className="check-label">
+        <input
+          type="checkbox"
+          checked={!!q}
+          onChange={(e) =>
+            mutate((o) => {
+              if (e.target.checked) o.pageQr = { target: isPublic ? "public" : "app", size: 1, position: "top-right" };
+              else delete o.pageQr;
+            })
+          }
+        />
+        Show a QR code on the page
+      </label>
+      {q && (
+        <>
+          <label>
+            Opens
+            <ComboBox
+              className="text-input"
+              value={q.target}
+              ariaLabel="QR code opens"
+              options={[
+                { value: "public", label: `This report's public link (no sign-in)${isPublic ? "" : " (not public yet)"}` },
+                { value: "app", label: "This report in Access Web (sign-in needed)" },
+                { value: "url", label: "Another web address…" },
+              ]}
+              onChange={(v) => set({ target: v as "public" | "app" | "url" })}
+            />
+          </label>
+          {q.target === "url" && (
+            <label>
+              Web address
+              <input
+                className="text-input"
+                placeholder="https://example.org/event"
+                defaultValue={q.url ?? ""}
+                key={`u:${q.url}`}
+                maxLength={500}
+                onBlur={(e) => set({ url: e.target.value.trim() || undefined })}
+              />
+            </label>
+          )}
+          <div className="ls-grid">
+            <label className="ls-field">
+              Size
+              <span className="ls-unit">
+                <input
+                  type="number"
+                  step="0.1"
+                  min={0.4}
+                  max={4}
+                  defaultValue={q.size}
+                  key={`s:${q.size}`}
+                  aria-label="QR code size in inches"
+                  onBlur={(e) => set({ size: Math.max(0.4, Math.min(4, Number(e.target.value) || 1)) })}
+                />
+                in
+              </span>
+            </label>
+            <label className="ls-field">
+              Position
+              <ComboBox
+                className="text-input"
+                value={q.position}
+                ariaLabel="QR code position"
+                options={[
+                  { value: "top-right", label: "Top right" },
+                  { value: "top-left", label: "Top left" },
+                  { value: "bottom-right", label: "Bottom right" },
+                  { value: "bottom-left", label: "Bottom left" },
+                ]}
+                onChange={(v) => set({ position: v as NonNullable<ReportDef["pageQr"]>["position"] })}
+              />
+            </label>
+          </div>
+          <label>
+            Caption under it
+            <input className="text-input" placeholder="e.g. Scan for the latest list" defaultValue={q.caption ?? ""} key={`c:${q.caption}`} maxLength={100} onBlur={(e) => set({ caption: e.target.value.trim() || undefined })} />
+          </label>
+          {q.target !== "url" && (
+            <label title="The address phones open. Leave empty to use the address this app is open at.">
+              Web address phones use
+              <input className="text-input" placeholder={location.origin} defaultValue={q.baseUrl ?? ""} key={`b:${q.baseUrl}`} onBlur={(e) => set({ baseUrl: e.target.value.trim() || undefined })} />
+            </label>
+          )}
+          <p className="muted small">
+            {q.target === "public"
+              ? isPublic
+                ? "Anyone who scans the printed page sees the latest version of this report, without signing in."
+                : "Make this report public (Report View → 🔗 Make public…) so the code has a link anyone can open."
+              : q.target === "app"
+                ? "Opens this report in Access Web; whoever scans signs in and needs access to this database."
+                : "Opens the web address you type."}
+          </p>
+        </>
+      )}
     </div>
   );
 }

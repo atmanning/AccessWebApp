@@ -11,6 +11,7 @@ import { Modal } from "../ui/dialogs";
 import { useWorkspace, type WorkspaceApi } from "../workspace/context";
 import { qrFor } from "./LabelsView";
 import { linkKeyField } from "./labels";
+import { pageQrFor } from "./pageQr";
 
 export const publicReportUrl = (token: string) => `${location.origin}/r/${token}`;
 
@@ -60,7 +61,8 @@ export async function buildSnapshot(ws: WorkspaceApi, report: ReportDef): Promis
   return {
     v: 1,
     title: report.title || report.name,
-    report: { ...report, source: { kind: "table", id: "snapshot" } },
+    // The page QR code's link, worked out here (the public page has no database to work it out from).
+    report: { ...report, source: { kind: "table", id: "snapshot" }, ...(report.pageQr ? { pageQrLink: pageQrFor(ws, report)?.link ?? null } : {}) },
     columns: [...columns, ...(qr ? ["__qr"] : []), ...(ki >= 0 ? ["__key"] : [])],
     fields: [...keep.map((i) => (data.fields[i] ? { type: data.fields[i]!.type } : null)), ...(qr ? [null] : []), ...(ki >= 0 ? [null] : [])],
     rows,

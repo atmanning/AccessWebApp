@@ -228,9 +228,11 @@ export function Workspace(props: {
   useEffect(() => {
     const l = props.deepLink;
     if (!l) return;
-    const exists = l.kind === "form" ? docRef.current.forms.some((f) => f.id === l.id) : docRef.current.tables.some((t) => t.id === l.id);
-    if (!exists) return setStatus("The form or table that link opens isn't in this database any more.", "error");
-    openObject(l.kind, l.id, undefined, { field: l.field, value: l.value });
+    const d = docRef.current;
+    const exists = (l.kind === "form" ? d.forms : l.kind === "report" ? d.reports : d.tables).some((x) => x.id === l.id);
+    if (!exists) return setStatus(`The ${l.kind} that link opens isn't in this database any more.`, "error");
+    if (l.kind === "report" || !l.field) openObject(l.kind, l.id);
+    else openObject(l.kind, l.id, undefined, { field: l.field, value: l.value ?? "" });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const closeTab = useCallback((key: string) => {

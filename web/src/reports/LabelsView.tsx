@@ -186,12 +186,19 @@ function publicQr(ws: WorkspaceApi, report: ReportDef, data: ResultSet): QrLinks
   };
 }
 
+/** Room for a corner QR code: the text keeps clear of that side. */
+function cornerRoom(pos: string, size: number) {
+  return pos.endsWith("right") ? { paddingRight: `${size + 0.08}in` } : { paddingLeft: `${size + 0.08}in` };
+}
+
 export function LabelContent({ l, lines, qr }: { l: LabelLayout; lines: string[]; qr?: string }): ReactNode {
   const pos = l.qr?.position ?? "right";
+  const corner = pos.includes("-");
   const code = qr && l.qr ? <QrCode text={qr} size={`${l.qr.size}in`} title="Scan to open this record" /> : null;
   return (
-    <div className={`label-inner qr-${pos}`} style={{ textAlign: l.align }}>
-      {code && pos === "left" && code}
+    <div className={`label-inner qr-${pos}`} style={{ textAlign: l.align, ...(corner && code ? cornerRoom(pos, l.qr!.size) : {}) }}>
+      {code && corner && <div className={`label-qr-corner ${pos}`}>{code}</div>}
+      {code && (pos === "left" || pos === "top") && code}
       <div className="label-lines" style={{ alignItems: l.align === "center" ? "center" : l.align === "right" ? "flex-end" : "flex-start" }}>
         {l.lines.map((line, i) => (
           <div key={i} className="label-line" style={{ fontSize: `${line.size}pt`, fontWeight: line.bold ? 700 : 400, fontStyle: line.italic ? "italic" : undefined }}>
@@ -199,7 +206,7 @@ export function LabelContent({ l, lines, qr }: { l: LabelLayout; lines: string[]
           </div>
         ))}
       </div>
-      {code && pos !== "left" && code}
+      {code && (pos === "right" || pos === "bottom") && code}
     </div>
   );
 }

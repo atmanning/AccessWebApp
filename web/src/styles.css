@@ -931,3 +931,21 @@ button.props-tab.active { background: #fff; font-weight: 600; }
 .record-status { color: #2f7d3a; font-size: 13.5px; text-align: right; }
 .record-row.done .record-name { color: #2f7d3a; }
 @media print { .record-panel { display: none; } }
+.label-inner { position: relative; box-sizing: border-box; }
+.label-inner.qr-top { flex-direction: column; justify-content: center; }
+.label-inner[class*="qr-top-"], .label-inner[class*="qr-bottom-"] { flex-direction: row; }
+.label-qr-corner { position: absolute; line-height: 0; }
+.label-qr-corner.top-right { top: 0; right: 0; }
+.label-qr-corner.top-left { top: 0; left: 0; }
+.label-qr-corner.bottom-right { bottom: 0; right: 0; }
+.label-qr-corner.bottom-left { bottom: 0; left: 0; }
+/* A report's page QR code */
+.report-page { position: relative; }
+.report-qr { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 2px; line-height: 0; }
+.report-qr.top-right { top: 40px; right: 48px; }
+.report-qr.top-left { top: 40px; left: 48px; }
+.report-qr.bottom-right { bottom: 40px; right: 48px; }
+.report-qr.bottom-left { bottom: 40px; left: 48px; }
+.report-qr-caption { font-size: 10px; line-height: 1.2; color: #555; text-align: center; }
+.report-note { font-size: 12px; color: #8a5a00; background: #fff6dc; border: 1px solid #ecd48b; border-radius: 4px; padding: 3px 8px; align-self: center; }
+@media print { .report-note { display: none; } }

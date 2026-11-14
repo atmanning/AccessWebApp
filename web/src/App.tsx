@@ -122,10 +122,13 @@ function Root() {
 function readDeepLink(): { db: string; link: DeepLink } | null {
   const q = new URLSearchParams(location.search);
   const db = q.get("db");
-  const m = /^(form|table):(.+)$/.exec(q.get("open") ?? "");
+  const m = /^(form|table|report):(.+)$/.exec(q.get("open") ?? "");
   const field = q.get("key");
   const value = q.get("rec");
-  if (!db || !m || !field || value === null) return null;
+  if (!db || !m) return null;
+  // A report opens by itself (a report's page QR code); forms and tables open at a record.
+  if (m[1] === "report") return { db, link: { kind: "report", id: m[2] } };
+  if (!field || value === null) return null;
   return { db, link: { kind: m[1] as "form" | "table", id: m[2], field, value } };
 }
 

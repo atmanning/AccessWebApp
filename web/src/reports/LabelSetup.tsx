@@ -268,9 +268,14 @@ export function LabelSetup({ report }: { report: ReportDef }) {
                   value={l.qr.position}
                   ariaLabel="QR position"
                   options={[
-                    { value: "right", label: "Right" },
-                    { value: "left", label: "Left" },
+                    { value: "right", label: "Right of the text" },
+                    { value: "left", label: "Left of the text" },
+                    { value: "top", label: "Above the text" },
                     { value: "bottom", label: "Below the text" },
+                    { value: "top-right", label: "Top-right corner" },
+                    { value: "top-left", label: "Top-left corner" },
+                    { value: "bottom-right", label: "Bottom-right corner" },
+                    { value: "bottom-left", label: "Bottom-left corner" },
                   ]}
                   onChange={(v) => update((x) => (x.qr!.position = v))}
                 />

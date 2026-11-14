@@ -371,7 +371,8 @@ export const labelLayoutSchema = z.object({
       /** For "public": the report (made public) the code opens, highlighting the person. */
       publicReportId: z.string().max(64).optional(),
       size: inches(0.4, 4),
-      position: z.enum(["right", "left", "bottom"]),
+      /** Beside the text (right, left), above or below it, or in a corner of the label. */
+      position: z.enum(["right", "left", "top", "bottom", "top-right", "top-left", "bottom-right", "bottom-left"]),
       /** Address people scan to reach this app (default: the address it's open at). */
       baseUrl: z.string().max(300).optional(),
     })
@@ -389,6 +390,18 @@ export const reportSchema = z.object({
   sortBy: z.string().optional(),
   /** Set for a labels report (name tags, address labels) instead of a list. */
   labels: labelLayoutSchema.optional(),
+  /** A QR code printed on the report's page: to this report (public link or in the app) or another web address. */
+  pageQr: z
+    .object({
+      target: z.enum(["public", "app", "url"]),
+      url: z.string().max(500).optional(),
+      size: z.number().min(0.4).max(4),
+      position: z.enum(["top-right", "top-left", "bottom-right", "bottom-left"]),
+      caption: z.string().max(100).optional(),
+      /** Address phones use to reach this app (default: the address it's open at). */
+      baseUrl: z.string().max(300).optional(),
+    })
+    .optional(),
 });
 export type ReportDef = z.infer<typeof reportSchema>;
 
