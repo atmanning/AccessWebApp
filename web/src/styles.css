@@ -827,3 +827,5 @@ button.props-tab.active { background: #fff; font-weight: 600; }
 .td-selbar button { display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px; border: 1px solid #9ab7e0; border-radius: 4px; background: #fff; font: inherit; cursor: pointer; }
 .td-selbar button:hover { background: #f4f8fe; }
 [data-touch] .td-selbar button { height: 36px; }
+.context-menu button.danger { color: #a4262c; }
+.context-menu button:disabled { color: #aaa; background: none; cursor: default; }

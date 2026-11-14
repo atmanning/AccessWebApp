@@ -14,7 +14,7 @@ import {
 } from "../../../shared/model";
 import { relationshipsBrokenBy } from "../engine/integrity";
 import { IndexesDialog } from "./IndexesDialog";
-import { useLayout } from "../ui/layout";
+import { useLayout, useLongPress } from "../ui/layout";
 import { useDialogs } from "../ui/dialogs";
 import { ComboBox } from "../ui/ComboBox";
 import { KeyIcon } from "../ui/icons";
@@ -142,8 +142,8 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
     mutate((t) => changeFieldType(t, f.id, type));
   };
 
-  const togglePrimaryKey = async () => {
-    const ids = selected.size ? [...selected] : field ? [field.id] : [];
+  const togglePrimaryKey = async (only?: string[]) => {
+    const ids = only ?? (selected.size ? [...selected] : field ? [field.id] : []);
     if (!ids.length) return;
     const already = ids.every((id) => table.fields.find((f) => f.id === id)?.primaryKey) &&
       table.fields.filter((f) => f.primaryKey).length === ids.length;
@@ -191,24 +191,28 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
     ws.setStatus(already ? "The table has no primary key now." : names.length > 1 ? `Primary key: ${names.join(" + ")} (unique together).` : `Primary key: ${names[0]}.`);
   };
 
-  const insertRow = () =>
+  const insertRow = (at = current) =>
     mutate((t) => {
       const f: Field = { id: newId("f"), name: uniqueFieldName(t), type: "ShortText", size: 255 };
-      t.fields.splice(Math.min(current, t.fields.length), 0, f);
+      t.fields.splice(Math.min(at, t.fields.length), 0, f);
       for (const r of t.rows) r[f.id] = null;
     });
 
-  const deleteRows = async () => {
-    const ids = selected.size ? [...selected] : field ? [field.id] : [];
+  const deleteRows = async (only?: string[]) => {
+    const ids = only ?? (selected.size ? [...selected] : field ? [field.id] : []);
     if (!ids.length) return;
     const names = ids.map((id) => table.fields.find((f) => f.id === id)?.name).join(", ");
     const hasData = table.rows.some((r) => ids.some((id) => r[id] !== null && r[id] !== undefined && r[id] !== ""));
+    // Relationships that use these fields go with them.
+    const related = ws.doc.relationships
+      .filter((r) => (r.fromTable === table.id && ids.includes(r.fromField)) || (r.toTable === table.id && ids.includes(r.toField)))
+      .map((r) => ws.doc.tables.find((t) => t.id === (r.fromTable === table.id ? r.toTable : r.fromTable))?.name ?? "another table");
     const ok = await dialogs.confirm(
       "Microsoft Access Web",
-      hasData
-        ? `Do you want to permanently delete the selected field(s) (${names}) and all the data in them?`
-        : `Delete the field(s) ${names}?`,
-      { okLabel: "Yes", danger: true },
+      (hasData ? `Delete ${names} and all the data in ${ids.length === 1 ? "it" : "them"}?` : `Delete ${names}?`) +
+        (related.length ? ` ${ids.length === 1 ? "Its" : "Their"} relationship with ${[...new Set(related)].join(", ")} will be deleted too.` : "") +
+        " You can bring it back with Undo (Ctrl+Z).",
+      { okLabel: "Delete", danger: true },
     );
     if (!ok) return;
     mutate((t, d) => ids.forEach((id) => deleteField(d, t, id)));
@@ -313,7 +317,42 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
   };
 
   const [indexesOpen, setIndexesOpen] = useState(false);
-  useCommands(tabKey, { primaryKey: togglePrimaryKey, insertRows: insertRow, deleteRows, indexes: () => setIndexesOpen(true) });
+  useCommands(tabKey, { primaryKey: () => void togglePrimaryKey(), insertRows: () => insertRow(), deleteRows: () => void deleteRows(), indexes: () => setIndexesOpen(true) });
+
+  // The menu for a field row: long-press on phones and tablets, right-click with a mouse.
+  const [rowMenu, setRowMenu] = useState<{ x: number; y: number; index: number } | null>(null);
+  const press = useLongPress();
+  const menuOpenedAt = useRef(0);
+  const openRowMenu = (x: number, y: number, index: number) => {
+    menuOpenedAt.current = Date.now();
+    setCurrent(index);
+    setRowMenu({ x, y, index });
+  };
+  useEffect(() => {
+    if (!rowMenu) return;
+    // Ignore the mouse event some phones send when a long press ends.
+    const close = () => Date.now() - menuOpenedAt.current > 400 && setRowMenu(null);
+    window.addEventListener("mousedown", close);
+    window.addEventListener("blur", close);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("blur", close);
+    };
+  }, [rowMenu]);
+  /** The fields a row's menu acts on: all the selected ones when the pressed field is one of them. */
+  const menuFields = (index: number): Field[] => {
+    const f = table.fields[index];
+    if (!f) return [];
+    return selected.has(f.id) && selected.size > 1 ? table.fields.filter((x) => selected.has(x.id)) : [f];
+  };
+  const moveField = (index: number, by: number) =>
+    mutate((t) => {
+      const to = index + by;
+      if (to < 0 || to >= t.fields.length) return;
+      const [f] = t.fields.splice(index, 1);
+      t.fields.splice(to, 0, f);
+      setCurrent(to);
+    });
 
   const rows = [...table.fields, undefined];
 
@@ -404,6 +443,13 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
                 // keeping the text just typed into it.
                 key={f?.id ?? `__new:${table.fields.length}`}
                 data-field-row={f ? "" : undefined}
+                {...(f && layout.touch && !ws.readOnly ? press.bind((x, y) => openRowMenu(x, y, i)) : {})}
+                onContextMenu={(e) => {
+                  if (!f || ws.readOnly) return;
+                  e.preventDefault();
+                  if (Date.now() - menuOpenedAt.current < 600) return; // already opened by the long press
+                  openRowMenu(e.clientX, e.clientY, i);
+                }}
                 className={`${i === current ? "row-current" : ""} ${f && selected.has(f.id) ? "row-selected" : ""} ${drag && drag.to === i ? "drop-before" : ""} ${f && drag?.ids.includes(f.id) ? "row-dragging" : ""}`}
                 onFocusCapture={() => setCurrent(i)}
               >
@@ -645,6 +691,55 @@ export function TableDesign({ table, tabKey }: { table: TableDef; tabKey: string
           }}
         />
       )}
+      {rowMenu && (() => {
+        const fs = menuFields(rowMenu.index);
+        if (!fs.length) return null;
+        const ids = fs.map((f) => f.id);
+        const many = fs.length > 1;
+        const isKey = fs.every((f) => f.primaryKey) && pkFields.length === fs.length;
+        const items: { label: string; run: () => void; danger?: boolean; disabled?: boolean }[] = [
+          { label: isKey ? "Remove Primary Key" : many ? "Make Primary Key (together)" : "Primary Key", run: () => void togglePrimaryKey(ids) },
+          ...(many ? [{ label: "Unique Together…", run: () => setIndexesOpen(true) }] : []),
+          { label: "Insert Row Above", run: () => insertRow(rowMenu.index) },
+          ...(!many
+            ? [
+                { label: "Move Up", run: () => moveField(rowMenu.index, -1), disabled: rowMenu.index === 0 },
+                { label: "Move Down", run: () => moveField(rowMenu.index, 1), disabled: rowMenu.index >= table.fields.length - 1 },
+              ]
+            : []),
+          { label: "Indexes…", run: () => setIndexesOpen(true) },
+          { label: many ? `Delete ${fs.length} Fields` : "Delete Field", run: () => void deleteRows(ids), danger: true },
+        ];
+        return (
+          <div
+            className={`context-menu ${layout.compact ? "sheet" : ""}`}
+            style={layout.compact ? undefined : { left: Math.max(0, Math.min(rowMenu.x, window.innerWidth - 230)), top: Math.max(0, Math.min(rowMenu.y, window.innerHeight - items.length * 28 - 12)) }}
+            onMouseDown={(e) => e.stopPropagation()}
+            role="menu"
+          >
+            {layout.compact && <div className="menu-title">{fs.map((f) => f.name).join(" + ")}</div>}
+            {items.map((item) => (
+              <button
+                key={item.label}
+                role="menuitem"
+                disabled={item.disabled}
+                className={item.danger ? "danger" : undefined}
+                onClick={() => {
+                  setRowMenu(null);
+                  item.run();
+                }}
+              >
+                <span>{item.label}</span>
+              </button>
+            ))}
+            {layout.compact && (
+              <button role="menuitem" className="menu-cancel" onClick={() => setRowMenu(null)}>
+                Cancel
+              </button>
+            )}
+          </div>
+        );
+      })()}
       {indexesOpen && (
         <IndexesDialog
           table={table}
