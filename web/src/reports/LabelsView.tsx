@@ -10,18 +10,21 @@ import { useSource } from "../views/FormReportViews";
 import { useCommands, useWorkspace, type WorkspaceApi } from "../workspace/context";
 import { fillTemplate, layoutProblem, linkKeyField, PAGE_SIZES, recordLink } from "./labels";
 import { QrCode } from "./QrCode";
+import { PublicLinkButton } from "./PublicReportDialog";
 
 export function LabelsView({ report, tabKey }: { report: ReportDef; tabKey: string }) {
   const ws = useWorkspace();
   const { data, error } = useSource(report.source);
   useCommands(tabKey, { print: () => window.print() });
-  const l = report.labels!;
-
   if (error) return <div className="query-error"><strong>These labels can't open.</strong><p>{error}</p></div>;
   if (!data) return <div className="empty-view">Loading…</div>;
+  return <LabelsBody report={report} data={data} qr={qrFor(ws, report, data)} extra={<PublicLinkButton report={report} />} />;
+}
 
+/** Labels drawn from their data: in the app, and on a public report link. */
+export function LabelsBody({ report, data, qr, extra, hideTips }: { report: ReportDef; data: ResultSet; qr: QrLinks; extra?: ReactNode; hideTips?: boolean }) {
+  const l = report.labels!;
   const rows = sortedRows(data, report.sortBy);
-  const qr = qrFor(ws, report, data);
   const perPage = l.across * l.down;
   const slots: (CellValue[] | null)[] = [...Array<null>(l.skip ?? 0).fill(null), ...rows];
   const pages: (CellValue[] | null)[][] = [];
@@ -41,11 +44,12 @@ export function LabelsView({ report, tabKey }: { report: ReportDef; tabKey: stri
           {rows.length} label{rows.length === 1 ? "" : "s"} on {pages.length} sheet{pages.length === 1 ? "" : "s"} · {l.width}″ × {l.height}″, {l.across} across × {l.down} down
         </span>
         <span className="spacer" />
+        {extra}
         <button className="primary" onClick={() => window.print()}>
           Print…
         </button>
       </div>
-      <div className="labels-tips small">
+      <div className="labels-tips small" hidden={hideTips}>
         In the print dialog, set <strong>Margins</strong> to <em>None</em> and <strong>Scale</strong> to <em>100%</em> (Actual size). Print one sheet on plain
         paper first and hold it against a label sheet to check the alignment; adjust the margins in Design View if needed.
         {problem && <div className="field-error">{problem}</div>}
@@ -96,8 +100,10 @@ export function labelBox(l: LabelLayout, i: number): CSSProperties {
   };
 }
 
+export type QrLinks = { link?: (row: CellValue[]) => string; note?: string };
+
 /** How each label's QR code finds its record, or why there can't be one. */
-function qrFor(ws: WorkspaceApi, report: ReportDef, data: ResultSet): { link?: (row: CellValue[]) => string; note?: string } {
+export function qrFor(ws: WorkspaceApi, report: ReportDef, data: ResultSet): QrLinks {
   const q = report.labels?.qr;
   if (!q) return {};
   const key = linkKeyField(ws.doc, report.source, { kind: q.target, formId: q.formId });

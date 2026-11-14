@@ -1,4 +1,5 @@
 import express, { type NextFunction, type Request, type Response } from "express";
+import { publicReportsReadRouter, publicReportsRouter } from "./publicReports.js";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import fs from "node:fs";
@@ -65,6 +66,8 @@ export function createApp(opts: AppOptions) {
   app.use("/api/projects/:id/connections", connectionsRouter(opts.db, opts.connections));
   app.use("/api/projects/:id/images", imagesRouter(opts.db, opts.images ?? { maxBytesPerProject: 200 * 1024 * 1024 }));
   app.use("/api/public/:id/images", publicImagesRouter(opts.db));
+  app.use("/api/projects/:id/public-reports", publicReportsRouter(opts.db));
+  app.use("/api/public-reports", publicReportsReadRouter(opts.db));
   app.use("/api/projects", projectsRouter(opts.db, opts.exportAccdb, opts.importAccess));
   app.use("/api/public", publicRouter(opts.db));
   app.use("/api", (_req, res) => res.status(404).json({ error: "That isn't something this server can do. Try reloading the page." }));

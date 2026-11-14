@@ -75,6 +75,22 @@ async function upload<T>(url: string, file: Blob): Promise<T> {
   return data as T;
 }
 
+/** A report someone made public: its link's token. */
+export interface PublicReportLink {
+  reportId: string;
+  token: string;
+  updatedAt: string;
+}
+/** What a public report link shows: the report's settings and only the rows and columns it uses. */
+export interface ReportSnapshot {
+  v: 1;
+  title: string;
+  report: Record<string, unknown>;
+  columns: string[];
+  fields: ({ type: string } | null)[];
+  rows: (string | number | boolean | null)[][];
+}
+
 export const api = {
   me: () => call<{ user: UserInfo | null }>("GET", "/api/auth/me"),
   /** Which build is running: commit and build time. */
@@ -106,6 +122,11 @@ export const api = {
   copyImages: (pid: string, from: string, ids: string[]) => call<{ copied: number }>("POST", `/api/projects/${pid}/images/copy`, { from, ids }),
   setPublicView: (id: string, publicView: boolean) => call<ShareSettings>("PUT", `/api/projects/${id}/public-access`, { publicView }),
   /** A database published for public viewing (no sign-in needed). */
+  listPublicReports: (pid: string) => call<{ reports: PublicReportLink[] }>("GET", `/api/projects/${pid}/public-reports`),
+  publishReport: (pid: string, reportId: string, snapshot: ReportSnapshot) =>
+    call<{ token: string; updatedAt: string }>("PUT", `/api/projects/${pid}/public-reports/${reportId}`, { snapshot }),
+  unpublishReport: (pid: string, reportId: string) => call<{ ok: true }>("DELETE", `/api/projects/${pid}/public-reports/${reportId}`),
+  getPublicReport: (token: string) => call<{ snapshot: ReportSnapshot; updatedAt: string }>("GET", `/api/public-reports/${encodeURIComponent(token)}`),
   getPublicProject: (id: string) => call<{ project: ProjectRecord }>("GET", `/api/public/${id}`),
   getPublicRevision: (id: string) =>
     call<{ revision: number; updatedByName: string | null; updatedAt: string }>("GET", `/api/public/${id}/revision`),

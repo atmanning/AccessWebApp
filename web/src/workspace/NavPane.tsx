@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { PublicReportDialog } from "../reports/PublicReportDialog";
 import { isAppLink, QUERY_TYPE_LABELS, type LinkedTable, type ObjectKind } from "../../../shared/model";
 import { isActionType } from "../engine/statements";
 import { useDialogs } from "../ui/dialogs";
@@ -87,6 +88,7 @@ export function NavPane(props: {
   const [closedGroups, setClosedGroups] = useState<Set<ObjectKind>>(new Set());
   const [menu, setMenu] = useState<{ x: number; y: number; kind: ObjectKind; id: string } | null>(null);
   const [renaming, setRenaming] = useState<{ kind: ObjectKind; id: string } | null>(null);
+  const [publicReport, setPublicReport] = useState<string | null>(null);
   const { compact, touch } = useLayout();
   const press = useLongPress();
   const menuOpenedAt = useRef(0);
@@ -193,6 +195,7 @@ export function NavPane(props: {
           : [{ label: "Open", run: () => ws.openObject(menu.kind, menu.id) }]),
         ...(menu.kind !== "linked" ? [{ label: "Design View", run: () => ws.openObject(menu.kind, menu.id, "design") }] : []),
         ...(menu.kind === "query" ? [{ label: "SQL View", run: () => ws.openObject(menu.kind, menu.id, "sql") }] : []),
+        ...(menu.kind === "report" && ws.signedIn && ws.role === "owner" ? [{ label: "Public Link…", run: () => setPublicReport(menu.id) }] : []),
         { label: "Copy", shortcut: "Ctrl+C", run: () => props.onCopy(menu.kind, menu.id) },
         { label: "Paste", shortcut: "Ctrl+V", run: () => props.onPaste() },
         { label: "Rename", shortcut: "F2", run: () => startRename(menu.kind, menu.id) },
@@ -335,6 +338,9 @@ export function NavPane(props: {
         </div>
       )}
     </aside>
+    {publicReport && ws.doc.reports.some((r) => r.id === publicReport) && (
+      <PublicReportDialog report={ws.doc.reports.find((r) => r.id === publicReport)!} onClose={() => setPublicReport(null)} />
+    )}
     </>
   );
 }

@@ -829,3 +829,30 @@ button.props-tab.active { background: #fff; font-weight: 600; }
 [data-touch] .td-selbar button { height: 36px; }
 .context-menu button.danger { color: #a4262c; }
 .context-menu button:disabled { color: #aaa; background: none; cursor: default; }
+
+/* Public report links */
+.report-toolbar { display: flex; justify-content: flex-end; gap: 8px; max-width: 8.5in; margin: 0 auto 8px; }
+.public-link-button { height: 28px; padding: 0 10px; border: 1px solid #c6cbd3; border-radius: 4px; background: #fff; font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; }
+.public-link-button:hover { border-color: #2563eb; background: #f4f8fe; }
+.public-link-button.on { border-color: #4f9a5a; background: #eef8ef; color: #1f6a2a; }
+.pub { display: flex; flex-direction: column; gap: 12px; }
+.pub-toggle { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; cursor: pointer; }
+.pub-toggle input { margin-top: 2px; width: 16px; height: 16px; }
+.pub-link { display: flex; gap: 6px; }
+.pub-link input { flex: 1; min-width: 0; height: 30px; padding: 0 8px; border: 1px solid #c6cbd3; border-radius: 4px; font: inherit; font-size: 12.5px; background: #f7f8fa; }
+.pub-note { margin: 0; line-height: 1.45; }
+.pub-what { padding: 8px 10px; background: #f6f7f9; border: 1px solid #e3e6ea; border-radius: 4px; line-height: 1.45; color: #444; }
+.link-button { border: none; background: none; padding: 0; color: #1f5fbf; text-decoration: underline; cursor: pointer; font: inherit; }
+.public-report { min-height: 100vh; background: #e9ebee; padding: 12px 12px 24px; box-sizing: border-box; overflow: auto; height: 100vh; }
+.public-report-bar { display: flex; align-items: center; gap: 8px; max-width: 8.5in; margin: 0 auto 8px; }
+.public-report-bar button { height: 30px; padding: 0 14px; }
+.public-report .report-view { height: auto; overflow: visible; padding: 0; background: none; }
+.public-report .labels-view { height: auto; overflow: visible; }
+.public-report-foot { text-align: center; margin-top: 12px; }
+.public-report-message { max-width: 520px; margin: 15vh auto; padding: 24px; text-align: center; font-family: system-ui, sans-serif; }
+.public-report-message h1 { font-size: 20px; margin: 0 0 8px; }
+@media print {
+  .public-report { background: none; padding: 0; height: auto; overflow: visible; }
+  .public-report-bar, .public-report-foot, .report-toolbar { display: none !important; }
+}
+.pub .link-button { border: none; background: none; min-width: 0; height: auto; padding: 0; box-shadow: none; }

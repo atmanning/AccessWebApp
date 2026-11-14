@@ -96,6 +96,10 @@ export interface WorkspaceApi {
   registerCommands: (tabKey: string, commands: ViewCommands | null) => void;
   /** View-only access: edits are refused (update() reports it). */
   readOnly: boolean;
+  /** Owner, editor or viewer (guests viewing a published database are viewers). */
+  role: "owner" | "edit" | "view";
+  /** Signed in (not a guest on a published database). */
+  signedIn: boolean;
   /** Saved MySQL connections for this database (null while loading). */
   connections: ConnectionInfo[] | null;
   refreshConnections: () => Promise<void>;

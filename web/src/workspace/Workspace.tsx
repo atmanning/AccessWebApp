@@ -1,4 +1,5 @@
 import { produce } from "immer";
+import { usePublicReportSync } from "../reports/PublicReportDialog";
 import { LayoutPicker } from "../ui/LayoutPicker";
 import { useLayout, useLongPress } from "../ui/layout";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -280,6 +281,8 @@ export function Workspace(props: {
       setStatus,
       registerCommands,
       readOnly,
+      role,
+      signedIn: !guest,
       connections,
       refreshConnections,
       // Public viewers read pictures through the public route.
@@ -293,8 +296,11 @@ export function Workspace(props: {
         api.copyImages(props.project.id, sourceProjectId, ids).catch((e: Error) => setStatus(`The pictures couldn't be copied: ${e.message}`, "error"));
       },
     }),
-    [props.project.id, name, doc, update, openObject, closeTab, setTabView, activeKey, setStatus, registerCommands, readOnly, connections, refreshConnections, publicView],
+    [props.project.id, name, doc, update, openObject, closeTab, setTabView, activeKey, setStatus, registerCommands, readOnly, connections, refreshConnections, publicView, role, guest],
   );
+
+  // Public report links follow the data while an owner or editor has the database open.
+  usePublicReportSync(wsApi);
 
   // ---- Commands ----------------------------------------------------------------------------
   const createTable = (design: boolean) => {

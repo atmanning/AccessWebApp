@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { PublicLinkButton } from "../reports/PublicReportDialog";
 import type { CellValue, FormDef, ReportDef, SourceRef } from "../../../shared/model";
 import { readSource, type ResultSet } from "../engine/engine";
 import { formatValue, isNumericType } from "../engine/values";
@@ -41,11 +42,15 @@ export function useSource(source: SourceRef) {
 export function ReportView({ report, tabKey }: { report: ReportDef; tabKey: string }) {
   const { data, error } = useSource(report.source);
   const ws = useWorkspace();
-
   useCommands(tabKey, { print: () => window.print() });
+  if (error) return <div className="query-error"><strong>This report can't open.</strong><p>{error}</p></div>;
+  if (!data) return <div className="empty-view">Loading…</div>;
+  return <ReportBody report={report} data={data} imageUrl={ws.imageUrl} toolbar={<PublicLinkButton report={report} />} />;
+}
 
+/** A list report drawn from its data: in the app, and on a public report link. */
+export function ReportBody({ report, data, imageUrl, toolbar }: { report: ReportDef; data: ResultSet; imageUrl: (id: string) => string; toolbar?: ReactNode }) {
   const prepared = useMemo(() => {
-    if (!data) return null;
     const idx = (n?: string) => (n ? data.columns.findIndex((c) => c.toLowerCase() === n.toLowerCase()) : -1);
     const cols = report.columns.map((name) => ({ name, i: idx(name) })).filter((c) => c.i >= 0);
     const g = idx(report.groupBy);
@@ -66,9 +71,6 @@ export function ReportView({ report, tabKey }: { report: ReportDef; tabKey: stri
     return { cols: cols.filter((c) => c.i !== g), groupField: g >= 0 ? data.fields[g] : undefined, groups, total: rows.length };
   }, [data, report]);
 
-  if (error) return <div className="query-error"><strong>This report can't open.</strong><p>{error}</p></div>;
-  if (!data || !prepared) return <div className="empty-view">Loading…</div>;
-
   const sumOf = (rows: CellValue[][], i: number) => rows.reduce<number>((acc, r) => acc + (typeof r[i] === "number" ? (r[i] as number) : 0), 0);
   const summable = (i: number) => {
     const t = data.fields[i]?.type;
@@ -78,6 +80,7 @@ export function ReportView({ report, tabKey }: { report: ReportDef; tabKey: stri
 
   return (
     <div className="report-view">
+      {toolbar && <div className="report-toolbar">{toolbar}</div>}
       <div className="report-page printable">
         <div className="report-header">
           <h1>{report.title || report.name}</h1>
@@ -105,7 +108,7 @@ export function ReportView({ report, tabKey }: { report: ReportDef; tabKey: stri
                   {prepared.cols.map((c) => (
                     <td key={c.name} className={isNumericType(data.fields[c.i]?.type) ? "num" : ""}>
                       {data.fields[c.i]?.type === "Image" && r[c.i] ? (
-                        <img className="report-img" src={ws.imageUrl(String(r[c.i]))} alt="" loading="lazy" />
+                        <img className="report-img" src={imageUrl(String(r[c.i]))} alt="" loading="lazy" />
                       ) : (
                         formatValue(data.fields[c.i], r[c.i])
                       )}

@@ -89,6 +89,19 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (project_id, id)
   );
   `,
+  // 6: public report links: a copy of one report's rows (only what it shows), readable by anyone with the link
+  `
+  CREATE TABLE public_reports (
+    token      TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    report_id  TEXT NOT NULL,
+    snapshot   TEXT NOT NULL,
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (project_id, report_id)
+  );
+  `,
 ];
 
 export function openDatabase(file: string): DB {

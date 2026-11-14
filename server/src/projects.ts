@@ -1,4 +1,5 @@
 import express, { Router, type Response } from "express";
+import { removeOrphanPublicReports } from "./publicReports.js";
 import crypto from "node:crypto";
 import { z } from "zod";
 import type { DB } from "./db.js";
@@ -233,6 +234,7 @@ export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise
       .run(next.name, next.doc, next.revision, next.updated_at, userId, row.id, row.revision);
     if (result.changes === 0) return void conflict(res);
     if (body.doc) removeUnusedImages(db, row.id, next.doc);
+    if (body.doc) removeOrphanPublicReports(db, row.id, next.doc);
     const saved = db.prepare(`${SELECT_PROJECT} WHERE p.id = ?`).get(row.id) as ProjectListRow;
     res.json({ project: summarize(saved, load(row.id, userId).role, body.doc) });
   });

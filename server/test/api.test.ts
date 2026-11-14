@@ -472,3 +472,62 @@ describe("pictures in Image fields", () => {
     expect((await owner.get(`/api/projects/${copy}/images/${up.body.id}`)).status).toBe(200);
   });
 });
+
+describe("public report links", () => {
+  const app = makeApp();
+  const snapshot = (title: string) => ({ v: 1, title, report: { columns: ["FirstName"] }, columns: ["FirstName"], fields: [{ type: "ShortText" }], rows: [["Ada"], ["Grace"]] });
+
+  it("lets the owner share one report's rows publicly, editors refresh it, and stopping kills the link", async () => {
+    const owner = await signUp(app, "pub-owner@example.com");
+    const editor = await signUp(app, "pub-editor@example.com");
+    const { body } = await owner.post("/api/projects").send({ name: "Pub", template: "contacts" });
+    const pid = body.project.id;
+    const doc = body.project.doc;
+    doc.reports.push({ id: "rpt_names", name: "Names", title: "Names", source: { kind: "table", id: doc.tables[0].id }, columns: ["FirstName"] });
+    const saved = await owner.put(`/api/projects/${pid}`).send({ doc, baseRevision: body.project.revision });
+    expect(saved.status).toBe(200);
+    await owner.put(`/api/projects/${pid}/shares`).send({ email: "pub-editor@example.com", permission: "edit" });
+
+    // Only the owner can make a report public.
+    expect((await editor.put(`/api/projects/${pid}/public-reports/rpt_names`).send({ snapshot: snapshot("x") })).status).toBe(403);
+    const made = await owner.put(`/api/projects/${pid}/public-reports/rpt_names`).send({ snapshot: snapshot("Names") });
+    expect(made.status).toBe(200);
+    const token = made.body.token as string;
+    expect(token.length).toBeGreaterThanOrEqual(20);
+
+    // Anyone can read it without signing in, and gets only the report's rows, not the database.
+    const pub = await request(app).get(`/api/public-reports/${token}`);
+    expect(pub.status).toBe(200);
+    expect(pub.body.snapshot.rows).toEqual([["Ada"], ["Grace"]]);
+    expect(JSON.stringify(pub.body)).not.toMatch(/tables|relationships/);
+    expect((await request(app).get(`/api/public/${pid}`)).status).toBe(404);
+
+    // Editors refresh the copy; the link stays the same.
+    const refreshed = await editor.put(`/api/projects/${pid}/public-reports/rpt_names`).send({ snapshot: snapshot("Renamed") });
+    expect(refreshed.body.token).toBe(token);
+    expect((await request(app).get(`/api/public-reports/${token}`)).body.snapshot.title).toBe("Renamed");
+    expect((await editor.get(`/api/projects/${pid}/public-reports`)).body.reports).toEqual([expect.objectContaining({ reportId: "rpt_names", token })]);
+
+    // Bad snapshots and unknown reports are refused.
+    expect((await owner.put(`/api/projects/${pid}/public-reports/rpt_names`).send({ snapshot: { v: 2 } })).status).toBe(400);
+    expect((await owner.put(`/api/projects/${pid}/public-reports/nope`).send({ snapshot: snapshot("x") })).status).toBe(404);
+
+    // Stopping (owner only) kills the link.
+    expect((await editor.delete(`/api/projects/${pid}/public-reports/rpt_names`).set("X-Requested-With", "fetch")).status).toBe(403);
+    expect((await owner.delete(`/api/projects/${pid}/public-reports/rpt_names`).set("X-Requested-With", "fetch")).status).toBe(200);
+    expect((await request(app).get(`/api/public-reports/${token}`)).status).toBe(404);
+  });
+
+  it("stops sharing a report when it's deleted from the database", async () => {
+    const owner = await signUp(app, "pub-owner2@example.com");
+    const { body } = await owner.post("/api/projects").send({ name: "Pub2", template: "contacts" });
+    const pid = body.project.id;
+    const doc = body.project.doc;
+    doc.reports.push({ id: "rpt_x", name: "X", title: "X", source: { kind: "table", id: doc.tables[0].id }, columns: ["FirstName"] });
+    const s1 = await owner.put(`/api/projects/${pid}`).send({ doc, baseRevision: body.project.revision });
+    const token = (await owner.put(`/api/projects/${pid}/public-reports/rpt_x`).send({ snapshot: snapshot("X") })).body.token;
+    doc.reports = doc.reports.filter((r: { id: string }) => r.id !== "rpt_x");
+    await owner.put(`/api/projects/${pid}`).send({ doc, baseRevision: s1.body.project.revision });
+    expect((await request(app).get(`/api/public-reports/${token}`)).status).toBe(404);
+  });
+});

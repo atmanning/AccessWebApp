@@ -8,11 +8,15 @@ import { api } from "./api";
 import { DialogProvider, showImportWarnings, useDialogs } from "./ui/dialogs";
 import { AccessIcon, TableIcon } from "./ui/icons";
 import { Workspace } from "./workspace/Workspace";
+import { PublicReportPage, publicReportToken } from "./reports/PublicReportPage";
 import type { DeepLink } from "./workspace/context";
 import { validateObjectName } from "./workspace/docOps";
 import { emptyProject } from "../../shared/model";
 
 export default function App() {
+  // A public report link (/r/…) shows just that report: no sign-in, no database.
+  const reportToken = publicReportToken();
+  if (reportToken) return <PublicReportPage token={reportToken} />;
   return (
     <DialogProvider>
       <Root />
