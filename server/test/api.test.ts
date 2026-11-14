@@ -531,3 +531,51 @@ describe("public report links", () => {
     expect((await request(app).get(`/api/public-reports/${token}`)).status).toBe(404);
   });
 });
+
+describe("recording from a tag's public page", () => {
+  const app = makeApp();
+  it("lets only allowed, signed-in people record; everyone else just sees the report", async () => {
+    const owner = await signUp(app, "rec-owner@example.com");
+    const taker = await signUp(app, "taker@example.com");
+    const stranger = await signUp(app, "rec-stranger@example.com");
+    const { body } = await owner.post("/api/projects").send({ name: "Event", template: "contacts" });
+    const pid = body.project.id;
+    const doc = body.project.doc;
+    const people = doc.tables[0];
+    // An attendance log, a labels-style report, and a scan action the taker may run.
+    doc.tables.push({ id: "t_att", name: "Attendance", nextAutoNumber: 1, rows: [], fields: [
+      { id: "a_id", name: "AttendanceID", type: "AutoNumber", primaryKey: true, required: true },
+      { id: "a_p", name: "CustomerID", type: "Number", numberSize: "Long" },
+      { id: "a_t", name: "ScannedAt", type: "DateTime" },
+    ] });
+    doc.reports.push({ id: "rpt_tags", name: "Tags", title: "Tags", source: { kind: "table", id: people.id }, columns: ["FirstName"] });
+    doc.scanActions = [{ id: "sa1", name: "Take attendance", people: people.id, kind: "add", table: "t_att", personField: "a_p", timeField: "a_t", once: true, recorders: ["Taker@Example.com"] }];
+    expect((await owner.put(`/api/projects/${pid}`).send({ doc, baseRevision: body.project.revision })).status).toBe(200);
+    const snap = { v: 1, title: "Tags", report: {}, columns: ["FirstName"], fields: [null], rows: [["Ada"]] };
+    const token = (await owner.put(`/api/projects/${pid}/public-reports/rpt_tags`).send({ snapshot: snap })).body.token;
+    const q = `/api/public-reports/${token}/record?key=CustomerID&rec=1`;
+
+    // Signed out: nothing to record, and recording is refused.
+    expect((await request(app).get(q)).body).toEqual({ signedIn: false, actions: [] });
+    expect((await request(app).post(`/api/public-reports/${token}/record`).send({ actionId: "sa1", key: "CustomerID", rec: "1" })).status).toBe(401);
+    // A signed-in stranger: nothing offered, and refused.
+    expect((await stranger.get(q)).body.actions).toEqual([]);
+    expect((await stranger.post(`/api/public-reports/${token}/record`).send({ actionId: "sa1", key: "CustomerID", rec: "1" })).status).toBe(403);
+
+    // The attendance taker (no access to the database) can record, once.
+    const opts = (await taker.get(q)).body;
+    expect(opts).toMatchObject({ signedIn: true, person: "Ada Lovelace", actions: [{ id: "sa1", name: "Take attendance", done: null }] });
+    const rec1 = await taker.post(`/api/public-reports/${token}/record`).send({ actionId: "sa1", key: "CustomerID", rec: "1", now: new Date().toISOString().slice(0, 19) });
+    expect(rec1.body).toMatchObject({ ok: true, person: "Ada Lovelace" });
+    expect((await taker.post(`/api/public-reports/${token}/record`).send({ actionId: "sa1", key: "CustomerID", rec: "1" })).body).toMatchObject({ ok: false, already: true });
+    expect((await taker.get(q)).body.actions[0].done).toMatch(/^Recorded/);
+    expect((await taker.get(`/api/projects/${pid}`)).status).toBe(404);
+
+    // It's saved in the database, with a new revision the owner's app picks up.
+    const after = (await owner.get(`/api/projects/${pid}`)).body.project;
+    const att = after.doc.tables.find((t: { id: string }) => t.id === "t_att");
+    expect(att.rows).toHaveLength(1);
+    expect(att.rows[0]).toMatchObject({ a_id: 1, a_p: 1 });
+    expect(after.revision).toBe(body.project.revision + 2);
+  });
+});

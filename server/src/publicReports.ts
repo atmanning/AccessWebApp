@@ -10,7 +10,8 @@ import { z } from "zod";
 import type { DB } from "./db.js";
 import { requireUser } from "./auth.js";
 import { httpError, projectLoader } from "./projects.js";
-import { IMAGE_ID, type ProjectDoc } from "../../shared/model.js";
+import { IMAGE_ID, projectDocSchema, type ProjectDoc } from "../../shared/model.js";
+import { applyScan, keyField, mayRecord, personName, scanStatus } from "../../shared/scan.js";
 
 const MAX_SNAPSHOT_BYTES = 8 * 1024 * 1024;
 
@@ -90,9 +91,26 @@ export function publicReportsRouter(db: DB) {
   return router;
 }
 
-/** Public routes, under /api/public-reports: no sign-in. */
+/** Public routes, under /api/public-reports: no sign-in (except recording, below). */
 export function publicReportsReadRouter(db: DB) {
   const router = Router();
+  const load = projectLoader(db);
+  /** The signed-in person's role in the report's database, or null (no access is fine here). */
+  const roleIn = (projectId: string, userId: string | undefined) => {
+    if (!userId) return null;
+    try {
+      return load(projectId, userId).role;
+    } catch {
+      return null;
+    }
+  };
+  const docOf = (projectId: string) => JSON.parse((db.prepare("SELECT doc FROM projects WHERE id = ?").get(projectId) as { doc: string }).doc) as ProjectDoc;
+  /** Actions for people whose key is `key` (the field named in the tag's code). */
+  const actionsFor = (doc: ProjectDoc, key: string) =>
+    (doc.scanActions ?? []).filter((a) => {
+      const people = doc.tables.find((t) => t.id === a.people);
+      return keyField(people)?.name.toLowerCase() === key.toLowerCase();
+    });
   const find = (token: string) => {
     const row = /^[A-Za-z0-9_-]{16,64}$/.test(token) ? (db.prepare("SELECT * FROM public_reports WHERE token = ?").get(token) as Row | undefined) : undefined;
     if (!row) throw httpError(404, "This report isn't shared publicly any more. Ask the person who sent the link for a new one.");
@@ -104,6 +122,61 @@ export function publicReportsReadRouter(db: DB) {
     res.setHeader("X-Robots-Tag", "noindex");
     res.json({ snapshot: JSON.parse(row.snapshot), updatedAt: row.updated_at });
   });
+  /**
+   * Opened from a name tag by someone signed in: what they may record for that person (Take
+   * attendance…). Signed out, or not allowed: nothing (the public report is all they get).
+   */
+  router.get("/:token/record", (req, res) => {
+    const row = find(req.params.token);
+    res.setHeader("Cache-Control", "no-store");
+    const key = String(req.query.key ?? "");
+    const rec = String(req.query.rec ?? "");
+    if (!req.user) return void res.json({ signedIn: false, actions: [] });
+    const doc = docOf(row.project_id);
+    const role = roleIn(row.project_id, req.user.id);
+    const actions = actionsFor(doc, key).filter((a) => mayRecord(a, req.user!, role));
+    if (!actions.length || !rec) return void res.json({ signedIn: true, actions: [] });
+    const people = doc.tables.find((t) => t.id === actions[0].people)!;
+    const pk = keyField(people)!;
+    const person = people.rows.find((r) => String(r[pk.id] ?? "").toLowerCase() === rec.toLowerCase());
+    res.json({
+      signedIn: true,
+      person: person ? personName(people, person) : null,
+      actions: person ? actions.map((a) => ({ id: a.id, name: a.name, done: scanStatus(doc, a, rec) })) : [],
+    });
+  });
+
+  /** Records it: the server applies the action to the database and saves it (so several scanners can work at once). */
+  router.post("/:token/record", requireUser, (req, res) => {
+    const row = find(String(req.params.token));
+    const body = z
+      .object({ actionId: z.string().max(64), key: z.string().max(64), rec: z.string().max(200), now: z.string().regex(/^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d)?$/).optional() })
+      .parse(req.body);
+    // The phone's own date and time (the server runs on UTC), if it's within a day of the server's.
+    const now = body.now && Math.abs(Date.parse(`${body.now}Z`) - Date.now()) < 36 * 3600_000 ? body.now.slice(0, 19) : new Date().toISOString().slice(0, 19);
+    const result = db.transaction(() => {
+      const p = db.prepare("SELECT doc, revision FROM projects WHERE id = ?").get(row.project_id) as { doc: string; revision: number };
+      const doc = JSON.parse(p.doc) as ProjectDoc;
+      const action = actionsFor(doc, body.key).find((a) => a.id === body.actionId);
+      if (!action || !mayRecord(action, req.user!, roleIn(row.project_id, req.user!.id))) {
+        throw httpError(403, "You can't record this. Ask the database's owner to add you to the scan action's \"Who can record\" list.");
+      }
+      const r = applyScan(doc, action, body.rec, now);
+      if (r.ok) {
+        projectDocSchema.parse(doc);
+        db.prepare("UPDATE projects SET doc = ?, revision = ?, updated_at = ?, updated_by = ? WHERE id = ?").run(
+          JSON.stringify(doc),
+          p.revision + 1,
+          new Date().toISOString(),
+          req.user!.id,
+          row.project_id,
+        );
+      }
+      return r;
+    })();
+    res.json(result.ok ? { ok: true, person: result.person, message: result.message } : result);
+  });
+
   // Only pictures the report shows.
   router.get("/:token/images/:imageId", (req, res) => {
     const row = find(req.params.token);

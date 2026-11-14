@@ -31,6 +31,7 @@ export function LabelsBody({
   extra,
   hideTips,
   highlight,
+  fitWidth,
 }: {
   report: ReportDef;
   data: ResultSet;
@@ -38,8 +39,11 @@ export function LabelsBody({
   extra?: ReactNode;
   hideTips?: boolean;
   highlight?: (row: CellValue[]) => boolean;
+  /** Shrink the sheets to fit a narrow screen (a phone opening a public link). */
+  fitWidth?: boolean;
 }) {
   const l = report.labels!;
+  const zoom = fitWidth ? Math.min(1, (window.innerWidth - 24) / (PAGE_SIZES[l.page].w * 96)) : 1;
   const rows = sortedRows(data, report.sortBy);
   const perPage = l.across * l.down;
   const slots: (CellValue[] | null)[] = [...Array<null>(l.skip ?? 0).fill(null), ...rows];
@@ -71,7 +75,7 @@ export function LabelsBody({
         {problem && <div className="field-error">{problem}</div>}
         {qr.note && <div className="labels-note">{qr.note}</div>}
       </div>
-      <div className="labels-pages">{sheets}</div>
+      <div className="labels-pages" style={zoom < 1 ? { zoom } : undefined}>{sheets}</div>
       {/* Printed from a copy at the top of the page, outside the app's scrolling panes, so every sheet prints. */}
       {createPortal(<div className="labels-print">{sheets}</div>, document.body)}
     </div>
@@ -103,7 +107,7 @@ function Sheets({
                   key={i}
                   className={`label ${l.outline ? "outlined" : ""} ${highlight?.(row) ? "highlight" : ""}`}
                   style={labelBox(l, i)}
-                  ref={highlight?.(row) ? (el) => el?.scrollIntoView({ block: "center" }) : undefined}
+                  ref={highlight?.(row) ? (el) => el?.scrollIntoView({ block: "center", inline: "nearest" }) : undefined}
                 >
                   <LabelContent l={l} lines={l.lines.map((line) => fillTemplate(line.text, data.columns, data.fields, row))} qr={qr.link?.(row)} />
                 </div>

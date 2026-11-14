@@ -475,6 +475,11 @@ export const projectDocSchema = z.object({
         value: z.string().max(255).optional(),
         /** Don't record the same person twice. */
         once: z.boolean().optional(),
+        /**
+         * Signed-in people (by email) who may record this from a tag's public page, without access to
+         * the database. The owner and editors always may.
+         */
+        recorders: z.array(z.string().email().max(254)).max(200).optional(),
       }),
     )
     .max(100)

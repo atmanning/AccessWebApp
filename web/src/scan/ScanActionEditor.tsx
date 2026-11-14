@@ -23,6 +23,7 @@ export function ScanActionEditor(props: { action: ScanAction | null; onClose: ()
       },
   );
   const [error, setError] = useState<string | null>(null);
+  const [who, setWho] = useState("");
   const set = (patch: Partial<ScanAction>) => {
     setA((x) => ({ ...x, ...patch }));
     setError(null);
@@ -226,6 +227,39 @@ export function ScanActionEditor(props: { action: ScanAction | null; onClose: ()
             </>
           )
         )}
+
+        <div className="sae-who">
+          <div className="sae-who-title">Who can record</div>
+          <p className="small muted">
+            You and anyone who can edit this database, always. Add other people (they need an Access Web account) to let them record from a name tag's public page: they
+            scan the tag with their phone, sign in, and tick <strong>{a.name || "this action"}</strong>. They can't see or change anything else.
+          </p>
+          <div className="sae-chips">
+            {(a.recorders ?? []).map((e) => (
+              <span key={e} className="ix-chip">
+                {e}
+                <button aria-label={`Remove ${e}`} onClick={() => set({ recorders: (a.recorders ?? []).filter((x) => x !== e) })}>
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+          <form
+            className="sae-inline"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const email = who.trim().toLowerCase();
+              if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return setError("Please type a whole email address, like taker@example.com.");
+              if (!(a.recorders ?? []).includes(email)) set({ recorders: [...(a.recorders ?? []), email] });
+              setWho("");
+            }}
+          >
+            <input type="email" value={who} onChange={(e) => setWho(e.target.value)} placeholder="Email of someone who takes attendance" aria-label="Add a person who can record" />
+            <button type="submit" disabled={!who.trim()}>
+              Add
+            </button>
+          </form>
+        </div>
 
         <label className="sae-check">
           <input type="checkbox" checked={!!a.once} onChange={(e) => set({ once: e.target.checked })} /> Only once per person{" "}

@@ -915,3 +915,19 @@ button.props-tab.active { background: #fff; font-weight: 600; }
 .sae-kind label, .sae-check { line-height: 1.4; }
 @media (max-width: 600px) { .sae-row { grid-template-columns: 1fr; gap: 3px; } }
 .ss-bar .ss-pick { color: #222; background: #fff; }
+.sae-who { border-top: 1px solid #e6e8eb; padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.sae-who-title { font-weight: 600; }
+.sae-who p { margin: 0; line-height: 1.4; }
+.sae-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.sae .ix-chip button { min-width: 0; width: 18px; height: 18px; padding: 0; border: none; background: transparent; box-shadow: none; }
+.sae-inline input { flex: 1; min-width: 0; height: 30px; border: 1px solid #c6cbd3; border-radius: 4px; padding: 0 6px; font: inherit; }
+/* Recording from a tag's public page */
+.record-panel { max-width: 8.5in; margin: 0 auto 10px; padding: 12px 14px; background: #fff; border: 2px solid #3c9a4a; border-radius: 8px; font-family: system-ui, sans-serif; }
+.record-panel.signed-out { border: none; background: none; padding: 0 0 4px; text-align: right; font-size: 12.5px; }
+.record-title { font-size: 15px; margin-bottom: 8px; }
+.record-row { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-top: 1px solid #eef0f2; font-size: 16px; cursor: pointer; }
+.record-row input { width: 24px; height: 24px; flex: none; }
+.record-name { font-weight: 600; flex: 1; min-width: 0; }
+.record-status { color: #2f7d3a; font-size: 13.5px; text-align: right; }
+.record-row.done .record-name { color: #2f7d3a; }
+@media print { .record-panel { display: none; } }

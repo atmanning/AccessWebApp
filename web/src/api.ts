@@ -127,6 +127,14 @@ export const api = {
     call<{ token: string; updatedAt: string }>("PUT", `/api/projects/${pid}/public-reports/${reportId}`, { snapshot }),
   unpublishReport: (pid: string, reportId: string) => call<{ ok: true }>("DELETE", `/api/projects/${pid}/public-reports/${reportId}`),
   getPublicReport: (token: string) => call<{ snapshot: ReportSnapshot; updatedAt: string }>("GET", `/api/public-reports/${encodeURIComponent(token)}`),
+  /** On a tag's public page: what the signed-in person may record for that person. */
+  publicRecordOptions: (token: string, key: string, rec: string) =>
+    call<{ signedIn: boolean; person?: string | null; actions: { id: string; name: string; done: string | null }[] }>(
+      "GET",
+      `/api/public-reports/${encodeURIComponent(token)}/record?${new URLSearchParams({ key, rec })}`,
+    ),
+  publicRecord: (token: string, body: { actionId: string; key: string; rec: string; now: string }) =>
+    call<{ ok: boolean; person?: string; message: string; already?: boolean }>("POST", `/api/public-reports/${encodeURIComponent(token)}/record`, body),
   getPublicProject: (id: string) => call<{ project: ProjectRecord }>("GET", `/api/public/${id}`),
   getPublicRevision: (id: string) =>
     call<{ revision: number; updatedByName: string | null; updatedAt: string }>("GET", `/api/public/${id}/revision`),

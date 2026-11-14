@@ -40,6 +40,13 @@ function Root() {
     api.me().then((r) => setUser(r.user), () => setUser(null));
   }, []);
 
+  // Signed in from a tag's public page ("Staff: sign in"): go back to it.
+  useEffect(() => {
+    if (!user) return;
+    const next = new URLSearchParams(location.search).get("next");
+    if (next && /^\/r\/[A-Za-z0-9_-]{16,64}(\?[^#]*)?$/.test(next)) location.replace(next);
+  }, [user]);
+
   const linkedId = () => new URLSearchParams(location.search).get("db");
 
   // Signed out with a database link: it opens without an account if its owner published it.
