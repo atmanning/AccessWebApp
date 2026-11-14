@@ -48,7 +48,7 @@ export function fillTemplate(text: string, columns: string[], fields: (Field | u
 }
 
 /** The field that identifies a record in links: the table's single-field primary key. */
-export function linkKeyField(doc: ProjectDoc, source: SourceRef, target?: { kind: "form" | "table"; formId?: string }): string | null {
+export function linkKeyField(doc: ProjectDoc, source: SourceRef, target?: { kind: "form" | "table" | "public"; formId?: string }): string | null {
   let tableId = source.kind === "table" ? source.id : null;
   if (target?.kind === "form") {
     const f = doc.forms.find((x) => x.id === target.formId);
@@ -66,6 +66,15 @@ export function linkKeyField(doc: ProjectDoc, source: SourceRef, target?: { kind
 export function recordLink(base: string, projectId: string, open: { kind: "form" | "table"; id: string }, key: string, value: CellValue): string {
   const q = new URLSearchParams({ db: projectId, open: `${open.kind}:${open.id}`, key, rec: String(value ?? "") });
   return `${base.replace(/\/+$/, "")}/?${q.toString()}`;
+}
+
+/**
+ * The address a QR code opens for a public report: anyone can open it without signing in. It carries
+ * the person's key, so the page can highlight them and a scan station can tell who was scanned.
+ */
+export function publicRecordLink(base: string, token: string, key: string, value: CellValue): string {
+  const q = new URLSearchParams({ key, rec: String(value ?? "") });
+  return `${base.replace(/\/+$/, "")}/r/${token}?${q.toString()}`;
 }
 
 /** A starting layout for a source: name on line 1, something useful on line 2, a QR code. */

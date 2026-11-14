@@ -365,9 +365,11 @@ export const labelLayoutSchema = z.object({
   /** A QR code that opens the record in this database when scanned. */
   qr: z
     .object({
-      /** What the code opens: a form (on the record) or the table's datasheet. */
-      target: z.enum(["form", "table"]),
+      /** What the code opens: a form (on the record), the table's datasheet, or a public report (no sign-in). */
+      target: z.enum(["form", "table", "public"]),
       formId: z.string().max(64).optional(),
+      /** For "public": the report (made public) the code opens, highlighting the person. */
+      publicReportId: z.string().max(64).optional(),
       size: inches(0.4, 4),
       position: z.enum(["right", "left", "bottom"]),
       /** Address people scan to reach this app (default: the address it's open at). */
@@ -451,12 +453,39 @@ export const projectDocSchema = z.object({
   reports: z.array(reportSchema).max(500),
   relationships: z.array(relationshipSchema).max(1000),
   linkedTables: z.array(linkedTableSchema).max(500).optional(),
+  /** What scanning a name tag's QR code does at a scan station (Home → Scan Tags). */
+  scanActions: z
+    .array(
+      z.object({
+        id,
+        name: z.string().min(1).max(100),
+        /** The table of people the tags belong to (its primary key is in each tag's code). */
+        people: id,
+        /** "add": a record in `table` (an attendance log, achievements earned); "set": a field on the person. */
+        kind: z.enum(["add", "set"]),
+        table: id.optional(),
+        /** add: the field that stores the person's key. */
+        personField: id.optional(),
+        /** add: a Date/Time field filled with the time of the scan. */
+        timeField: id.optional(),
+        /** add: other fields filled with fixed values (e.g. Session = "Session 2"), as typed. */
+        values: z.record(z.string(), z.string().max(255)).optional(),
+        /** set: the person's field and the value it gets ("Yes", a word, or Now). */
+        field: id.optional(),
+        value: z.string().max(255).optional(),
+        /** Don't record the same person twice. */
+        once: z.boolean().optional(),
+      }),
+    )
+    .max(100)
+    .optional(),
   /** Where each table (or linked table) sits in the Relationships window, by its id. */
   relationshipLayout: z
     .record(z.string(), z.object({ x: z.number().int().min(0).max(20_000), y: z.number().int().min(0).max(20_000) }))
     .optional(),
 });
 export type ProjectDoc = z.infer<typeof projectDocSchema>;
+export type ScanAction = NonNullable<ProjectDoc["scanActions"]>[number];
 
 export type ObjectKind = "table" | "query" | "form" | "report" | "linked";
 

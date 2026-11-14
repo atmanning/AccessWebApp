@@ -10,6 +10,7 @@ import { readSource } from "../engine/engine";
 import { Modal } from "../ui/dialogs";
 import { useWorkspace, type WorkspaceApi } from "../workspace/context";
 import { qrFor } from "./LabelsView";
+import { linkKeyField } from "./labels";
 
 export const publicReportUrl = (token: string) => `${location.origin}/r/${token}`;
 
@@ -23,7 +24,10 @@ function setLinks(pid: string, next: Map<string, PublicReportLink>) {
   links = next;
   emit();
 }
-function usePublicLinks(pid: string): Map<string, PublicReportLink> {
+/** A report's public link in the open database, if it has one. */
+export const publicLinkFor = (pid: string, reportId: string | undefined) => (linksFor === pid && reportId ? links.get(reportId) : undefined);
+
+export function usePublicLinks(pid: string): Map<string, PublicReportLink> {
   const all = useSyncExternalStore(
     (l) => (listeners.add(l), () => listeners.delete(l)),
     () => links,
@@ -48,14 +52,17 @@ export async function buildSnapshot(ws: WorkspaceApi, report: ReportDef): Promis
   );
   const keep = data.columns.map((c, i) => (wanted.has(c.toLowerCase()) ? i : -1)).filter((i) => i >= 0);
   const qr = report.labels?.qr ? qrFor(ws, report, data).link : undefined;
+  // Each record's key (e.g. PersonID), so a scanned name tag can highlight its person.
+  const keyName = linkKeyField(ws.doc, report.source);
+  const ki = keyName ? data.columns.findIndex((c) => c.toLowerCase() === keyName.toLowerCase()) : -1;
   const columns = keep.map((i) => data.columns[i]);
-  const rows: CellValue[][] = data.rows.map((r) => [...keep.map((i) => r[i] ?? null), ...(qr ? [qr(r)] : [])]);
+  const rows: CellValue[][] = data.rows.map((r) => [...keep.map((i) => r[i] ?? null), ...(qr ? [qr(r)] : []), ...(ki >= 0 ? [r[ki] ?? null] : [])]);
   return {
     v: 1,
     title: report.title || report.name,
     report: { ...report, source: { kind: "table", id: "snapshot" } },
-    columns: qr ? [...columns, "__qr"] : columns,
-    fields: [...keep.map((i) => (data.fields[i] ? { type: data.fields[i]!.type } : null)), ...(qr ? [null] : [])],
+    columns: [...columns, ...(qr ? ["__qr"] : []), ...(ki >= 0 ? ["__key"] : [])],
+    fields: [...keep.map((i) => (data.fields[i] ? { type: data.fields[i]!.type } : null)), ...(qr ? [null] : []), ...(ki >= 0 ? [null] : [])],
     rows,
   };
 }

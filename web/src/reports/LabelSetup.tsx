@@ -1,4 +1,5 @@
 /** Design View for a labels report: the sheet's measurements, the lines of text, and the QR code. */
+import { usePublicLinks } from "./PublicReportDialog";
 import type { LabelLayout, LabelLine, ReportDef } from "../../../shared/model";
 import { ComboBox } from "../ui/ComboBox";
 import { useSource } from "../views/FormReportViews";
@@ -52,6 +53,8 @@ export function LabelSetup({ report }: { report: ReportDef }) {
     return !!key && !!data?.columns.some((c) => c.toLowerCase() === key.toLowerCase());
   });
   const keyField = linkKeyField(ws.doc, report.source, l.qr ? { kind: l.qr.target, formId: l.qr.formId } : undefined);
+  const publicLinks = usePublicLinks(ws.projectId);
+  const publicTarget = l.qr?.target === "public" ? ws.doc.reports.find((r) => r.id === l.qr!.publicReportId) : undefined;
   // The preview label is drawn at its real size, scaled down if it's very large.
   const scale = Math.min(1, 380 / (l.width * 96));
 
@@ -225,13 +228,29 @@ export function LabelSetup({ report }: { report: ReportDef }) {
               Opens
               <ComboBox
                 className="text-input"
-                value={l.qr.target === "form" && l.qr.formId ? `form:${l.qr.formId}` : "table"}
+                value={l.qr.target === "public" && l.qr.publicReportId ? `public:${l.qr.publicReportId}` : l.qr.target === "form" && l.qr.formId ? `form:${l.qr.formId}` : "table"}
                 ariaLabel="QR code opens"
                 options={[
-                  ...forms.map((f) => ({ value: `form:${f.id}`, label: `Form: ${f.name}` })),
-                  { value: "table", label: "The table (Datasheet View)" },
+                  ...ws.doc.reports.map((r) => ({
+                    value: `public:${r.id}`,
+                    label: `Public report: ${r.name}${publicLinks.has(r.id) ? "" : " (not public yet)"}`,
+                  })),
+                  ...forms.map((f) => ({ value: `form:${f.id}`, label: `Form: ${f.name} (sign-in needed)` })),
+                  { value: "table", label: "The table (sign-in needed)" },
                 ]}
-                onChange={(v) => update((x) => (x.qr = { ...x.qr!, ...(v === "table" ? { target: "table", formId: undefined } : { target: "form", formId: v.slice(5) }) }))}
+                onChange={(v) =>
+                  update(
+                    (x) =>
+                      (x.qr = {
+                        ...x.qr!,
+                        ...(v === "table"
+                          ? { target: "table", formId: undefined, publicReportId: undefined }
+                          : v.startsWith("public:")
+                            ? { target: "public", formId: undefined, publicReportId: v.slice(7) }
+                            : { target: "form", formId: v.slice(5), publicReportId: undefined }),
+                      }),
+                  )
+                }
               />
             </label>
             <div className="ls-grid">
@@ -268,9 +287,15 @@ export function LabelSetup({ report }: { report: ReportDef }) {
               />
             </label>
             <p className="muted small">
-              {keyField
-                ? `Each code opens that record by its ${keyField}. Whoever scans it signs in first and needs access to this database (or it must be published).`
-                : "QR codes need the table to have a primary key (or the query to include it)."}
+              {l.qr.target === "public"
+                ? publicTarget
+                  ? publicLinks.has(publicTarget.id)
+                    ? `Each code opens the public report "${publicTarget.name}" (no sign-in), highlighting that person${keyField ? ` by their ${keyField}` : ""}. A scan station (Home → Scan Tags) can also read these codes to record attendance or achievements.`
+                    : `"${publicTarget.name}" isn't public yet. Open it and click 🔗 Make public…, then come back to print.`
+                  : "Choose the public report the codes open."
+                : keyField
+                  ? `Each code opens that record by its ${keyField}. Whoever scans it signs in first and needs access to this database (or it must be published).`
+                  : "QR codes need the table to have a primary key (or the query to include it)."}
             </p>
           </>
         )}

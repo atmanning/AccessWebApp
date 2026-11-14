@@ -36,11 +36,17 @@ export function PublicReportPage({ token }: { token: string }) {
   const imageUrl = (id: string) => `/api/public-reports/${token}/images/${id}`;
   const updated = state.updatedAt ? new Date(state.updatedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "";
   const qrIdx = snap.columns.indexOf("__qr");
+  // Opened from a name tag: pick out that person.
+  const rec = new URLSearchParams(location.search).get("rec");
+  const keyIdx = snap.columns.indexOf("__key");
+  const highlight = rec !== null && keyIdx >= 0 ? (row: (string | number | boolean | null)[]) => String(row[keyIdx] ?? "") === rec : undefined;
+  const found = highlight ? snap.rows.some(highlight) : false;
 
   return (
     <div className="public-report">
       <div className="public-report-bar">
         <span className="small muted">Updated {updated}</span>
+        {found && <span className="public-report-found">★ The highlighted record is the one you scanned.</span>}
         <span className="spacer" />
         {!report.labels && (
           <button className="primary" onClick={() => window.print()}>
@@ -49,9 +55,9 @@ export function PublicReportPage({ token }: { token: string }) {
         )}
       </div>
       {report.labels ? (
-        <LabelsBody report={report} data={data} qr={qrIdx >= 0 ? { link: (row) => String(row[qrIdx] ?? "") } : {}} hideTips />
+        <LabelsBody report={report} data={data} qr={qrIdx >= 0 ? { link: (row) => String(row[qrIdx] ?? "") } : {}} hideTips highlight={highlight} />
       ) : (
-        <ReportBody report={report} data={data} imageUrl={imageUrl} />
+        <ReportBody report={report} data={data} imageUrl={imageUrl} highlight={highlight} />
       )}
       <div className="public-report-foot small muted">Shared with Access Web</div>
     </div>

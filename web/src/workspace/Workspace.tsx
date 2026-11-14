@@ -1,4 +1,5 @@
 import { produce } from "immer";
+import { ScanStation } from "../scan/ScanStation";
 import { usePublicReportSync } from "../reports/PublicReportDialog";
 import { LayoutPicker } from "../ui/LayoutPicker";
 import { useLayout, useLongPress } from "../ui/layout";
@@ -486,6 +487,7 @@ export function Workspace(props: {
 
   const [sharing, setSharing] = useState(false);
   const [schemaExport, setSchemaExport] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [newLabels, setNewLabels] = useState(false);
   /** Create → Labels: a labels report with a starting layout from the source's fields. */
   const createLabels = async (source: { kind: "table" | "query"; id: string }, preset: string, qr: boolean) => {
@@ -714,6 +716,7 @@ export function Workspace(props: {
             createForm: () => createFormOrReport("form"),
             createFormDesign: readOnly ? undefined : createFormDesign,
             createReport: () => createFormOrReport("report"),
+            scanTags: readOnly ? undefined : () => setScanning(true),
             createLabels: readOnly ? undefined : () => (doc.tables.length || doc.queries.length ? setNewLabels(true) : setStatus("Create a table first.", "error")),
             importText: publicView ? undefined : () => setImporting(true),
             importAccess: publicView ? undefined : () => accessInput.current?.click(),
@@ -879,6 +882,7 @@ export function Workspace(props: {
             }}
           />
         )}
+        {scanning && <ScanStation onClose={() => setScanning(false)} />}
         {newLabels && (
           <NewLabelsDialog
             doc={doc}

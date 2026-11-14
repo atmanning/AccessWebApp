@@ -49,7 +49,20 @@ export function ReportView({ report, tabKey }: { report: ReportDef; tabKey: stri
 }
 
 /** A list report drawn from its data: in the app, and on a public report link. */
-export function ReportBody({ report, data, imageUrl, toolbar }: { report: ReportDef; data: ResultSet; imageUrl: (id: string) => string; toolbar?: ReactNode }) {
+export function ReportBody({
+  report,
+  data,
+  imageUrl,
+  toolbar,
+  highlight,
+}: {
+  report: ReportDef;
+  data: ResultSet;
+  imageUrl: (id: string) => string;
+  toolbar?: ReactNode;
+  /** Rows to pick out (a public report opened from someone's name tag). */
+  highlight?: (row: CellValue[]) => boolean;
+}) {
   const prepared = useMemo(() => {
     const idx = (n?: string) => (n ? data.columns.findIndex((c) => c.toLowerCase() === n.toLowerCase()) : -1);
     const cols = report.columns.map((name) => ({ name, i: idx(name) })).filter((c) => c.i >= 0);
@@ -104,7 +117,7 @@ export function ReportBody({ report, data, imageUrl, toolbar }: { report: Report
                 </tr>
               )}
               {grp.rows.map((r, ri) => (
-                <tr key={ri}>
+                <tr key={ri} className={highlight?.(r) ? "highlight" : undefined} ref={highlight?.(r) ? (el) => el?.scrollIntoView({ block: "center" }) : undefined}>
                   {prepared.cols.map((c) => (
                     <td key={c.name} className={isNumericType(data.fields[c.i]?.type) ? "num" : ""}>
                       {data.fields[c.i]?.type === "Image" && r[c.i] ? (

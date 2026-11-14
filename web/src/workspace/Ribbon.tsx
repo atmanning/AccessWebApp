@@ -15,6 +15,7 @@ import {
   ImportIcon,
   InsertRowIcon,
   IndexesIcon,
+  ScanIcon,
   KeyIcon,
   NewRecordIcon,
   PrintIcon,
@@ -80,6 +81,8 @@ export interface RibbonActions {
   createFormDesign?: () => void;
   createReport: () => void;
   createLabels?: () => void;
+  /** Home → Scan Tags: the scan station. */
+  scanTags?: () => void;
   importText?: () => void;
   importAccess?: () => void;
   copy?: () => void;
@@ -333,6 +336,11 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
             {c.print && (
               <Group label="Print">
                 <Big icon={<PrintIcon size={32} />} label="Print" onClick={c.print} />
+              </Group>
+            )}
+            {actions.scanTags && (
+              <Group label="Scan">
+                <Big icon={<ScanIcon size={32} />} label="Scan Tags" onClick={actions.scanTags} title="Scan name tags' QR codes with the camera to record attendance or achievements" />
               </Group>
             )}
           </>

@@ -48,6 +48,17 @@ export const KeyIcon = svg(
     <path d="M8 8h6.5M12 8v2.5M14 8v2" stroke="#9a7a12" strokeWidth="1.3" />
   </>,
 );
+/** Scan Tags: a QR code in a camera's corners. */
+export const ScanIcon = svg(
+  <>
+    <path d="M1.5 5V2.5a1 1 0 0 1 1-1H5M11 1.5h2.5a1 1 0 0 1 1 1V5M14.5 11v2.5a1 1 0 0 1-1 1H11M5 14.5H2.5a1 1 0 0 1-1-1V11" fill="none" stroke="#2563eb" strokeWidth="1.2" strokeLinecap="round" />
+    <rect x="4" y="4" width="3" height="3" fill="#333" />
+    <rect x="9" y="4" width="3" height="3" fill="#333" />
+    <rect x="4" y="9" width="3" height="3" fill="#333" />
+    <path d="M9 9h1.5v1.5H9zM10.5 10.5H12V12h-1.5z" fill="#333" />
+  </>,
+);
+
 /** Indexes: a list with a lightning bolt (Table Design → Indexes). */
 export const IndexesIcon = svg(
   <>
