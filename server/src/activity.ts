@@ -98,8 +98,11 @@ function classify(req: Request, status: number, path: string): Match | null {
   let p: RegExpExecArray | null;
 
   if (path === "/api/auth/register" && m === "POST") return ok ? { action: "register" } : null;
-  if (path === "/api/auth/login" && m === "POST") return ok ? { action: "login" } : status === 401 ? { action: "login_failed", detail: typeof body.email === "string" ? body.email.slice(0, 254) : null } : null;
+  if (path === "/api/auth/login" && m === "POST") return ok ? { action: "login" } : status === 401 || status === 403
+        ? { action: "login_failed", detail: typeof body.email === "string" ? `${body.email.slice(0, 254)}${status === 403 ? " (suspended account)" : ""}` : null }
+        : null;
   if (path === "/api/auth/logout" && m === "POST") return { action: "logout" };
+  if (path === "/api/auth/accept-policy" && m === "POST") return ok ? { action: "accept_policy", detail: typeof body.version === "string" ? `version ${body.version.slice(0, 40)}` : null } : null;
   if (!ok) return null;
 
   if (path === "/api/projects" && m === "POST") return { action: "create_db", detail: typeof body.template === "string" && body.template !== "blank" ? `from the ${body.template} template` : null };

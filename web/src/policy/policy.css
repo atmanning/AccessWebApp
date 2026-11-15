@@ -1,0 +1,33 @@
+/* Usage Policy: the text, the public /policy page, and the agree screen */
+.policy-text { line-height: 1.55; font-size: 14px; color: #222; }
+.policy-text h2 { font-size: 16px; font-weight: 600; margin: 22px 0 6px; }
+.policy-text p { margin: 0 0 10px; }
+.policy-text ul { margin: 0 0 10px; padding-left: 22px; }
+.policy-text li { margin-bottom: 5px; }
+.policy-effective { margin: 0 0 12px; }
+.policy-summary { background: var(--accent-light, #f8e9e9); border-left: 4px solid var(--accent); padding: 12px 16px; border-radius: 4px; }
+.policy-summary ul { margin: 6px 0 0; }
+
+.policy-page { height: 100%; overflow: auto; background: #fafafa; }
+.policy-head { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--accent); color: #fff; font-weight: 600; position: sticky; top: 0; }
+.policy-head a { color: #fff; font-weight: 400; }
+.policy-main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+.policy-main h1 { font-weight: 400; font-size: 28px; margin: 0 0 6px; }
+
+.policy-agree { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 16px; background: linear-gradient(135deg, var(--accent) 0%, #6d2224 100%); }
+.policy-agree-card { background: #fff; width: 100%; max-width: 720px; max-height: 100%; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35); }
+.policy-agree-top { padding: 20px 24px 10px; border-bottom: 1px solid var(--border); }
+.policy-agree-top h1 { font-size: 20px; font-weight: 600; margin: 0 0 6px; }
+.policy-agree-top p { margin: 0; }
+.policy-agree-scroll { overflow: auto; padding: 14px 24px; flex: 1 1 auto; min-height: 0; }
+.policy-agree-top, .policy-agree-foot { flex-shrink: 0; }
+.policy-agree-foot { padding: 12px 24px 18px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
+.policy-agree-buttons { display: flex; align-items: center; gap: 10px; }
+.policy-check { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.4; }
+.policy-check input { margin-top: 2px; flex-shrink: 0; }
+
+@media (max-width: 600px) {
+  .policy-agree { padding: 0; }
+  .policy-agree-card { height: 100%; }
+  .policy-agree-top, .policy-agree-scroll, .policy-agree-foot { padding-left: 16px; padding-right: 16px; }
+}

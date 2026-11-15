@@ -36,7 +36,7 @@ function makeApp(opts: { allowPrivateHosts?: boolean } = {}) {
 
 async function signUp(app: ReturnType<typeof makeApp>, email: string) {
   const agent = request.agent(app);
-  const res = await agent.post("/api/auth/register").send({ email, name: "Test User", password: "correct horse" });
+  const res = await agent.post("/api/auth/register").send({ email, name: "Test User", password: "correct horse", acceptPolicy: true });
   expect(res.status).toBe(201);
   return agent;
 }
@@ -57,9 +57,9 @@ describe("auth", () => {
 
   it("rejects duplicate emails and weak passwords", async () => {
     await signUp(app, "dup@example.com");
-    const dup = await request(app).post("/api/auth/register").send({ email: "dup@example.com", name: "X", password: "longenough" });
+    const dup = await request(app).post("/api/auth/register").send({ email: "dup@example.com", name: "X", password: "longenough", acceptPolicy: true });
     expect(dup.status).toBe(409);
-    const weak = await request(app).post("/api/auth/register").send({ email: "w@example.com", name: "X", password: "short" });
+    const weak = await request(app).post("/api/auth/register").send({ email: "w@example.com", name: "X", password: "short", acceptPolicy: true });
     expect(weak.status).toBe(400);
     expect(weak.body.error).toMatch(/8 characters/);
   });
@@ -652,5 +652,75 @@ describe("admin page", () => {
     const boss = await signUp(app, "boss@example.com");
     expect((await first.get("/api/admin/overview")).status).toBe(404);
     expect((await boss.get("/api/admin/overview")).status).toBe(200);
+  });
+});
+
+describe("usage policy and suspended accounts", () => {
+  it("requires agreeing to the policy to register, and records the version", async () => {
+    const app = makeApp();
+    const r = await request(app).post("/api/auth/register").send({ email: "nope@example.com", name: "N", password: "correct horse" });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toMatch(/Usage Policy/);
+    const pol = (await request(app).get("/api/auth/policy")).body;
+    expect(pol.version).toMatch(/^\d{4}-\d\d-\d\d$/);
+    const a = await signUp(app, "yes@example.com");
+    expect((await a.get("/api/auth/me")).body.user.needsPolicy).toBeUndefined();
+  });
+
+  it("asks people who haven't agreed to the current version, and blocks the app until they do", async () => {
+    const db = openDatabase(":memory:");
+    const app = createApp({
+      connections: { secrets: createSecretBox(dataDir, "test-secret"), allowPrivateHosts: true },
+      db,
+      exportAccdb: createExporter(javaTool),
+      importAccess: createImporter(javaTool),
+      secureCookies: false,
+    });
+    const a = await signUp(app, "old@example.com");
+    db.prepare("UPDATE users SET policy_version = NULL").run(); // registered before the policy
+    expect((await a.get("/api/auth/me")).body.user.needsPolicy).toBe(true);
+    const blocked = await a.get("/api/projects");
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.code).toBe("policy");
+    expect((await a.post("/api/auth/accept-policy").send({ version: "1999-01-01" })).status).toBe(409);
+    const { version } = (await a.get("/api/auth/policy")).body;
+    const ok = await a.post("/api/auth/accept-policy").send({ version });
+    expect(ok.body.user.needsPolicy).toBeUndefined();
+    expect((await a.get("/api/projects")).status).toBe(200);
+  });
+
+  it("lets an admin suspend an account: signed out, can't sign in, its shared and public databases close; reinstating restores it", async () => {
+    const app = makeApp();
+    const admin = await signUp(app, "admin@example.com");
+    const bad = await signUp(app, "bad@example.com");
+    const friend = await signUp(app, "friend@example.com");
+    const p = (await bad.post("/api/projects").send({ name: "Spam" })).body.project;
+    await bad.put(`/api/projects/${p.id}/shares`).send({ email: "friend@example.com", permission: "view" });
+    await bad.put(`/api/projects/${p.id}/public-access`).send({ publicView: true });
+    expect((await request(app).get(`/api/public/${p.id}`)).status).toBe(200);
+    const badId = (await bad.get("/api/auth/me")).body.user.id;
+
+    expect((await admin.post(`/api/admin/users/${badId}/suspend`).send({ reason: "" })).status).toBe(400);
+    expect((await admin.post(`/api/admin/users/${badId}/suspend`).send({ reason: "Phishing page in a public report" })).status).toBe(200);
+    expect((await bad.get("/api/auth/me")).body.user).toBeNull();
+    const login = await request(app).post("/api/auth/login").send({ email: "bad@example.com", password: "correct horse" });
+    expect(login.status).toBe(403);
+    expect(login.body.error).toMatch(/suspended/);
+    expect((await friend.get(`/api/projects/${p.id}`)).status).toBe(404);
+    expect((await friend.get("/api/projects")).body.shared).toHaveLength(0);
+    expect((await request(app).get(`/api/public/${p.id}`)).status).toBe(404);
+
+    const row = (await admin.get("/api/admin/users")).body.users.find((u: { email: string }) => u.email === "bad@example.com");
+    expect(row).toMatchObject({ suspendedReason: "Phishing page in a public report" });
+    expect(row.policyVersion).toMatch(/^\d{4}/);
+    const log = (await admin.get("/api/admin/activity?action=suspend")).body.entries;
+    expect(log[0]).toMatchObject({ email: "bad@example.com" });
+    expect(log[0].detail).toContain("by admin@example.com");
+    const adminId = (await admin.get("/api/auth/me")).body.user.id;
+    expect((await admin.post(`/api/admin/users/${adminId}/suspend`).send({ reason: "x" })).status).toBe(400);
+
+    expect((await admin.post(`/api/admin/users/${badId}/unsuspend`).send({})).status).toBe(200);
+    expect((await request(app).post("/api/auth/login").send({ email: "bad@example.com", password: "correct horse" })).status).toBe(200);
+    expect((await friend.get(`/api/projects/${p.id}`)).status).toBe(200);
   });
 });

@@ -59,6 +59,8 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
+  // The Usage Policy changed while the app was open: the app asks for agreement (see App.tsx).
+  if (res.status === 403 && data.code === "policy") window.dispatchEvent(new Event("accessweb:policy"));
   if (!res.ok) throw new ApiError(data.error ?? statusMessage(res.status, "request"), res.status, data);
   return data as T;
 }
@@ -111,8 +113,10 @@ export const api = {
   /** Which build is running: commit and build time. */
   version: () => call<VersionInfo>("GET", "/api/version"),
   login: (email: string, password: string) => call<{ user: UserInfo }>("POST", "/api/auth/login", { email, password }),
-  register: (name: string, email: string, password: string) =>
-    call<{ user: UserInfo }>("POST", "/api/auth/register", { name, email, password }),
+  register: (name: string, email: string, password: string, acceptPolicy: boolean) =>
+    call<{ user: UserInfo }>("POST", "/api/auth/register", { name, email, password, acceptPolicy }),
+  policyInfo: () => call<{ version: string; contact: string | null }>("GET", "/api/auth/policy"),
+  acceptPolicy: (version: string) => call<{ user: UserInfo }>("POST", "/api/auth/accept-policy", { version }),
   logout: () => call<{ ok: true }>("POST", "/api/auth/logout", {}),
 
   // Site admin page (admins only)
@@ -121,6 +125,8 @@ export const api = {
   adminUser: (id: string) => call<AdminUserDetail>("GET", `/api/admin/users/${encodeURIComponent(id)}`),
   adminActivity: (f: AdminActivityFilter, before?: number) =>
     call<{ entries: ActivityEntry[]; more: number | null }>("GET", `/api/admin/activity?${activityParams(f, before)}`),
+  adminSuspend: (id: string, reason: string) => call<{ ok: true }>("POST", `/api/admin/users/${encodeURIComponent(id)}/suspend`, { reason }),
+  adminUnsuspend: (id: string) => call<{ ok: true }>("POST", `/api/admin/users/${encodeURIComponent(id)}/unsuspend`, {}),
   adminActivityCsvUrl: (f: AdminActivityFilter) => `/api/admin/activity.csv?${activityParams(f)}`,
 
   listProjects: () => call<{ projects: ProjectSummary[]; shared: ProjectSummary[] }>("GET", "/api/projects"),

@@ -77,3 +77,13 @@ th.num .admin-sort { text-align: right; }
   .admin-tile { padding: 10px 12px; }
 }
 .admin-table button.link { text-align: left; }
+
+.admin-badge.suspended { background: #fde2e2; color: #a02020; }
+.admin-suspend-row { margin: -6px 0 14px; }
+.admin-suspended { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; background: #fdf0f0; border: 1px solid #e8b4b4; border-radius: 6px; padding: 12px 16px; margin: -4px 0 16px; }
+.admin-suspended > div:first-child { flex: 1 1 320px; }
+.admin-suspend-form { background: #fff; border: 1px solid #e8b4b4; border-radius: 6px; padding: 14px 16px; margin: -4px 0 16px; max-width: 640px; display: flex; flex-direction: column; gap: 8px; }
+.admin-suspend-form p { margin: 0; }
+.admin-suspend-form label { display: flex; flex-direction: column; gap: 4px; }
+.admin-suspend-form .text-input { padding: 6px 8px; }
+.admin-suspend-buttons { display: flex; gap: 8px; }

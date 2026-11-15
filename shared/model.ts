@@ -576,6 +576,8 @@ export interface UserInfo {
   name: string;
   /** Can open the site admin page. */
   admin?: boolean;
+  /** Hasn't agreed to the current Usage Policy yet: asked before anything else. */
+  needsPolicy?: boolean;
 }
 
 /**

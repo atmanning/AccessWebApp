@@ -112,6 +112,7 @@ NODE_ENV=production SECURE_COOKIES=false PORT=3000 npm start
 | `IMAGE_QUOTA_MB` | `200` | Total size of pictures (Image fields) each database may store, in MB |
 | `ADMIN_EMAILS` | first account registered | Comma-separated emails that can open the **Site admin** page (`/admin`). Set it on a public server so admin access doesn't depend on who signed up first |
 | `ACTIVITY_LOG_DAYS` | `90` | How long the admin page's activity log keeps entries |
+| `CONTACT_EMAIL` | none | Shown in the Usage Policy as who to contact about it or to report misuse |
 | `ALLOW_PRIVATE_DB_HOSTS` | `false` | Allow MySQL connections to private/internal addresses (localhost, 10.x, 192.168.x, cloud metadata). Leave off on a public server |
 
 ## Exporting to Access
@@ -180,6 +181,12 @@ Admins (see `ADMIN_EMAILS`) get a **Site admin** button on the Home page, which 
 - **Activity**: a searchable, filterable log of sign-ins (and failed ones), databases created, opened, saved, renamed, copied, exported, deleted and shared, public links and views, name-tag recordings, MySQL use and server errors, with IP addresses. Repeats within 10 minutes fold into one line ("Saved changes ×12"). Download it as CSV.
 
 The log records actions, database names and sizes, never what's in anyone's tables. Non-admins get "not found" from the admin API.
+
+## Usage Policy
+
+Everyone agrees to the **Usage Policy** (`/policy`, text in `shared/policy.ts`) when they create an account: their data is theirs and is never sold, what the site records, what isn't allowed, and that misuse gets an account banned. Which version each person agreed to, and when, is stored. People who registered earlier, or before a new version, are asked to agree at their next visit; until they do, the app's API refuses their requests. To publish a new version, edit the text and change `POLICY_VERSION`.
+
+Admins can **suspend** an account from its page in Site admin, giving a reason. It's signed out everywhere and can't sign in, and its databases close to the people it shared them with and to public links (public databases and public reports). Nothing is deleted, and **Reinstate account** puts everything back. Both are recorded in the activity log.
 
 ## Security notes
 

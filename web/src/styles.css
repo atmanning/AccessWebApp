@@ -67,6 +67,8 @@ button.link { background: none; border: none; padding: 0; color: #0b5cad; text-d
 .auth-brand { display: flex; align-items: center; gap: 12px; }
 .auth-product { font-size: 18px; font-weight: 600; }
 .auth-switch { text-align: center; }
+.auth-card label.auth-agree { flex-direction: row; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.45; color: #333; }
+.auth-agree input { margin-top: 2px; flex-shrink: 0; }
 
 /* ---------- home (backstage-style start page) ---------- */
 .home { display: flex; height: 100%; }

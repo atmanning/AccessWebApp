@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ACTIVITY_ACTIONS, type ActivityAction, type ActivityEntry, type AdminOverview, type AdminUserDetail, type AdminUserRow } from "../../../shared/activity";
 import type { UserInfo } from "../../../shared/model";
 import { api, type AdminActivityFilter } from "../api";
+import { POLICY_VERSION } from "../../../shared/policy";
 import { AccessIcon } from "../ui/icons";
 import "./admin.css";
 
@@ -213,6 +214,7 @@ function People({ onOpen }: { onOpen: (id: string) => void }) {
                       {u.name || u.email}
                     </button>
                     {u.admin && <span className="admin-badge">Admin</span>}
+                    {u.suspendedAt && <span className="admin-badge suspended">Suspended</span>}
                     <div className="small muted">{u.email}</div>
                   </td>
                   <td className="col-minor" title={fullTime(u.createdAt)}>
@@ -238,9 +240,10 @@ function People({ onOpen }: { onOpen: (id: string) => void }) {
 function Person({ id, onBack, onActivity }: { id: string; onBack: () => void; onActivity: (u: AdminUserDetail) => void }) {
   const [u, setU] = useState<AdminUserDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(0);
   useEffect(() => {
     api.adminUser(id).then(setU, (e) => setError(e.message));
-  }, [id]);
+  }, [id, loaded]);
   return (
     <>
       <button className="link admin-back" onClick={onBack}>
@@ -252,7 +255,9 @@ function Person({ id, onBack, onActivity }: { id: string; onBack: () => void; on
         <>
           <h1>
             {u.name || u.email} {u.admin && <span className="admin-badge">Admin</span>}
+            {u.suspendedAt && <span className="admin-badge suspended">Suspended</span>}
           </h1>
+          <Suspension u={u} onChanged={() => setLoaded((n) => n + 1)} />
           <dl className="admin-facts">
             <div>
               <dt>Email</dt>
@@ -275,6 +280,19 @@ function Person({ id, onBack, onActivity }: { id: string; onBack: () => void; on
             <div>
               <dt>Storage</dt>
               <dd>{bytes(u.storageBytes)}</dd>
+            </div>
+            <div>
+              <dt>Usage Policy</dt>
+              <dd>
+                {u.policyAcceptedAt ? (
+                  <>
+                    Agreed {fullTime(u.policyAcceptedAt)}
+                    {u.policyVersion !== POLICY_VERSION && <span className="muted"> (an older version; asked again at next visit)</span>}
+                  </>
+                ) : (
+                  <span className="muted">Not yet (asked at their next visit)</span>
+                )}
+              </dd>
             </div>
             <div>
               <dt>Shared with them</dt>
@@ -328,6 +346,80 @@ function Person({ id, onBack, onActivity }: { id: string; onBack: () => void; on
         </>
       )}
     </>
+  );
+}
+
+/** Suspend (ban) an account for misuse, or reinstate it. */
+function Suspension({ u, onChanged }: { u: AdminUserDetail; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const run = async (f: () => Promise<unknown>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await f();
+      setOpen(false);
+      setReason("");
+      onChanged();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (u.admin) return null;
+  if (u.suspendedAt) {
+    return (
+      <div className="admin-suspended" role="status">
+        <div>
+          <strong>Suspended {fullTime(u.suspendedAt)}.</strong> {u.suspendedReason && <>Reason: {u.suspendedReason}</>}
+          <div className="small">They can't sign in, and their databases are closed to the people they shared them with and to public links. Nothing has been deleted.</div>
+        </div>
+        <button disabled={busy} onClick={() => void run(() => api.adminUnsuspend(u.id))}>
+          Reinstate account
+        </button>
+        {error && <div className="field-error">{error}</div>}
+      </div>
+    );
+  }
+  if (!open) {
+    return (
+      <div className="admin-suspend-row">
+        <button className="danger" onClick={() => setOpen(true)}>
+          Suspend account…
+        </button>
+      </div>
+    );
+  }
+  return (
+    <form
+      className="admin-suspend-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void run(() => api.adminSuspend(u.id, reason));
+      }}
+    >
+      <strong>Suspend {u.name || u.email}?</strong>
+      <p className="small">
+        For misuse under the Usage Policy. They'll be signed out everywhere and won't be able to sign in. Their databases close to the people they shared them with and to
+        public links. Nothing is deleted, and you can reinstate the account later. Consider emailing them to say why.
+      </p>
+      <label className="small">
+        Reason (kept with the account and in the activity log)
+        <input className="text-input" value={reason} maxLength={500} autoFocus onChange={(e) => setReason(e.target.value)} placeholder="e.g. Phishing page in a public report" />
+      </label>
+      {error && <div className="field-error">{error}</div>}
+      <div className="admin-suspend-buttons">
+        <button type="submit" className="danger" disabled={busy || !reason.trim()}>
+          {busy ? "Suspending…" : "Suspend account"}
+        </button>
+        <button type="button" onClick={() => (setOpen(false), setError(null))}>
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }
 

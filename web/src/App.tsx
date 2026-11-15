@@ -10,6 +10,8 @@ import { AccessIcon, TableIcon } from "./ui/icons";
 import { Workspace } from "./workspace/Workspace";
 import { PublicReportPage, publicReportToken } from "./reports/PublicReportPage";
 import { AdminPage } from "./admin/AdminPage";
+import { PolicyAgreeScreen, PolicyPage } from "./policy/Policy";
+import { POLICY_TITLE } from "../../shared/policy";
 import type { DeepLink } from "./workspace/context";
 import { validateObjectName } from "./workspace/docOps";
 import { emptyProject } from "../../shared/model";
@@ -18,6 +20,8 @@ export default function App() {
   // A public report link (/r/…) shows just that report: no sign-in, no database.
   const reportToken = publicReportToken();
   if (reportToken) return <PublicReportPage token={reportToken} />;
+  // The Usage Policy, readable by anyone.
+  if (location.pathname.replace(/\/$/, "") === "/policy") return <PolicyPage />;
   return (
     <DialogProvider>
       <Root />
@@ -103,6 +107,13 @@ function Root() {
     setUser(null);
   };
 
+  // The policy changed while the app was open: ask now, over whatever is open (nothing is lost).
+  useEffect(() => {
+    const ask = () => setUser((u) => (u ? { ...u, needsPolicy: true } : u));
+    window.addEventListener("accessweb:policy", ask);
+    return () => window.removeEventListener("accessweb:policy", ask);
+  }, []);
+
   // /admin for someone who isn't an admin: just their own Home page.
   useEffect(() => {
     if (user && !user.admin && adminView) showAdmin(false);
@@ -131,8 +142,17 @@ function Root() {
     );
   }
   if (!user) return <AuthScreen onSignedIn={setUser} onBack={guestProject ? () => setWantsSignIn(false) : undefined} />;
+  const policyScreen = user.needsPolicy && <PolicyAgreeScreen user={user} onAgreed={setUser} onSignOut={signOut} />;
+  // Not agreed yet, nothing open: only the policy (Home would just be refused).
+  if (policyScreen && !project) return policyScreen;
   if (adminView && !project && user.admin) return <AdminPage user={user} onExit={() => showAdmin(false)} />;
-  if (project) return <Workspace key={project.id} project={project} user={user} deepLink={linkFor(project.id)} onClose={() => open(null)} onSignOut={signOut} onOpenProject={open} />;
+  if (project)
+    return (
+      <>
+        <Workspace key={project.id} project={project} user={user} deepLink={linkFor(project.id)} onClose={() => open(null)} onSignOut={signOut} onOpenProject={open} />
+        {policyScreen}
+      </>
+    );
   return <Home user={user} onOpen={open} onSignOut={signOut} onAdmin={user.admin ? () => showAdmin(true) : undefined} notice={linkError} onDismissNotice={() => setLinkError(null)} />;
 }
 
@@ -158,6 +178,7 @@ function AuthScreen({ onSignedIn, onBack }: { onSignedIn: (u: UserInfo) => void;
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -166,7 +187,11 @@ function AuthScreen({ onSignedIn, onBack }: { onSignedIn: (u: UserInfo) => void;
     setError(null);
     setBusy(true);
     try {
-      const r = mode === "signin" ? await api.login(email, password) : await api.register(name, email, password);
+      if (mode === "register" && !agreed) {
+        setError(`Please read the ${POLICY_TITLE} and tick the box to agree to it.`);
+        return;
+      }
+      const r = mode === "signin" ? await api.login(email, password) : await api.register(name, email, password, agreed);
       onSignedIn(r.user);
     } catch (err) {
       setError((err as Error).message);
@@ -209,6 +234,18 @@ function AuthScreen({ onSignedIn, onBack }: { onSignedIn: (u: UserInfo) => void;
           />
         </label>
         {mode === "register" && <div className="small muted">At least 8 characters.</div>}
+        {mode === "register" && (
+          <label className="auth-agree">
+            <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
+            <span>
+              I have read and agree to the{" "}
+              <a href="/policy" target="_blank" rel="noopener">
+                {POLICY_TITLE}
+              </a>
+              . In short: your data is yours and is never sold; misuse gets an account banned.
+            </span>
+          </label>
+        )}
         {error && <div className="field-error" role="alert">{error}</div>}
         <button className="primary wide" disabled={busy}>{busy ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}</button>
         <div className="auth-switch">
@@ -217,7 +254,12 @@ function AuthScreen({ onSignedIn, onBack }: { onSignedIn: (u: UserInfo) => void;
             {mode === "signin" ? "Create one" : "Sign in"}
           </button>
         </div>
-        <div className="auth-switch"><VersionStamp /></div>
+        <div className="auth-switch small">
+          <a href="/policy" target="_blank" rel="noopener">
+            {POLICY_TITLE}
+          </a>{" "}
+          · <VersionStamp />
+        </div>
         {onBack && (
           <div className="auth-switch">
             <button type="button" className="link" onClick={onBack}>Back to the database</button>

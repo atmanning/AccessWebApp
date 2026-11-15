@@ -55,6 +55,8 @@ const app = createApp({
   // Who can open the admin page; when not set, the first account registered.
   adminEmails: (env.ADMIN_EMAILS ?? "").split(",").filter((e) => e.trim()),
   logDays: Number(env.ACTIVITY_LOG_DAYS ?? 90) || 90,
+  // Shown in the Usage Policy as who to contact about it or to report misuse.
+  contact: env.CONTACT_EMAIL?.trim() || null,
 });
 
 // HOST=127.0.0.1 accepts connections from this computer only (the local launchers set it).

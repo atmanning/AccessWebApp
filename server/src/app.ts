@@ -30,6 +30,8 @@ export interface AppOptions {
   adminEmails?: string[];
   /** How long the activity log keeps lines (default 90 days). */
   logDays?: number;
+  /** Who to contact about the Usage Policy or misuse (CONTACT_EMAIL), shown in the policy. */
+  contact?: string | null;
 }
 
 export function createApp(opts: AppOptions) {
@@ -53,7 +55,8 @@ export function createApp(opts: AppOptions) {
   app.use(cookieParser());
   app.use(loadUser(opts.db));
   const logDays = opts.logDays ?? 90;
-  app.use(activityMiddleware(opts.db, createActivityLog(opts.db, { retentionDays: logDays })));
+  const activityLog = createActivityLog(opts.db, { retentionDays: logDays });
+  app.use(activityMiddleware(opts.db, activityLog));
   const isAdmin = adminCheck(opts.db, opts.adminEmails ?? []);
 
   // CSRF defence: state-changing API calls must be JSON or carry X-Requested-With. A cross-site
@@ -71,8 +74,8 @@ export function createApp(opts: AppOptions) {
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
   const version: VersionInfo = opts.version ?? { commit: null, builtAt: null, startedAt: new Date().toISOString() };
   app.get("/api/version", (_req, res) => res.json(version));
-  app.use("/api/auth", authRouter(opts.db, { secureCookies: opts.secureCookies, isAdmin }));
-  app.use("/api/admin", adminRouter(opts.db, { isAdmin, logDays }));
+  app.use("/api/auth", authRouter(opts.db, { secureCookies: opts.secureCookies, isAdmin, contact: opts.contact ?? null }));
+  app.use("/api/admin", adminRouter(opts.db, { isAdmin, logDays, log: activityLog }));
   app.use("/api/projects/:id/connections", connectionsRouter(opts.db, opts.connections));
   app.use("/api/projects/:id/images", imagesRouter(opts.db, opts.images ?? { maxBytesPerProject: 200 * 1024 * 1024 }));
   app.use("/api/public/:id/images", publicImagesRouter(opts.db));

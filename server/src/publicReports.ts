@@ -112,7 +112,9 @@ export function publicReportsReadRouter(db: DB) {
       return keyField(people)?.name.toLowerCase() === key.toLowerCase();
     });
   const find = (token: string) => {
-    const row = /^[A-Za-z0-9_-]{16,64}$/.test(token) ? (db.prepare("SELECT * FROM public_reports WHERE token = ?").get(token) as Row | undefined) : undefined;
+    const row = /^[A-Za-z0-9_-]{16,64}$/.test(token) ? (db
+          .prepare("SELECT r.* FROM public_reports r JOIN projects p ON p.id = r.project_id JOIN users o ON o.id = p.user_id WHERE r.token = ? AND o.suspended_at IS NULL")
+          .get(token) as Row | undefined) : undefined;
     if (!row) throw httpError(404, "This report isn't shared publicly any more. Ask the person who sent the link for a new one.");
     return row;
   };

@@ -122,6 +122,13 @@ const MIGRATIONS: string[] = [
   CREATE INDEX activity_user ON activity(user_id, id);
   CREATE INDEX activity_action ON activity(action, id);
   `,
+  // 8: the Usage Policy (which version each person agreed to, and when) and suspended accounts
+  `
+  ALTER TABLE users ADD COLUMN policy_version TEXT;
+  ALTER TABLE users ADD COLUMN policy_accepted_at TEXT;
+  ALTER TABLE users ADD COLUMN suspended_at TEXT;
+  ALTER TABLE users ADD COLUMN suspended_reason TEXT;
+  `,
 ];
 
 export function openDatabase(file: string): DB {

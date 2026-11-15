@@ -9,6 +9,7 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import { z } from "zod";
 import { ACTIVITY_ACTIONS, type ActivityEntry, type AdminOverview, type AdminUserDetail, type AdminUserRow } from "../../shared/activity.js";
 import type { DB } from "./db.js";
+import type { ActivityLog } from "./activity.js";
 import { httpError } from "./projects.js";
 
 export function adminCheck(db: DB, adminEmails: string[]) {
@@ -65,7 +66,7 @@ const csvCell = (v: unknown) => {
   return `"${(/^[=+\-@]/.test(s) ? `'${s}` : s).replace(/"/g, '""')}"`;
 };
 
-export function adminRouter(db: DB, opts: { isAdmin: (u: Request["user"]) => boolean; logDays: number }) {
+export function adminRouter(db: DB, opts: { isAdmin: (u: Request["user"]) => boolean; logDays: number; log?: ActivityLog }) {
   const router = Router();
   router.use((req: Request, res: Response, next: NextFunction) => {
     if (!req.user) return void res.status(401).json({ error: "Please sign in." });
@@ -116,6 +117,8 @@ export function adminRouter(db: DB, opts: { isAdmin: (u: Request["user"]) => boo
 
   const USER_SELECT = `
     SELECT u.id, u.email, u.name, u.created_at AS createdAt, u.last_seen_at AS lastSeenAt,
+      u.suspended_at AS suspendedAt, u.suspended_reason AS suspendedReason,
+      u.policy_version AS policyVersion, u.policy_accepted_at AS policyAcceptedAt,
       (SELECT COUNT(*) FROM projects p WHERE p.user_id = u.id) AS databases,
       (SELECT COUNT(*) FROM project_shares s WHERE s.user_id = u.id) AS sharedWithThem,
       COALESCE((SELECT SUM(length(p.doc)) FROM projects p WHERE p.user_id = u.id), 0)
@@ -157,6 +160,30 @@ export function adminRouter(db: DB, opts: { isAdmin: (u: Request["user"]) => boo
       activity,
     };
     res.json(detail);
+  });
+
+  // Suspending an account (a ban for misuse): it can't sign in, it's signed out everywhere, and its
+  // databases close to the people it shared them with and to public links. Nothing is deleted, so
+  // reinstating puts everything back.
+  router.post("/users/:id/suspend", (req, res) => {
+    const reason = z.object({ reason: z.string().trim().min(1, "Please say why, for the record (for example, what the misuse was).").max(500) }).parse(req.body).reason;
+    const u = db.prepare("SELECT id, email, name, suspended_at FROM users WHERE id = ?").get(req.params.id) as { id: string; email: string; name: string; suspended_at: string | null } | undefined;
+    if (!u) throw httpError(404, "That account doesn't exist any more.");
+    if (u.id === req.user!.id || opts.isAdmin(u)) throw httpError(400, "Admin accounts can't be suspended here. Remove the email from ADMIN_EMAILS first.");
+    db.transaction(() => {
+      db.prepare("UPDATE users SET suspended_at = COALESCE(suspended_at, ?), suspended_reason = ? WHERE id = ?").run(new Date().toISOString(), reason, u.id);
+      db.prepare("DELETE FROM sessions WHERE user_id = ?").run(u.id);
+    })();
+    opts.log?.write({ action: "suspend", userId: u.id, email: u.email, detail: `${reason} (by ${req.user!.email})`, ip: req.ip ?? null });
+    res.json({ ok: true });
+  });
+
+  router.post("/users/:id/unsuspend", (req, res) => {
+    const u = db.prepare("SELECT id, email FROM users WHERE id = ?").get(req.params.id) as { id: string; email: string } | undefined;
+    if (!u) throw httpError(404, "That account doesn't exist any more.");
+    db.prepare("UPDATE users SET suspended_at = NULL, suspended_reason = NULL WHERE id = ?").run(u.id);
+    opts.log?.write({ action: "unsuspend", userId: u.id, email: u.email, detail: `by ${req.user!.email}`, ip: req.ip ?? null });
+    res.json({ ok: true });
   });
 
   const findActivity = (query: z.infer<typeof activityQuery>) => {

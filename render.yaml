@@ -30,5 +30,7 @@ services:
         value: "1"
       - key: ADMIN_EMAILS       # who can open the Site admin page (comma-separated); set it in the dashboard
         sync: false
+      - key: CONTACT_EMAIL      # shown in the Usage Policy for questions and misuse reports
+        sync: false
       - key: CONNECTION_SECRET  # encrypts saved MySQL passwords; generated once by Render
         generateValue: true

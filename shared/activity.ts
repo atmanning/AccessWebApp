@@ -31,6 +31,9 @@ export const ACTIVITY_ACTIONS = {
   add_connection: "Added a MySQL connection",
   run_sql: "Ran SQL on MySQL",
   import_mysql: "Imported from MySQL",
+  accept_policy: "Agreed to the Usage Policy",
+  suspend: "Account suspended",
+  unsuspend: "Account reinstated",
   error: "Server error",
 } as const;
 
@@ -81,6 +84,10 @@ export interface AdminUserRow {
   storageBytes: number;
   actions30: number;
   admin: boolean;
+  suspendedAt: string | null;
+  suspendedReason: string | null;
+  policyVersion: string | null;
+  policyAcceptedAt: string | null;
 }
 
 export interface AdminUserDetail extends AdminUserRow {

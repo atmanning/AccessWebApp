@@ -34,6 +34,7 @@ interface ProjectRow {
 /** A project row joined with what the summary needs. */
 interface ProjectListRow extends ProjectRow {
   owner_name: string;
+  owner_suspended: string | null;
   updated_by_name: string | null;
   role?: ProjectRole;
 }
@@ -85,7 +86,7 @@ export type ImportAccess = (file: Buffer) => Promise<{ doc: ProjectDoc; warnings
 const accessUpload = express.raw({ type: () => true, limit: "100mb" });
 
 const SELECT_PROJECT = `
-  SELECT p.*, o.name AS owner_name, u.name AS updated_by_name
+  SELECT p.*, o.name AS owner_name, o.suspended_at AS owner_suspended, u.name AS updated_by_name
   FROM projects p
   JOIN users o ON o.id = p.user_id
   LEFT JOIN users u ON u.id = p.updated_by`;
@@ -108,6 +109,8 @@ export function projectLoader(db: DB) {
       role = perms.includes("edit") ? "edit" : perms.includes("view") ? "view" : null;
     }
     if (!role) throw httpError(404, "This database doesn't exist, or it isn't shared with you.");
+    // A suspended owner's databases are closed to everyone they shared them with.
+    if (row.owner_suspended) throw httpError(404, "This database isn't available any more.");
     if (need === "owner" && role !== "owner") throw httpError(403, "Only the owner can do that.");
     if (need === "edit" && role === "view") throw httpError(403, "You have view-only access to this database.");
     return { row, role };
@@ -155,7 +158,7 @@ export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise
         `${SELECT_PROJECT}
          LEFT JOIN project_shares s ON s.project_id = p.id AND s.user_id = @user
          LEFT JOIN project_opens v ON v.project_id = p.id AND v.user_id = @user
-         WHERE p.user_id != @user AND (s.user_id IS NOT NULL OR (v.user_id IS NOT NULL AND p.link_access != 'none'))
+         WHERE p.user_id != @user AND o.suspended_at IS NULL AND (s.user_id IS NOT NULL OR (v.user_id IS NOT NULL AND p.link_access != 'none'))
          ORDER BY p.updated_at DESC`,
       )
       .all({ user: userId }) as (ProjectListRow & { permission?: string })[];
@@ -346,7 +349,7 @@ export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise
 export function publicRouter(db: DB) {
   const router = Router();
   const loadPublic = (id: string) => {
-    const row = db.prepare(`${SELECT_PROJECT} WHERE p.id = ? AND p.public_view = 1`).get(id) as ProjectListRow | undefined;
+    const row = db.prepare(`${SELECT_PROJECT} WHERE p.id = ? AND p.public_view = 1 AND o.suspended_at IS NULL`).get(id) as ProjectListRow | undefined;
     if (!row) throw httpError(404, "This database isn't shared publicly.");
     return row;
   };
