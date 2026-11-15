@@ -574,6 +574,8 @@ export interface UserInfo {
   id: string;
   email: string;
   name: string;
+  /** Can open the site admin page. */
+  admin?: boolean;
 }
 
 /**

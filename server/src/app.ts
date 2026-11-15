@@ -7,6 +7,8 @@ import path from "node:path";
 import { ZodError } from "zod";
 import type { DB } from "./db.js";
 import { authRouter, loadUser } from "./auth.js";
+import { activityMiddleware, createActivityLog } from "./activity.js";
+import { adminCheck, adminRouter } from "./admin.js";
 import { projectsRouter, publicRouter, type ImportAccess } from "./projects.js";
 import { connectionsRouter, type ConnectionsOptions } from "./connections.js";
 import { imagesRouter, publicImagesRouter, type ImageOptions } from "./images.js";
@@ -24,6 +26,10 @@ export interface AppOptions {
   trustProxy?: boolean;
   /** Which build is running (GET /api/version). */
   version?: VersionInfo;
+  /** Who can open the admin page (ADMIN_EMAILS); empty = the first account registered. */
+  adminEmails?: string[];
+  /** How long the activity log keeps lines (default 90 days). */
+  logDays?: number;
 }
 
 export function createApp(opts: AppOptions) {
@@ -46,6 +52,9 @@ export function createApp(opts: AppOptions) {
   app.use(express.json({ limit: "25mb" }));
   app.use(cookieParser());
   app.use(loadUser(opts.db));
+  const logDays = opts.logDays ?? 90;
+  app.use(activityMiddleware(opts.db, createActivityLog(opts.db, { retentionDays: logDays })));
+  const isAdmin = adminCheck(opts.db, opts.adminEmails ?? []);
 
   // CSRF defence: state-changing API calls must be JSON or carry X-Requested-With. A cross-site
   // HTML form can do neither, and fetch() from another origin would need a CORS preflight we never grant.
@@ -62,7 +71,8 @@ export function createApp(opts: AppOptions) {
   app.get("/api/health", (_req, res) => res.json({ ok: true }));
   const version: VersionInfo = opts.version ?? { commit: null, builtAt: null, startedAt: new Date().toISOString() };
   app.get("/api/version", (_req, res) => res.json(version));
-  app.use("/api/auth", authRouter(opts.db, { secureCookies: opts.secureCookies }));
+  app.use("/api/auth", authRouter(opts.db, { secureCookies: opts.secureCookies, isAdmin }));
+  app.use("/api/admin", adminRouter(opts.db, { isAdmin, logDays }));
   app.use("/api/projects/:id/connections", connectionsRouter(opts.db, opts.connections));
   app.use("/api/projects/:id/images", imagesRouter(opts.db, opts.images ?? { maxBytesPerProject: 200 * 1024 * 1024 }));
   app.use("/api/public/:id/images", publicImagesRouter(opts.db));
@@ -78,6 +88,8 @@ export function createApp(opts: AppOptions) {
   }
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    // For the admin page's activity log (server errors only; the person sees a plain message).
+    res.locals.errorMessage = err instanceof Error ? err.message : String(err);
     if (err instanceof ZodError) {
       res.status(400).json({ error: err.issues[0]?.message ?? "Something in that request wasn't right. Please try again." });
       return;

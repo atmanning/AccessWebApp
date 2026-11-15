@@ -168,7 +168,9 @@ export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise
   router.post("/", (req, res) => {
     const body = createSchema.parse(req.body);
     ensureRoom(req.user!.id);
-    res.status(201).json({ project: insertProject(req.user!.id, body.name, buildTemplate(body.template)) });
+    const project = insertProject(req.user!.id, body.name, buildTemplate(body.template));
+    res.locals.createdProject = { id: project.id, name: project.name };
+    res.status(201).json({ project });
   });
 
   /** Creates a new database from an uploaded .accdb/.mdb file. */
@@ -176,7 +178,9 @@ export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise
     const name = nameSchema.parse(String(req.query.name ?? ""));
     ensureRoom(req.user!.id);
     const { doc, warnings } = await importAccess(uploadedFile(req.body));
-    res.status(201).json({ project: insertProject(req.user!.id, name, doc), warnings });
+    const project = insertProject(req.user!.id, name, doc);
+    res.locals.createdProject = { id: project.id, name: project.name };
+    res.status(201).json({ project, warnings });
   });
 
   /** Reads an uploaded .accdb/.mdb and returns its objects without saving, for importing into an open database. */
@@ -248,6 +252,7 @@ export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise
       db.prepare("DELETE FROM project_shares WHERE project_id = ? AND user_id = ?").run(row.id, userId);
       db.prepare("DELETE FROM project_opens WHERE project_id = ? AND user_id = ?").run(row.id, userId);
     }
+    res.locals.removedOnly = role !== "owner";
     res.json({ ok: true, removedOnly: role !== "owner" });
   });
 

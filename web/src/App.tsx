@@ -9,6 +9,7 @@ import { DialogProvider, showImportWarnings, useDialogs } from "./ui/dialogs";
 import { AccessIcon, TableIcon } from "./ui/icons";
 import { Workspace } from "./workspace/Workspace";
 import { PublicReportPage, publicReportToken } from "./reports/PublicReportPage";
+import { AdminPage } from "./admin/AdminPage";
 import type { DeepLink } from "./workspace/context";
 import { validateObjectName } from "./workspace/docOps";
 import { emptyProject } from "../../shared/model";
@@ -32,6 +33,8 @@ function Root() {
   // Not signed in: a database published for public viewing, opened from its link (undefined = still checking).
   const [guestProject, setGuestProject] = useState<ProjectRecord | null | undefined>(undefined);
   const [wantsSignIn, setWantsSignIn] = useState(false);
+  // The site admin page (/admin), for admins only.
+  const [adminView, setAdminView] = useState(() => location.pathname.replace(/\/$/, "") === "/admin");
   // A record's link (from a label's QR code), read before opening the database tidies the URL.
   const [deepLink] = useState(() => readDeepLink());
   const linkFor = (projectId: string) => (deepLink && deepLink.db === projectId ? deepLink.link : null);
@@ -96,7 +99,21 @@ function Root() {
   const signOut = async () => {
     await api.logout().catch(() => {});
     open(null);
+    setAdminView(false);
     setUser(null);
+  };
+
+  // /admin for someone who isn't an admin: just their own Home page.
+  useEffect(() => {
+    if (user && !user.admin && adminView) showAdmin(false);
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const showAdmin = (on: boolean) => {
+    setAdminView(on);
+    if (!on) {
+      history.replaceState(null, "", "/");
+      document.title = "Access Web";
+    }
   };
 
   if (user === undefined || (user === null && guestProject === undefined)) return <div className="splash"><AccessIcon size={48} /></div>;
@@ -114,8 +131,9 @@ function Root() {
     );
   }
   if (!user) return <AuthScreen onSignedIn={setUser} onBack={guestProject ? () => setWantsSignIn(false) : undefined} />;
+  if (adminView && !project && user.admin) return <AdminPage user={user} onExit={() => showAdmin(false)} />;
   if (project) return <Workspace key={project.id} project={project} user={user} deepLink={linkFor(project.id)} onClose={() => open(null)} onSignOut={signOut} onOpenProject={open} />;
-  return <Home user={user} onOpen={open} onSignOut={signOut} notice={linkError} onDismissNotice={() => setLinkError(null)} />;
+  return <Home user={user} onOpen={open} onSignOut={signOut} onAdmin={user.admin ? () => showAdmin(true) : undefined} notice={linkError} onDismissNotice={() => setLinkError(null)} />;
 }
 
 /** `?db=…&open=form:…&key=ID&rec=42` → open that form or table at that record. */
@@ -214,12 +232,15 @@ function Home({
   user,
   onOpen,
   onSignOut,
+  onAdmin,
   notice,
   onDismissNotice,
 }: {
   user: UserInfo;
   onOpen: (p: ProjectRecord) => void;
   onSignOut: () => void;
+  /** Admins: open the site admin page. */
+  onAdmin?: () => void;
   notice?: string | null;
   onDismissNotice?: () => void;
 }) {
@@ -311,6 +332,7 @@ function Home({
         </div>
         <button className="active">Home</button>
         <button onClick={() => create("blank")}>New</button>
+        {onAdmin && <button onClick={onAdmin}>Site admin</button>}
         <div className="spacer" />
         <div className="home-user">
           <div>{user.name}</div>

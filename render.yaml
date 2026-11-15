@@ -28,5 +28,7 @@ services:
         value: 256m
       - key: EXPORT_CONCURRENCY
         value: "1"
+      - key: ADMIN_EMAILS       # who can open the Site admin page (comma-separated); set it in the dashboard
+        sync: false
       - key: CONNECTION_SECRET  # encrypts saved MySQL passwords; generated once by Render
         generateValue: true

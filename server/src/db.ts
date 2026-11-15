@@ -102,6 +102,26 @@ const MIGRATIONS: string[] = [
     UNIQUE (project_id, report_id)
   );
   `,
+  // 7: the admin page: when each person was last active, and a log of actions (never table contents)
+  `
+  ALTER TABLE users ADD COLUMN last_seen_at TEXT;
+  CREATE TABLE activity (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    at           TEXT NOT NULL,
+    first_at     TEXT NOT NULL,
+    count        INTEGER NOT NULL DEFAULT 1,
+    user_id      TEXT,
+    email        TEXT,
+    action       TEXT NOT NULL,
+    project_id   TEXT,
+    project_name TEXT,
+    detail       TEXT,
+    ip           TEXT
+  );
+  CREATE INDEX activity_at ON activity(at);
+  CREATE INDEX activity_user ON activity(user_id, id);
+  CREATE INDEX activity_action ON activity(action, id);
+  `,
 ];
 
 export function openDatabase(file: string): DB {

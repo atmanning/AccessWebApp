@@ -52,6 +52,9 @@ const app = createApp({
   secureCookies: env.SECURE_COOKIES ? env.SECURE_COOKIES === "true" : production,
   staticDir: env.STATIC_DIR ?? path.join(repoRoot, "web/dist"),
   trustProxy: env.TRUST_PROXY === "true",
+  // Who can open the admin page; when not set, the first account registered.
+  adminEmails: (env.ADMIN_EMAILS ?? "").split(",").filter((e) => e.trim()),
+  logDays: Number(env.ACTIVITY_LOG_DAYS ?? 90) || 90,
 });
 
 // HOST=127.0.0.1 accepts connections from this computer only (the local launchers set it).

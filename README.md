@@ -110,6 +110,8 @@ NODE_ENV=production SECURE_COOKIES=false PORT=3000 npm start
 | `STATIC_DIR` | `web/dist` | Built web app to serve |
 | `CONNECTION_SECRET` | key file in `DATA_DIR` | Key that encrypts saved MySQL passwords (AES-256-GCM). If unset, a random key is created in `DATA_DIR/connection.key`. Changing it makes saved passwords unreadable (re-enter them) |
 | `IMAGE_QUOTA_MB` | `200` | Total size of pictures (Image fields) each database may store, in MB |
+| `ADMIN_EMAILS` | first account registered | Comma-separated emails that can open the **Site admin** page (`/admin`). Set it on a public server so admin access doesn't depend on who signed up first |
+| `ACTIVITY_LOG_DAYS` | `90` | How long the admin page's activity log keeps entries |
 | `ALLOW_PRIVATE_DB_HOSTS` | `false` | Allow MySQL connections to private/internal addresses (localhost, 10.x, 192.168.x, cloud metadata). Leave off on a public server |
 
 ## Exporting to Access
@@ -168,6 +170,16 @@ Several people can have a database open at once. Each workspace checks every few
 loads them automatically when it has no unsaved changes of its own. If two people change it at the same moment, the
 second save is refused with the other person's name and a **Reload latest** button — there's no live merging of
 simultaneous edits yet.
+
+## Site admin page
+
+Admins (see `ADMIN_EMAILS`) get a **Site admin** button on the Home page, which opens `/admin`:
+
+- **Overview**: how many people have registered and are active (today, 7 and 30 days), databases and storage, sharing, server errors and failed sign-ins in the last 24 hours, and 30-day charts of sign-ups and active people.
+- **People**: every account with when they joined and were last active, how many databases they own or have shared with them, storage and recent activity. Open someone to see their databases (name, tables, record count, size, how they're shared) and their activity.
+- **Activity**: a searchable, filterable log of sign-ins (and failed ones), databases created, opened, saved, renamed, copied, exported, deleted and shared, public links and views, name-tag recordings, MySQL use and server errors, with IP addresses. Repeats within 10 minutes fold into one line ("Saved changes ×12"). Download it as CSV.
+
+The log records actions, database names and sizes, never what's in anyone's tables. Non-admins get "not found" from the admin API.
 
 ## Security notes
 

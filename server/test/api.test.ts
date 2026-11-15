@@ -579,3 +579,78 @@ describe("recording from a tag's public page", () => {
     expect(after.revision).toBe(body.project.revision + 2);
   });
 });
+
+describe("admin page", () => {
+  it("lets only the first account (or ADMIN_EMAILS) see accounts and the activity log, without table contents", async () => {
+    const app = makeApp();
+    const admin = await signUp(app, "owner@example.com");
+    const pat = await signUp(app, "pat@example.com");
+    expect((await admin.get("/api/auth/me")).body.user.admin).toBe(true);
+    expect((await pat.get("/api/auth/me")).body.user.admin).toBeUndefined();
+    expect((await pat.get("/api/admin/overview")).status).toBe(404);
+    expect((await request(app).get("/api/admin/users")).status).toBe(401);
+
+    // Pat works on a database: create, open, save twice (folded into one line), share, and a failed sign-in.
+    const created = (await pat.post("/api/projects").send({ name: "Secret Plans", template: "contacts" })).body.project;
+    await pat.get(`/api/projects/${created.id}`);
+    const doc = created.doc;
+    doc.tables[0].rows.push({ _id: "r1", [doc.tables[0].fields[1].id]: "TOP SECRET VALUE" });
+    let rev = (await pat.put(`/api/projects/${created.id}`).send({ doc, baseRevision: created.revision })).body.project.revision;
+    rev = (await pat.put(`/api/projects/${created.id}`).send({ doc, baseRevision: rev })).body.project.revision;
+    expect((await pat.put(`/api/projects/${created.id}/shares`).send({ email: "owner@example.com", permission: "view" })).status).toBe(200);
+    await request(app).post("/api/auth/login").send({ email: "pat@example.com", password: "nope nope" });
+
+    const overview = (await admin.get("/api/admin/overview")).body;
+    expect(overview).toMatchObject({ users: 2, newUsers7: 2, databases: 1, shares: 1, failedLogins24: 1 });
+    expect(overview.days).toHaveLength(30);
+    expect(overview.days[29].signups).toBe(2);
+
+    const users = (await admin.get("/api/admin/users")).body.users;
+    const patRow = users.find((u: { email: string }) => u.email === "pat@example.com");
+    expect(patRow).toMatchObject({ databases: 1, admin: false });
+    expect(patRow.storageBytes).toBeGreaterThan(0);
+    expect((await admin.get("/api/admin/users?q=owner")).body.users).toHaveLength(1);
+
+    const detail = (await admin.get(`/api/admin/users/${patRow.id}`)).body;
+    expect(detail.dbs).toEqual([expect.objectContaining({ name: "Secret Plans", tables: 2, sharedWith: 1 })]);
+    expect(detail.dbs[0].records).toBeGreaterThan(0);
+    const actions = detail.activity.map((e: { action: string }) => e.action);
+    expect(actions).toEqual(["share", "save", "open_db", "create_db", "register"]);
+    const save = detail.activity.find((e: { action: string }) => e.action === "save");
+    expect(save).toMatchObject({ count: 2, projectName: "Secret Plans" });
+    expect(save.detail).toMatch(/2 tables, \d+ records/);
+    // Nothing from inside the tables is ever logged.
+    expect(JSON.stringify(detail)).not.toContain("TOP SECRET VALUE");
+
+    const failed = (await admin.get("/api/admin/activity?action=login_failed")).body.entries;
+    expect(failed).toEqual([expect.objectContaining({ action: "login_failed", detail: "pat@example.com", userId: null })]);
+    const page = (await admin.get("/api/admin/activity?limit=2")).body;
+    expect(page.entries).toHaveLength(2);
+    const next = (await admin.get(`/api/admin/activity?limit=2&before=${page.more}`)).body;
+    expect(next.entries[0].id).toBeLessThan(page.entries[1].id);
+    expect((await admin.get("/api/admin/activity?q=secret")).body.entries.length).toBeGreaterThan(0);
+
+    const csv = await admin.get("/api/admin/activity.csv");
+    expect(csv.headers["content-type"]).toMatch(/text\/csv/);
+    expect(csv.text).toContain("Saved changes");
+
+    // Deleting the database is logged with its name.
+    expect((await pat.delete(`/api/projects/${created.id}`).set("X-Requested-With", "fetch")).status).toBe(200);
+    expect((await admin.get("/api/admin/activity?action=delete_db")).body.entries[0]).toMatchObject({ projectName: "Secret Plans" });
+  });
+
+  it("uses ADMIN_EMAILS when it's set", async () => {
+    const app = createApp({
+      connections: { secrets: createSecretBox(dataDir, "test-secret"), allowPrivateHosts: true },
+      db: openDatabase(":memory:"),
+      exportAccdb: createExporter(javaTool),
+      importAccess: createImporter(javaTool),
+      secureCookies: false,
+      adminEmails: ["Boss@Example.com"],
+    });
+    const first = await signUp(app, "first@example.com");
+    const boss = await signUp(app, "boss@example.com");
+    expect((await first.get("/api/admin/overview")).status).toBe(404);
+    expect((await boss.get("/api/admin/overview")).status).toBe(200);
+  });
+});

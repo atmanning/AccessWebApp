@@ -62,9 +62,11 @@ const registerSchema = z.object({
 });
 const loginSchema = z.object({ email: z.string().trim().toLowerCase().max(254), password: z.string().max(200) });
 
-export function authRouter(db: DB, opts: { secureCookies: boolean }) {
+export function authRouter(db: DB, opts: { secureCookies: boolean; isAdmin?: (u: UserInfo) => boolean }) {
   const router = Router();
   const limiter = rateLimit(20, 15 * 60 * 1000);
+  /** Admins see a link to the site admin page. */
+  const withAdmin = (u: UserInfo): UserInfo => (opts.isAdmin?.(u) ? { ...u, admin: true } : u);
 
   function startSession(res: Response, userId: string) {
     const token = crypto.randomBytes(32).toString("base64url");
@@ -91,7 +93,8 @@ export function authRouter(db: DB, opts: { secureCookies: boolean }) {
       user.id, user.email, user.name, await hashPassword(body.password), new Date().toISOString(),
     );
     startSession(res, user.id);
-    res.status(201).json({ user });
+    res.locals.activityUser = user.id;
+    res.status(201).json({ user: withAdmin(user) });
   });
 
   router.post("/login", limiter, async (req, res) => {
@@ -106,7 +109,8 @@ export function authRouter(db: DB, opts: { secureCookies: boolean }) {
       return;
     }
     startSession(res, row.id);
-    res.json({ user: { id: row.id, email: row.email, name: row.name } });
+    res.locals.activityUser = row.id;
+    res.json({ user: withAdmin({ id: row.id, email: row.email, name: row.name }) });
   });
 
   router.post("/logout", (req, res) => {
@@ -117,7 +121,7 @@ export function authRouter(db: DB, opts: { secureCookies: boolean }) {
   });
 
   router.get("/me", (req, res) => {
-    res.json({ user: req.user ?? null });
+    res.json({ user: req.user ? withAdmin(req.user) : null });
   });
 
   return router;

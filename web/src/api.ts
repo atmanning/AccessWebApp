@@ -15,6 +15,7 @@ import type {
   VersionInfo,
 } from "../../shared/model";
 import type { TemplateId } from "../../shared/templates";
+import type { ActivityEntry, AdminOverview, AdminUserDetail, AdminUserRow } from "../../shared/activity";
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public body: Record<string, unknown> = {}) {
@@ -91,6 +92,20 @@ export interface ReportSnapshot {
   rows: (string | number | boolean | null)[][];
 }
 
+export interface AdminActivityFilter {
+  user?: string;
+  action?: string;
+  q?: string;
+}
+function activityParams(f: AdminActivityFilter, before?: number) {
+  const p = new URLSearchParams();
+  if (f.user) p.set("user", f.user);
+  if (f.action) p.set("action", f.action);
+  if (f.q?.trim()) p.set("q", f.q.trim());
+  if (before) p.set("before", String(before));
+  return p.toString();
+}
+
 export const api = {
   me: () => call<{ user: UserInfo | null }>("GET", "/api/auth/me"),
   /** Which build is running: commit and build time. */
@@ -99,6 +114,14 @@ export const api = {
   register: (name: string, email: string, password: string) =>
     call<{ user: UserInfo }>("POST", "/api/auth/register", { name, email, password }),
   logout: () => call<{ ok: true }>("POST", "/api/auth/logout", {}),
+
+  // Site admin page (admins only)
+  adminOverview: () => call<AdminOverview>("GET", "/api/admin/overview"),
+  adminUsers: (q = "") => call<{ users: AdminUserRow[] }>("GET", `/api/admin/users${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  adminUser: (id: string) => call<AdminUserDetail>("GET", `/api/admin/users/${encodeURIComponent(id)}`),
+  adminActivity: (f: AdminActivityFilter, before?: number) =>
+    call<{ entries: ActivityEntry[]; more: number | null }>("GET", `/api/admin/activity?${activityParams(f, before)}`),
+  adminActivityCsvUrl: (f: AdminActivityFilter) => `/api/admin/activity.csv?${activityParams(f)}`,
 
   listProjects: () => call<{ projects: ProjectSummary[]; shared: ProjectSummary[] }>("GET", "/api/projects"),
   createProject: (name: string, template: TemplateId) =>
