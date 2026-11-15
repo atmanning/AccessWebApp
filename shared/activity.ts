@@ -34,6 +34,9 @@ export const ACTIVITY_ACTIONS = {
   accept_policy: "Agreed to the Usage Policy",
   suspend: "Account suspended",
   unsuspend: "Account reinstated",
+  plan_change: "Plan changed",
+  features_change: "Features changed by admin",
+  plans_settings: "Changed plan settings",
   error: "Server error",
 } as const;
 

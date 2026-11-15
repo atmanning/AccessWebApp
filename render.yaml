@@ -32,5 +32,9 @@ services:
         sync: false
       - key: CONTACT_EMAIL      # shown in the Usage Policy for questions and misuse reports
         sync: false
+      - key: STRIPE_SECRET_KEY  # sk_test_… to try the Advanced plan; set in the dashboard
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
       - key: CONNECTION_SECRET  # encrypts saved MySQL passwords; generated once by Render
         generateValue: true

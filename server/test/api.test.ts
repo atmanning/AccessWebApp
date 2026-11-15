@@ -10,6 +10,7 @@ import { createImporter } from "../src/accessImport.js";
 import { createSecretBox, isPrivateAddress } from "../src/mysql.js";
 import os from "node:os";
 import MDBReader from "mdb-reader";
+import Stripe from "stripe";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const jarPath = process.env.EXPORTER_JAR ?? path.join(root, "exporter/target/access-exporter.jar");
@@ -722,5 +723,109 @@ describe("usage policy and suspended accounts", () => {
     expect((await admin.post(`/api/admin/users/${badId}/unsuspend`).send({})).status).toBe(200);
     expect((await request(app).post("/api/auth/login").send({ email: "bad@example.com", password: "correct horse" })).status).toBe(200);
     expect((await friend.get(`/api/projects/${p.id}`)).status).toBe(200);
+  });
+});
+
+describe("plans: advanced features", () => {
+  const plainApp = (billing?: Parameters<typeof createApp>[0]["billing"]) =>
+    createApp({
+      connections: { secrets: createSecretBox(dataDir, "test-secret"), allowPrivateHosts: true },
+      db: openDatabase(":memory:"),
+      exportAccdb: createExporter(javaTool),
+      importAccess: createImporter(javaTool),
+      secureCookies: false,
+      billing,
+    });
+
+  it("leaves everything on until the admin requires a plan; then refuses advanced features unless enabled", async () => {
+    const app = plainApp();
+    const admin = await signUp(app, "admin@example.com");
+    const pat = await signUp(app, "pat@example.com");
+    await signUp(app, "sam@example.com");
+    const p = (await pat.post("/api/projects").send({ name: "Club" })).body.project;
+    // Off by default: sharing works.
+    expect((await pat.put(`/api/projects/${p.id}/shares`).send({ email: "sam@example.com", permission: "view" })).status).toBe(200);
+    expect((await pat.get("/api/billing/status")).body).toMatchObject({ gated: false, features: ["sharing", "public", "mysql", "accdb"], billing: false });
+
+    // Require a plan, with Sharing and Public links advanced.
+    expect((await admin.put("/api/admin/plans/settings").send({ gated: true, advanced: ["sharing", "public"] })).status).toBe(200);
+    const refused = await pat.put(`/api/projects/${p.id}/shares`).send({ email: "admin@example.com", permission: "view" });
+    expect(refused.status).toBe(402);
+    expect(refused.body).toMatchObject({ code: "upgrade", feature: "sharing", yours: true });
+    expect(refused.body.error).toMatch(/Advanced plan/);
+    expect((await pat.put(`/api/projects/${p.id}/public-access`).send({ publicView: true })).status).toBe(402);
+    // Turning things off is always allowed, and features that aren't advanced still work.
+    expect((await pat.put(`/api/projects/${p.id}/link-access`).send({ linkAccess: "none" })).status).toBe(200);
+    expect((await pat.get("/api/billing/status")).body.features).toEqual(["mysql", "accdb"]);
+    // Admins always have everything.
+    const mine = (await admin.post("/api/projects").send({ name: "Mine" })).body.project;
+    expect((await admin.put(`/api/projects/${mine.id}/public-access`).send({ publicView: true })).status).toBe(200);
+
+    // The admin enables Sharing for Pat.
+    const plans = (await admin.get("/api/admin/plans")).body;
+    expect(plans).toMatchObject({ gated: true, advanced: ["sharing", "public"] });
+    expect(plans.stripe.configured).toBe(false);
+    const patId = plans.users.find((u: { email: string }) => u.email === "pat@example.com").id;
+    expect((await admin.post("/api/admin/plans/grant").send({ userIds: [patId], features: ["sharing"], enable: true })).body.changed).toBe(1);
+    expect((await pat.put(`/api/projects/${p.id}/shares`).send({ email: "admin@example.com", permission: "view" })).status).toBe(200);
+    expect((await pat.get("/api/billing/status")).body).toMatchObject({ granted: ["sharing"], features: ["sharing", "mysql", "accdb"] });
+
+    // An editor of Pat's database is governed by Pat's plan, not their own.
+    const sam = await request.agent(app);
+    await sam.post("/api/auth/login").send({ email: "sam@example.com", password: "correct horse" });
+    await pat.put(`/api/projects/${p.id}/shares`).send({ email: "sam@example.com", permission: "edit" });
+    const bySam = await sam.put(`/api/projects/${p.id}/public-access`).send({ publicView: true });
+    expect([402, 403]).toContain(bySam.status);
+
+    // Disable again; logged.
+    await admin.post("/api/admin/plans/grant").send({ userIds: [patId], features: ["sharing"], enable: false });
+    expect((await pat.put(`/api/projects/${p.id}/shares`).send({ email: "admin@example.com", permission: "edit" })).status).toBe(402);
+    const log = (await admin.get("/api/admin/activity?action=features_change")).body.entries;
+    expect(log.map((e: { detail: string }) => e.detail)).toEqual([expect.stringContaining("disabled sharing"), expect.stringContaining("enabled sharing")]);
+    expect((await pat.post("/api/admin/plans/grant").send({ userIds: [patId], features: ["sharing"], enable: true })).status).toBe(404);
+  });
+
+  it("subscribes through Stripe Checkout ($0 test plan), confirms on return, and follows webhooks", async () => {
+    const stripe = new Stripe("sk_test_fake");
+    let checkoutParams: Record<string, unknown> | null = null;
+    let userId = "";
+    const sub = (status: string) => ({ id: "sub_1", status, customer: "cus_1", cancel_at_period_end: false, metadata: { userId }, items: { data: [{ current_period_end: 1893456000 }] } });
+    const price = { id: "price_free", unit_amount: 0, currency: "usd", recurring: { interval: "month", interval_count: 1 } };
+    Object.assign(stripe.products, { create: async () => ({ id: "prod_1" }) });
+    Object.assign(stripe.prices, { create: async () => price, retrieve: async () => price });
+    Object.assign(stripe.checkout.sessions, {
+      create: async (params: Record<string, unknown>) => ((checkoutParams = params), { url: "https://checkout.stripe.test/c/1" }),
+      retrieve: async () => ({ client_reference_id: userId, status: "complete", subscription: sub("active") }),
+    });
+    Object.assign(stripe.subscriptions, { retrieve: async () => sub("active") });
+    Object.assign(stripe.billingPortal.sessions, { create: async () => ({ url: "https://billing.stripe.test/p/1" }) });
+
+    const app = plainApp({ stripe, webhookSecret: "whsec_test", priceId: null, mode: "test" });
+    const admin = await signUp(app, "admin@example.com");
+    const pat = await signUp(app, "pat@example.com");
+    userId = (await pat.get("/api/auth/me")).body.user.id;
+    await admin.put("/api/admin/plans/settings").send({ gated: true, advanced: ["sharing", "public", "mysql", "accdb"] });
+    expect((await pat.get("/api/billing/status")).body).toMatchObject({ billing: true, features: [], plan: null });
+
+    const start = await pat.post("/api/billing/checkout").set("Origin", "http://example.test").send({ returnTo: "/?db=abc" });
+    expect(start.body.url).toBe("https://checkout.stripe.test/c/1");
+    expect(checkoutParams).toMatchObject({ mode: "subscription", payment_method_collection: "if_required", client_reference_id: userId, line_items: [{ price: "price_free", quantity: 1 }] });
+    expect(String((checkoutParams as unknown as { success_url: string }).success_url)).toContain("billing=done&session_id={CHECKOUT_SESSION_ID}");
+
+    const done = await pat.post("/api/billing/confirm").send({ sessionId: "cs_test_1" });
+    expect(done.body).toMatchObject({ plan: { status: "active", cancelAtPeriodEnd: false }, features: ["sharing", "public", "mysql", "accdb"], price: "$0.00 / month" });
+    expect((await pat.post("/api/billing/portal").send({})).body.url).toBe("https://billing.stripe.test/p/1");
+    expect((await admin.get("/api/admin/plans")).body.users.find((u: { id: string }) => u.id === userId).planStatus).toBe("active");
+
+    // Stripe says the subscription ended: back to Free.
+    const payload = JSON.stringify({ id: "evt_1", object: "event", type: "customer.subscription.deleted", data: { object: sub("canceled") } });
+    const bad = await request(app).post("/api/billing/webhook").set("Content-Type", "application/json").set("Stripe-Signature", "t=1,v1=nope").send(payload);
+    expect(bad.status).toBe(400);
+    const sig = stripe.webhooks.generateTestHeaderString({ payload, secret: "whsec_test" });
+    expect((await request(app).post("/api/billing/webhook").set("Content-Type", "application/json").set("Stripe-Signature", sig).send(payload)).status).toBe(200);
+    expect((await pat.get("/api/billing/status")).body).toMatchObject({ plan: { status: "canceled" }, features: [] });
+    const changes = (await admin.get("/api/admin/activity?action=plan_change")).body.entries.map((e: { detail: string }) => e.detail);
+    expect(changes).toEqual(["active → canceled", "free → active"]);
+    expect((await admin.get("/api/admin/plans")).body.stripe).toMatchObject({ configured: true, mode: "test", priceId: "price_free", webhookSecret: true });
   });
 });

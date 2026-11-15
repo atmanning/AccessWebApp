@@ -113,6 +113,9 @@ NODE_ENV=production SECURE_COOKIES=false PORT=3000 npm start
 | `ADMIN_EMAILS` | first account registered | Comma-separated emails that can open the **Site admin** page (`/admin`). Set it on a public server so admin access doesn't depend on who signed up first |
 | `ACTIVITY_LOG_DAYS` | `90` | How long the admin page's activity log keeps entries |
 | `CONTACT_EMAIL` | none | Shown in the Usage Policy as who to contact about it or to report misuse |
+| `STRIPE_SECRET_KEY` | none | Stripe secret key (`sk_test_…` to try it) so people can subscribe to the Advanced plan. Without it, only the admin can turn advanced features on |
+| `STRIPE_PRICE_ID` | a $0 / month price | The Advanced plan's Stripe price. If unset, a $0 monthly price is created in Stripe at the first upgrade |
+| `STRIPE_WEBHOOK_SECRET` | none | Signing secret of a Stripe webhook to `/api/billing/webhook` (events `checkout.session.completed`, `customer.subscription.*`), so cancellations and failed payments are noticed |
 | `ALLOW_PRIVATE_DB_HOSTS` | `false` | Allow MySQL connections to private/internal addresses (localhost, 10.x, 192.168.x, cloud metadata). Leave off on a public server |
 
 ## Exporting to Access
@@ -187,6 +190,15 @@ The log records actions, database names and sizes, never what's in anyone's tabl
 Everyone agrees to the **Usage Policy** (`/policy`, text in `shared/policy.ts`) when they create an account: their data is theirs and is never sold, what the site records, what isn't allowed, and that misuse gets an account banned. Which version each person agreed to, and when, is stored. People who registered earlier, or before a new version, are asked to agree at their next visit; until they do, the app's API refuses their requests. To publish a new version, edit the text and change `POLICY_VERSION`.
 
 Admins can **suspend** an account from its page in Site admin, giving a reason. It's signed out everywhere and can't sign in, and its databases close to the people it shared them with and to public links (public databases and public reports). Nothing is deleted, and **Reinstate account** puts everything back. Both are recorded in the activity log.
+
+## Plans and advanced features
+
+Four features can be reserved for the **Advanced** plan: **Sharing**, **Public links** (public databases, public reports, name-tag QR codes), **MySQL connections** and **Access files** (.accdb import and download). Nothing is reserved until an admin turns on **Require a plan** in Site admin → **Plans**, where they also choose which features count as advanced.
+
+- People get advanced features by subscribing (Stripe Checkout; **Your plan** on the Home page), or by an admin turning features on for them: tick people in the Plans tab, choose features, **Turn on** / **Turn off**, or click a person's On/Off. Admins always have everything.
+- A feature belongs to a database's owner: editors of an Advanced owner's database can share it.
+- Using an advanced feature without it gets a friendly "upgrade" answer (HTTP 402), and the app shows the plans with that feature highlighted. Things already set up keep working (existing shares, public links, linked MySQL tables); only setting up new ones is refused.
+- **Trying Stripe at no cost:** set `STRIPE_SECRET_KEY` to a test key. The first Upgrade creates a $0 / month price, Checkout needs no card, and the plan is confirmed when the person returns (even before a webhook is set up). Manage billing opens Stripe's customer portal (in test mode, save its settings once in Stripe first). Plan changes and admin grants are in the activity log.
 
 ## Security notes
 

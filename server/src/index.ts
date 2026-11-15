@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import Stripe from "stripe";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApp } from "./app.js";
@@ -57,6 +58,13 @@ const app = createApp({
   logDays: Number(env.ACTIVITY_LOG_DAYS ?? 90) || 90,
   // Shown in the Usage Policy as who to contact about it or to report misuse.
   contact: env.CONTACT_EMAIL?.trim() || null,
+  // The Advanced plan's subscriptions; without a key, only the admin can turn advanced features on.
+  billing: {
+    stripe: env.STRIPE_SECRET_KEY ? new Stripe(env.STRIPE_SECRET_KEY) : null,
+    webhookSecret: env.STRIPE_WEBHOOK_SECRET || null,
+    priceId: env.STRIPE_PRICE_ID || null,
+    mode: env.STRIPE_SECRET_KEY ? (/^(sk|rk)_live_/.test(env.STRIPE_SECRET_KEY) ? "live" : "test") : null,
+  },
 });
 
 // HOST=127.0.0.1 accepts connections from this computer only (the local launchers set it).

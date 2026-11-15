@@ -12,6 +12,8 @@ import { PublicReportPage, publicReportToken } from "./reports/PublicReportPage"
 import { AdminPage } from "./admin/AdminPage";
 import { PolicyAgreeScreen, PolicyPage } from "./policy/Policy";
 import { POLICY_TITLE } from "../../shared/policy";
+import { PlanDialog, type PlanReason } from "./plans/PlanDialog";
+import type { BillingStatus } from "../../shared/plans";
 import type { DeepLink } from "./workspace/context";
 import { validateObjectName } from "./workspace/docOps";
 import { emptyProject } from "../../shared/model";
@@ -107,6 +109,35 @@ function Root() {
     setUser(null);
   };
 
+  // "Your plan": from Home, when the server refuses an advanced feature, or back from Stripe.
+  const [plan, setPlan] = useState<{ reason?: PlanReason; initial?: BillingStatus } | null>(null);
+  useEffect(() => {
+    const ask = (e: Event) => {
+      const d = (e as CustomEvent<{ error?: string; feature?: PlanReason["feature"]; yours?: boolean }>).detail ?? {};
+      setPlan({ reason: { message: d.error, feature: d.feature, notYours: d.yours === false } });
+    };
+    window.addEventListener("accessweb:upgrade", ask);
+    return () => window.removeEventListener("accessweb:upgrade", ask);
+  }, []);
+  useEffect(() => {
+    if (!user || user.needsPolicy) return;
+    const q = new URLSearchParams(location.search);
+    const back = q.get("billing");
+    if (!back) return;
+    const session = q.get("session_id");
+    q.delete("billing");
+    q.delete("session_id");
+    history.replaceState(null, "", location.pathname + (q.size ? `?${q}` : ""));
+    if (back === "done" && session) {
+      api.confirmCheckout(session).then(
+        (initial) => setPlan({ reason: { returned: "done" }, initial }),
+        (e) => setPlan({ reason: { message: (e as Error).message } }),
+      );
+    } else if (back === "cancelled") setPlan({ reason: { returned: "cancelled" } });
+    else setPlan({});
+  }, [user]);
+  const planDialog = plan && <PlanDialog reason={plan.reason} initial={plan.initial} onClose={() => setPlan(null)} />;
+
   // The policy changed while the app was open: ask now, over whatever is open (nothing is lost).
   useEffect(() => {
     const ask = () => setUser((u) => (u ? { ...u, needsPolicy: true } : u));
@@ -151,9 +182,23 @@ function Root() {
       <>
         <Workspace key={project.id} project={project} user={user} deepLink={linkFor(project.id)} onClose={() => open(null)} onSignOut={signOut} onOpenProject={open} />
         {policyScreen}
+        {planDialog}
       </>
     );
-  return <Home user={user} onOpen={open} onSignOut={signOut} onAdmin={user.admin ? () => showAdmin(true) : undefined} notice={linkError} onDismissNotice={() => setLinkError(null)} />;
+  return (
+    <>
+      <Home
+        user={user}
+        onOpen={open}
+        onSignOut={signOut}
+        onAdmin={user.admin ? () => showAdmin(true) : undefined}
+        onPlan={() => setPlan({})}
+        notice={linkError}
+        onDismissNotice={() => setLinkError(null)}
+      />
+      {planDialog}
+    </>
+  );
 }
 
 /** `?db=…&open=form:…&key=ID&rec=42` → open that form or table at that record. */
@@ -275,6 +320,7 @@ function Home({
   onOpen,
   onSignOut,
   onAdmin,
+  onPlan,
   notice,
   onDismissNotice,
 }: {
@@ -283,6 +329,7 @@ function Home({
   onSignOut: () => void;
   /** Admins: open the site admin page. */
   onAdmin?: () => void;
+  onPlan: () => void;
   notice?: string | null;
   onDismissNotice?: () => void;
 }) {
@@ -374,6 +421,7 @@ function Home({
         </div>
         <button className="active">Home</button>
         <button onClick={() => create("blank")}>New</button>
+        <button onClick={onPlan}>Your plan</button>
         {onAdmin && <button onClick={onAdmin}>Site admin</button>}
         <div className="spacer" />
         <div className="home-user">

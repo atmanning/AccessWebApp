@@ -16,6 +16,7 @@ import type {
 } from "../../shared/model";
 import type { TemplateId } from "../../shared/templates";
 import type { ActivityEntry, AdminOverview, AdminUserDetail, AdminUserRow } from "../../shared/activity";
+import type { AdminPlans, BillingStatus, FeatureId } from "../../shared/plans";
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public body: Record<string, unknown> = {}) {
@@ -61,6 +62,8 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
   const data = await res.json().catch(() => ({}));
   // The Usage Policy changed while the app was open: the app asks for agreement (see App.tsx).
   if (res.status === 403 && data.code === "policy") window.dispatchEvent(new Event("accessweb:policy"));
+  // An advanced feature their plan doesn't include: the app offers the plans (see App.tsx).
+  if (res.status === 402 && data.code === "upgrade") window.dispatchEvent(new CustomEvent("accessweb:upgrade", { detail: data }));
   if (!res.ok) throw new ApiError(data.error ?? statusMessage(res.status, "request"), res.status, data);
   return data as T;
 }
@@ -125,6 +128,16 @@ export const api = {
   adminUser: (id: string) => call<AdminUserDetail>("GET", `/api/admin/users/${encodeURIComponent(id)}`),
   adminActivity: (f: AdminActivityFilter, before?: number) =>
     call<{ entries: ActivityEntry[]; more: number | null }>("GET", `/api/admin/activity?${activityParams(f, before)}`),
+  adminPlans: () => call<AdminPlans>("GET", "/api/admin/plans"),
+  adminPlanSettings: (gated: boolean, advanced: FeatureId[]) => call<{ ok: true }>("PUT", "/api/admin/plans/settings", { gated, advanced }),
+  adminGrant: (userIds: string[], features: FeatureId[], enable: boolean) => call<{ ok: true; changed: number }>("POST", "/api/admin/plans/grant", { userIds, features, enable }),
+
+  // The Advanced plan (Stripe)
+  billingStatus: () => call<BillingStatus>("GET", "/api/billing/status"),
+  checkout: (returnTo: string) => call<{ url: string }>("POST", "/api/billing/checkout", { returnTo }),
+  confirmCheckout: (sessionId: string) => call<BillingStatus>("POST", "/api/billing/confirm", { sessionId }),
+  billingPortal: (returnTo: string) => call<{ url: string }>("POST", "/api/billing/portal", { returnTo }),
+
   adminSuspend: (id: string, reason: string) => call<{ ok: true }>("POST", `/api/admin/users/${encodeURIComponent(id)}/suspend`, { reason }),
   adminUnsuspend: (id: string) => call<{ ok: true }>("POST", `/api/admin/users/${encodeURIComponent(id)}/unsuspend`, {}),
   adminActivityCsvUrl: (f: AdminActivityFilter) => `/api/admin/activity.csv?${activityParams(f)}`,

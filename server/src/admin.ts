@@ -10,6 +10,9 @@ import { z } from "zod";
 import { ACTIVITY_ACTIONS, type ActivityEntry, type AdminOverview, type AdminUserDetail, type AdminUserRow } from "../../shared/activity.js";
 import type { DB } from "./db.js";
 import type { ActivityLog } from "./activity.js";
+import { FEATURE_IDS, type AdminPlans, type FeatureId } from "../../shared/plans.js";
+import type { Plans } from "./plans.js";
+import type { BillingOptions } from "./billing.js";
 import { httpError } from "./projects.js";
 
 export function adminCheck(db: DB, adminEmails: string[]) {
@@ -66,7 +69,10 @@ const csvCell = (v: unknown) => {
   return `"${(/^[=+\-@]/.test(s) ? `'${s}` : s).replace(/"/g, '""')}"`;
 };
 
-export function adminRouter(db: DB, opts: { isAdmin: (u: Request["user"]) => boolean; logDays: number; log?: ActivityLog }) {
+export function adminRouter(
+  db: DB,
+  opts: { isAdmin: (u: Request["user"]) => boolean; logDays: number; log?: ActivityLog; plans?: Plans; billing?: BillingOptions; priceLabel?: () => Promise<string | null> },
+) {
   const router = Router();
   router.use((req: Request, res: Response, next: NextFunction) => {
     if (!req.user) return void res.status(401).json({ error: "Please sign in." });
@@ -184,6 +190,86 @@ export function adminRouter(db: DB, opts: { isAdmin: (u: Request["user"]) => boo
     db.prepare("UPDATE users SET suspended_at = NULL, suspended_reason = NULL WHERE id = ?").run(u.id);
     opts.log?.write({ action: "unsuspend", userId: u.id, email: u.email, detail: `by ${req.user!.email}`, ip: req.ip ?? null });
     res.json({ ok: true });
+  });
+
+  // ---- Plans: which features are advanced, and who has them ----------------------------------
+
+  const featureSchema = z.enum(FEATURE_IDS as [FeatureId, ...FeatureId[]]);
+
+  router.get("/plans", async (req, res) => {
+    const plans = opts.plans!;
+    const rows = db.prepare("SELECT id, email, name, features, plan_status FROM users ORDER BY lower(COALESCE(NULLIF(name, ''), email))").all() as {
+      id: string;
+      email: string;
+      name: string;
+      features: string | null;
+      plan_status: string | null;
+    }[];
+    const out: AdminPlans = {
+      gated: plans.gated(),
+      advanced: plans.advanced(),
+      users: rows.map((u) => ({
+        id: u.id,
+        email: u.email,
+        name: u.name,
+        planStatus: plans.planStatus(u.plan_status),
+        granted: plans.featureList(u.features),
+        features: plans.featuresOf(u),
+        admin: opts.isAdmin(u),
+      })),
+      stripe: {
+        configured: !!opts.billing?.stripe,
+        mode: opts.billing?.stripe ? (opts.billing.mode ?? "test") : null,
+        priceId: opts.billing?.priceId ?? plans.settings.get("stripe.price"),
+        price: (await opts.priceLabel?.()) ?? null,
+        webhookSecret: !!opts.billing?.webhookSecret,
+        lastWebhookAt: plans.settings.get("stripe.last_webhook"),
+        webhookUrl: `${req.protocol}://${req.get("host")}/api/billing/webhook`,
+      },
+    };
+    res.json(out);
+  });
+
+  router.put("/plans/settings", (req, res) => {
+    const plans = opts.plans!;
+    const body = z.object({ gated: z.boolean(), advanced: z.array(featureSchema).max(FEATURE_IDS.length) }).parse(req.body);
+    const was = { gated: plans.gated(), advanced: plans.advanced() };
+    plans.settings.set("plans.gated", body.gated ? "on" : "off");
+    plans.settings.set("plans.advanced", JSON.stringify([...new Set(body.advanced)]));
+    const parts: string[] = [];
+    if (was.gated !== body.gated) parts.push(`Require a plan: ${body.gated ? "on" : "off"}`);
+    if (was.advanced.join() !== [...new Set(body.advanced)].join()) parts.push(`advanced features: ${body.advanced.join(", ") || "none"}`);
+    if (parts.length) opts.log?.write({ action: "plans_settings", userId: req.user!.id, email: req.user!.email, detail: parts.join("; "), ip: req.ip ?? null });
+    res.json({ ok: true });
+  });
+
+  router.post("/plans/grant", (req, res) => {
+    const body = z
+      .object({ userIds: z.array(z.string().max(64)).min(1, "Choose at least one person.").max(5000), features: z.array(featureSchema).min(1, "Choose at least one feature."), enable: z.boolean() })
+      .parse(req.body);
+    const get = db.prepare("SELECT id, email, features FROM users WHERE id = ?");
+    const set = db.prepare("UPDATE users SET features = ? WHERE id = ?");
+    let changed = 0;
+    db.transaction(() => {
+      for (const id of body.userIds) {
+        const u = get.get(id) as { id: string; email: string; features: string | null } | undefined;
+        if (!u) continue;
+        const have = new Set(opts.plans!.featureList(u.features));
+        for (const f of body.features) body.enable ? have.add(f) : have.delete(f);
+        const next = FEATURE_IDS.filter((f) => have.has(f));
+        if (next.join() === opts.plans!.featureList(u.features).join()) continue;
+        set.run(next.length ? JSON.stringify(next) : null, u.id);
+        changed++;
+        opts.log?.write({
+          action: "features_change",
+          userId: u.id,
+          email: u.email,
+          detail: `${body.enable ? "enabled" : "disabled"} ${body.features.join(", ")} (by ${req.user!.email})`,
+          ip: req.ip ?? null,
+        });
+      }
+    })();
+    res.json({ ok: true, changed });
   });
 
   const findActivity = (query: z.infer<typeof activityQuery>) => {

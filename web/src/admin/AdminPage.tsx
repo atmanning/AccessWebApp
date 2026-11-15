@@ -8,12 +8,13 @@ import type { UserInfo } from "../../../shared/model";
 import { api, type AdminActivityFilter } from "../api";
 import { POLICY_VERSION } from "../../../shared/policy";
 import { AccessIcon } from "../ui/icons";
+import { AdminPlans } from "./AdminPlans";
 import "./admin.css";
 
-type Tab = "overview" | "people" | "activity";
+type Tab = "overview" | "people" | "plans" | "activity";
 
 export function AdminPage({ user, onExit }: { user: UserInfo; onExit: () => void }) {
-  const [tab, setTab] = useState<Tab>(() => (["people", "activity"].includes(location.hash.slice(1)) ? (location.hash.slice(1) as Tab) : "overview"));
+  const [tab, setTab] = useState<Tab>(() => (["people", "plans", "activity"].includes(location.hash.slice(1)) ? (location.hash.slice(1) as Tab) : "overview"));
   const [person, setPerson] = useState<string | null>(null);
   const [filter, setFilter] = useState<AdminActivityFilter & { userLabel?: string }>({});
 
@@ -36,7 +37,7 @@ export function AdminPage({ user, onExit }: { user: UserInfo; onExit: () => void
         <AccessIcon size={24} />
         <strong>Site admin</strong>
         <nav className="admin-tabs" aria-label="Admin sections">
-          {(["overview", "people", "activity"] as Tab[]).map((t) => (
+          {(["overview", "people", "plans", "activity"] as Tab[]).map((t) => (
             <button
               key={t}
               className={tab === t ? "active" : ""}
@@ -46,7 +47,7 @@ export function AdminPage({ user, onExit }: { user: UserInfo; onExit: () => void
                 if (t === "people") setPerson(null);
               }}
             >
-              {t === "overview" ? "Overview" : t === "people" ? "People" : "Activity"}
+              {t === "overview" ? "Overview" : t === "people" ? "People" : t === "plans" ? "Plans" : "Activity"}
             </button>
           ))}
         </nav>
@@ -59,6 +60,7 @@ export function AdminPage({ user, onExit }: { user: UserInfo; onExit: () => void
       <main className="admin-main">
         {tab === "overview" && <Overview onPeople={() => setTab("people")} onActivity={(action) => (setFilter({ action }), setTab("activity"))} />}
         {tab === "people" && (person ? <Person id={person} onBack={() => setPerson(null)} onActivity={showActivityFor} /> : <People onOpen={setPerson} />)}
+        {tab === "plans" && <AdminPlans />}
         {tab === "activity" && <Activity filter={filter} setFilter={setFilter} onPerson={(id) => (setPerson(id), setTab("people"))} />}
       </main>
     </div>

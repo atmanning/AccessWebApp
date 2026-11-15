@@ -129,6 +129,20 @@ const MIGRATIONS: string[] = [
   ALTER TABLE users ADD COLUMN suspended_at TEXT;
   ALTER TABLE users ADD COLUMN suspended_reason TEXT;
   `,
+  // 9: plans: features the admin enabled for someone, their Stripe subscription, and site settings
+  `
+  ALTER TABLE users ADD COLUMN features TEXT;
+  ALTER TABLE users ADD COLUMN stripe_customer_id TEXT;
+  ALTER TABLE users ADD COLUMN stripe_subscription_id TEXT;
+  ALTER TABLE users ADD COLUMN plan_status TEXT;
+  ALTER TABLE users ADD COLUMN plan_renews_at TEXT;
+  ALTER TABLE users ADD COLUMN plan_cancel_at_period_end INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX users_stripe_customer ON users(stripe_customer_id);
+  CREATE TABLE settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  `,
 ];
 
 export function openDatabase(file: string): DB {

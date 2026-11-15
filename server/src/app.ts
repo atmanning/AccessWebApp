@@ -9,6 +9,8 @@ import type { DB } from "./db.js";
 import { authRouter, loadUser } from "./auth.js";
 import { activityMiddleware, createActivityLog } from "./activity.js";
 import { adminCheck, adminRouter } from "./admin.js";
+import { createPlans, planGate } from "./plans.js";
+import { createBilling, type BillingOptions } from "./billing.js";
 import { projectsRouter, publicRouter, type ImportAccess } from "./projects.js";
 import { connectionsRouter, type ConnectionsOptions } from "./connections.js";
 import { imagesRouter, publicImagesRouter, type ImageOptions } from "./images.js";
@@ -32,6 +34,8 @@ export interface AppOptions {
   logDays?: number;
   /** Who to contact about the Usage Policy or misuse (CONTACT_EMAIL), shown in the policy. */
   contact?: string | null;
+  /** Stripe, for the Advanced plan (STRIPE_SECRET_KEY…); without it, only the admin can turn features on. */
+  billing?: BillingOptions;
 }
 
 export function createApp(opts: AppOptions) {
@@ -51,13 +55,19 @@ export function createApp(opts: AppOptions) {
       },
     }),
   );
+  const logDays = opts.logDays ?? 90;
+  const activityLog = createActivityLog(opts.db, { retentionDays: logDays });
+  const isAdmin = adminCheck(opts.db, opts.adminEmails ?? []);
+  const plans = createPlans(opts.db, isAdmin);
+  const billingOpts: BillingOptions = opts.billing ?? { stripe: null, webhookSecret: null, priceId: null };
+  const billing = createBilling(opts.db, plans, { ...billingOpts, log: activityLog, isAdmin });
+  // Stripe signs the raw body, so its webhook comes before the JSON parser.
+  app.use("/api/billing/webhook", billing.webhook);
+
   app.use(express.json({ limit: "25mb" }));
   app.use(cookieParser());
   app.use(loadUser(opts.db));
-  const logDays = opts.logDays ?? 90;
-  const activityLog = createActivityLog(opts.db, { retentionDays: logDays });
   app.use(activityMiddleware(opts.db, activityLog));
-  const isAdmin = adminCheck(opts.db, opts.adminEmails ?? []);
 
   // CSRF defence: state-changing API calls must be JSON or carry X-Requested-With. A cross-site
   // HTML form can do neither, and fetch() from another origin would need a CORS preflight we never grant.
@@ -75,7 +85,10 @@ export function createApp(opts: AppOptions) {
   const version: VersionInfo = opts.version ?? { commit: null, builtAt: null, startedAt: new Date().toISOString() };
   app.get("/api/version", (_req, res) => res.json(version));
   app.use("/api/auth", authRouter(opts.db, { secureCookies: opts.secureCookies, isAdmin, contact: opts.contact ?? null }));
-  app.use("/api/admin", adminRouter(opts.db, { isAdmin, logDays, log: activityLog }));
+  app.use("/api/admin", adminRouter(opts.db, { isAdmin, logDays, log: activityLog, plans, billing: billingOpts, priceLabel: billing.price }));
+  app.use("/api/billing", billing.router);
+  // Advanced features (sharing, public links, MySQL, Access files) for people whose plan has them.
+  app.use(planGate(opts.db, plans));
   app.use("/api/projects/:id/connections", connectionsRouter(opts.db, opts.connections));
   app.use("/api/projects/:id/images", imagesRouter(opts.db, opts.images ?? { maxBytesPerProject: 200 * 1024 * 1024 }));
   app.use("/api/public/:id/images", publicImagesRouter(opts.db));
@@ -110,6 +123,11 @@ export function createApp(opts: AppOptions) {
     }
     if (status && status >= 400 && status < 500) {
       res.status(status).json({ error: (err as Error).message });
+      return;
+    }
+    // Stripe answered with an error (a bad key, a deleted price…): say so plainly.
+    if ((err as { type?: string }).type?.startsWith?.("Stripe")) {
+      res.status(502).json({ error: `Stripe said: ${(err as Error).message}` });
       return;
     }
     console.error(err);

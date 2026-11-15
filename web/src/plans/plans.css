@@ -1,0 +1,24 @@
+/* Your plan dialog */
+.plan { display: flex; flex-direction: column; gap: 12px; font-size: 13px; }
+.plan p { margin: 0; }
+.plan-banner { padding: 10px 12px; border-radius: 4px; background: #f3f3f3; border: 1px solid var(--border); }
+.plan-banner.ok { background: #eaf6ec; border-color: #9bcfa4; }
+.plan-banner.warn { background: #fffaf0; border-color: #e0b44a; }
+.plan-warn { color: #9a5b00; }
+.plan-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.plan-col { border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; background: #fff; }
+.plan-col.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.plan-col.adv { background: #fcf7f7; }
+.plan-col-head { font-size: 16px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.plan-col ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.plan-col li { padding-left: 22px; position: relative; line-height: 1.35; }
+.plan-col li::before { position: absolute; left: 0; top: 0; font-weight: 700; }
+.plan-col li.yes::before { content: "✓"; color: #2e7d32; }
+.plan-col li.no { color: var(--muted); }
+.plan-col li.no::before { content: "–"; color: #aaa; }
+.plan-col li.wanted { background: #fff3cd; margin: 0 -6px; padding: 4px 6px 4px 28px; border-radius: 4px; }
+.plan-col li.wanted::before { left: 6px; top: 4px; }
+.plan-tag { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 400; padding: 0 6px; border-radius: 8px; background: var(--accent-light, #f8e9e9); color: var(--accent-dark, #7a1f22); }
+@media (max-width: 560px) {
+  .plan-cols { grid-template-columns: 1fr; }
+}
