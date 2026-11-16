@@ -318,7 +318,8 @@ export const formSchema = z.object({
   id,
   name: nameSchema,
   title: z.string().max(200),
-  source: sourceSchema,
+  /** Record Source; unset for an unbound form (a menu, switchboard or dialog), as in Access. */
+  source: sourceSchema.optional(),
   /** Fields the form shows. With a layout, kept in step with its bound controls. */
   columns: z.array(z.string()).max(255),
   /** Designed layout. Forms made before the designer get one generated from `columns`. */

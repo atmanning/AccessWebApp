@@ -36,7 +36,7 @@ export interface ExchangeDocument {
 /** Name of the table our exporter writes saved queries into; importing it turns them back into queries. */
 export const SAVED_QUERIES_TABLE = "_SavedQueries";
 
-const rid = (p: string) => `${p}_${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 6)}`;
+export const rid = (p: string) => `${p}_${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 6)}`;
 
 /** Makes a name valid for this app (Access forbids the same characters, but older files can be looser). */
 export function cleanName(name: string, fallback: string): string {
@@ -45,7 +45,7 @@ export function cleanName(name: string, fallback: string): string {
   return NAME_PATTERN.test(n) ? n : fallback;
 }
 
-function unique(name: string, taken: Set<string>): string {
+export function unique(name: string, taken: Set<string>): string {
   let n = name;
   for (let i = 1; taken.has(n.toLowerCase()); i++) {
     const suffix = String(i);
@@ -156,11 +156,26 @@ export function mergeProjects(target: ProjectDoc, incoming: ProjectDoc): { doc: 
     if (name !== q.name) renamed.push(`${q.name} → ${name}`);
     return { ...q, name };
   });
+  // Forms and reports have their own names (as in Access), and point at tables and queries by id.
+  const formNames = new Set(target.forms.map((f) => f.name.toLowerCase()));
+  const forms = incoming.forms.map((f) => {
+    const name = unique(f.name, formNames);
+    if (name !== f.name) renamed.push(`form ${f.name} → ${name}`);
+    return { ...f, name };
+  });
+  const reportNames = new Set(target.reports.map((r) => r.name.toLowerCase()));
+  const reports = incoming.reports.map((r) => {
+    const name = unique(r.name, reportNames);
+    if (name !== r.name) renamed.push(`report ${r.name} → ${name}`);
+    return { ...r, name };
+  });
   return {
     doc: {
       ...target,
       tables: [...target.tables, ...tables],
       queries: [...target.queries, ...queries],
+      forms: [...target.forms, ...forms],
+      reports: [...target.reports, ...reports],
       relationships: [...target.relationships, ...incoming.relationships],
     },
     renamed,

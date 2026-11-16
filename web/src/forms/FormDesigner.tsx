@@ -588,7 +588,7 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
       {toolbox}
       <div className="fd-pane-title">
         Fields
-        <span className="fd-pane-sub">{form.source.kind === "table" ? "Table" : "Query"}: {ws.doc.tables.find((t) => t.id === form.source.id)?.name ?? ws.doc.queries.find((q) => q.id === form.source.id)?.name ?? "(missing)"}</span>
+        <span className="fd-pane-sub">{!form.source ? "Unbound (a menu or dialog form)" : form.source.kind === "table" ? "Table" : "Query"}{form.source ? ": " : ""}{ws.doc.tables.find((t) => t.id === form.source?.id)?.name ?? ws.doc.queries.find((q) => q.id === form.source?.id)?.name ?? (form.source ? "(missing)" : "")}</span>
       </div>
       <ul className="fd-fields">
         {fields.map((f) => (

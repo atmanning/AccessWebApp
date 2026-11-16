@@ -21,8 +21,8 @@ export interface SubformLink {
 
 /** Tables related to the form's table, with the fields that link them (one-to-many first). */
 export function relatedTables(doc: ProjectDoc, form: Pick<FormDef, "source">): SubformLink[] {
-  if (form.source.kind !== "table") return [];
-  const me = doc.tables.find((t) => t.id === form.source.id);
+  if (form.source?.kind !== "table") return [];
+  const me = doc.tables.find((t) => t.id === form.source?.id);
   if (!me) return [];
   const out: SubformLink[] = [];
   const name = (t: TableDef | undefined, id: string) => t?.fields.find((f) => f.id === id)?.name;
@@ -41,11 +41,11 @@ export function relatedTables(doc: ProjectDoc, form: Pick<FormDef, "source">): S
 export function suggestLink(doc: ProjectDoc, form: Pick<FormDef, "source">, tableId: string): { master: string; child: string } | null {
   const hit = relatedTables(doc, form).find((r) => r.table.id === tableId);
   if (hit) return { master: hit.master, child: hit.child };
-  if (form.source.kind !== "table") return null;
+  if (form.source?.kind !== "table") return null;
   // The other way round (an order form showing its customer).
-  const me = doc.tables.find((t) => t.id === form.source.id);
+  const me = doc.tables.find((t) => t.id === form.source?.id);
   const other = doc.tables.find((t) => t.id === tableId);
-  const r = doc.relationships.find((x) => x.toTable === form.source.id && x.fromTable === tableId);
+  const r = doc.relationships.find((x) => x.toTable === form.source?.id && x.fromTable === tableId);
   const m = r && me?.fields.find((f) => f.id === r.toField)?.name;
   const c = r && other?.fields.find((f) => f.id === r.fromField)?.name;
   return m && c ? { master: m, child: c } : null;

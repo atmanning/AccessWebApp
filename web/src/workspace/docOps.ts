@@ -126,7 +126,7 @@ export function deleteObject(doc: ProjectDoc, kind: ObjectKind, id: string) {
 /** Objects whose record source is this table or query. */
 export function dependents(doc: ProjectDoc, kind: ObjectKind, id: string): string[] {
   if (kind !== "table" && kind !== "query") return [];
-  return [...doc.forms, ...doc.reports].filter((o) => o.source.kind === kind && o.source.id === id).map((o) => o.name);
+  return [...doc.forms, ...doc.reports].filter((o) => o.source?.kind === kind && o.source?.id === id).map((o) => o.name);
 }
 
 export function renameField(doc: ProjectDoc, table: TableDef, fieldId: string, name: string) {
@@ -135,7 +135,7 @@ export function renameField(doc: ProjectDoc, table: TableDef, fieldId: string, n
   const old = f.name;
   f.name = name;
   for (const o of [...doc.forms, ...doc.reports]) {
-    if (o.source.kind === "table" && o.source.id === table.id) {
+    if (o.source?.kind === "table" && o.source?.id === table.id) {
       o.columns = o.columns.map((c) => (c === old ? name : c));
       if ("groupBy" in o && o.groupBy === old) o.groupBy = name;
       if ("sortBy" in o && o.sortBy === old) o.sortBy = name;
@@ -153,7 +153,7 @@ export function renameField(doc: ProjectDoc, table: TableDef, fieldId: string, n
     for (const c of ("layout" in o && o.layout?.controls) || []) {
       if (c.type === "subform") {
         if (c.sourceObject === table.id && c.linkChild === old) c.linkChild = name;
-        if (o.source.kind === "table" && o.source.id === table.id && c.linkMaster === old) c.linkMaster = name;
+        if (o.source?.kind === "table" && o.source?.id === table.id && c.linkMaster === old) c.linkMaster = name;
       }
       if (c.rowSourceType === "table" && c.rowSource === table.id) {
         if (c.boundColumn === old) c.boundColumn = name;

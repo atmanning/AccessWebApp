@@ -52,7 +52,7 @@ export function linkKeyField(doc: ProjectDoc, source: SourceRef, target?: { kind
   let tableId = source.kind === "table" ? source.id : null;
   if (target?.kind === "form") {
     const f = doc.forms.find((x) => x.id === target.formId);
-    if (f?.source.kind === "table") tableId = f.source.id;
+    if (f?.source?.kind === "table") tableId = f.source?.id;
   }
   const t = doc.tables.find((x) => x.id === tableId) ?? (source.kind === "query" ? null : undefined);
   const keys = t?.fields.filter((f) => f.primaryKey) ?? [];
@@ -89,7 +89,7 @@ export function defaultLabels(doc: ProjectDoc, source: SourceRef, columns: strin
   const second = ["Company", "Organization", "Organisation", "School", "Department", "Title", "Role", "City"].map(has).find(Boolean);
   const badge = preset.layout.height >= 2;
   const lines = [{ text: line1, size: badge ? 24 : 11, bold: true }, ...(second ? [{ text: `[${second}]`, size: badge ? 14 : 9 }] : [])];
-  const form = source.kind === "table" ? doc.forms.find((f) => f.source.kind === "table" && f.source.id === source.id) : undefined;
+  const form = source.kind === "table" ? doc.forms.find((f) => f.source?.kind === "table" && f.source?.id === source.id) : undefined;
   return {
     preset: preset.id,
     ...preset.layout,

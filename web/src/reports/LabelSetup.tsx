@@ -47,8 +47,8 @@ export function LabelSetup({ report }: { report: ReportDef }) {
   ];
   // Forms a QR code can open at the person: built on a table whose key is among these records' fields.
   const forms = ws.doc.forms.filter((f) => {
-    if (f.source.kind !== "table") return false;
-    if (report.source.kind === "table") return f.source.id === report.source.id;
+    if (f.source?.kind !== "table") return false;
+    if (report.source.kind === "table") return f.source?.id === report.source.id;
     const key = linkKeyField(ws.doc, report.source, { kind: "form", formId: f.id });
     return !!key && !!data?.columns.some((c) => c.toLowerCase() === key.toLowerCase());
   });
@@ -215,7 +215,7 @@ export function LabelSetup({ report }: { report: ReportDef }) {
             onChange={(e) =>
               update((x) => {
                 if (!e.target.checked) return void delete x.qr;
-                const form = forms.find((f) => f.source.kind === report.source.kind && f.source.id === report.source.id);
+                const form = forms.find((f) => f.source?.kind === report.source.kind && f.source?.id === report.source.id);
                 x.qr = { target: form ? "form" : "table", ...(form ? { formId: form.id } : {}), size: Math.min(1.2, Math.max(0.5, l.height - 2 * l.padding)), position: "right" };
               })
             }

@@ -27,8 +27,8 @@ export function copyObject(doc: ProjectDoc, projectId: string, kind: ObjectKind,
   const item: ClipItem = { kind, object: structuredClone(object) as ClipItem["object"], projectId };
   if (kind === "form" || kind === "report") {
     const src = (object as FormDef).source;
-    const named = (src.kind === "table" ? doc.tables : doc.queries).find((o) => o.id === src.id);
-    if (named) item.source = { kind: src.kind, name: named.name };
+    const named = src && (src.kind === "table" ? doc.tables : doc.queries).find((o) => o.id === src.id);
+    if (src && named) item.source = { kind: src.kind, name: named.name };
   }
   memory = item;
   try {
@@ -149,7 +149,7 @@ export function PasteDialog({ item, onClose }: { item: ClipItem; onClose: () => 
           o.id = newId(item.kind === "form" ? "fm" : "rp");
           o.name = n;
           // Reconnect the record source: same database keeps it, else find it by name.
-          const sameDb = item.projectId === ws.projectId && (o.source.kind === "table" ? d.tables : d.queries).some((x) => x.id === o.source.id);
+          const sameDb = !o.source || (item.projectId === ws.projectId && (o.source.kind === "table" ? d.tables : d.queries).some((x) => x.id === o.source!.id));
           if (!sameDb && item.source) {
             const match = (item.source.kind === "table" ? d.tables : d.queries).find((x) => x.name.toLowerCase() === item.source!.name.toLowerCase());
             if (match) o.source = { kind: item.source.kind, id: match.id };

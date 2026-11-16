@@ -391,7 +391,7 @@ export function Workspace(props: {
     try {
       const { doc: incoming, warnings } = await api.convertAccess(file);
       const records = incoming.tables.reduce((n, t) => n + t.rows.length, 0);
-      if (!incoming.tables.length && !incoming.queries.length) {
+      if (!incoming.tables.length && !incoming.queries.length && !incoming.forms.length && !incoming.reports.length) {
         setStatus("");
         await showImportWarnings(dialogs, warnings, `Nothing in ${file.name} could be imported.`);
         return;
@@ -400,8 +400,9 @@ export function Workspace(props: {
         "Get External Data - Access Database",
         <>
           <p>
-            Import {incoming.tables.length} table(s) with {records.toLocaleString()} record(s), {incoming.queries.length} query(ies) and{" "}
-            {incoming.relationships.length} relationship(s) from <strong>{file.name}</strong> into this database?
+            Import {incoming.tables.length} table(s) with {records.toLocaleString()} record(s), {incoming.queries.length} query(ies),{" "}
+            {incoming.forms.length} form(s), {incoming.reports.length} report(s) and {incoming.relationships.length} relationship(s) from{" "}
+            <strong>{file.name}</strong> into this database?
           </p>
           {incoming.tables.length > 0 && <p className="small muted">Tables: {incoming.tables.map((t) => t.name).join(", ")}</p>}
           <p className="small muted">Objects whose names are already used here get a number added, as in Access.</p>
@@ -413,9 +414,13 @@ export function Workspace(props: {
       update((d) => {
         d.tables = merged.tables;
         d.queries = merged.queries;
+        d.forms = merged.forms;
+        d.reports = merged.reports;
         d.relationships = merged.relationships;
       });
-      setStatus(`Imported ${incoming.tables.length} table(s) and ${incoming.queries.length} query(ies) from ${file.name}.`);
+      setStatus(
+        `Imported ${incoming.tables.length} table(s), ${incoming.queries.length} query(ies), ${incoming.forms.length} form(s) and ${incoming.reports.length} report(s) from ${file.name}.`,
+      );
       const notes = [...renamed.map((r) => `Renamed to avoid a clash: ${r}.`), ...warnings];
       if (notes.length) showImportWarnings(dialogs, notes, "Imported, with these notes:");
     } catch (e) {

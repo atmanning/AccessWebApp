@@ -67,7 +67,21 @@ public final class AccessImporter {
             db.setDateTimeType(DateTimeType.LOCAL_DATE_TIME);
 
             for (String name : new TreeSet<>(db.getTableNames())) {
-                Table table = db.getTable(name);
+                // Check before opening it: opening a linked table goes looking for its file (often
+                // a path on someone else's computer) and fails.
+                com.healthmarketscience.jackcess.TableMetaData meta = db.getTableMetaData(name);
+                if (meta != null && meta.isLinked()) {
+                    warnings.add("Skipped linked table '" + name + "' (its data lives in another file"
+                        + (meta.getLinkedDbName() != null ? ": " + meta.getLinkedDbName() : "") + ").");
+                    continue;
+                }
+                Table table;
+                try {
+                    table = db.getTable(name);
+                } catch (IOException | RuntimeException e) {
+                    warnings.add("Skipped table '" + name + "' (it couldn't be read).");
+                    continue;
+                }
                 if (table == null) continue;
                 if (db.isLinkedTable(table)) {
                     warnings.add("Skipped linked table '" + name + "' (its data lives in another file).");
@@ -137,9 +151,31 @@ public final class AccessImporter {
                 if (!calculated.isEmpty()) calculatedQueries.add(calculatedQuery(name, calculated, warnings));
             }
 
-            for (Relationship rel : db.getRelationships()) {
-                String from = rel.getFromTable().getName();
-                String to = rel.getToTable().getName();
+            List<Relationship> rels;
+            try {
+                rels = db.getRelationships();
+            } catch (IOException | RuntimeException e) {
+                // A relationship to a linked table makes the whole list fail: read ours one table at a time.
+                Map<String, Relationship> byName = new java.util.LinkedHashMap<>();
+                for (String name : importedTables) {
+                    try {
+                        for (Relationship r : db.getRelationships(db.getTable(name))) byName.putIfAbsent(r.getName(), r);
+                    } catch (IOException | RuntimeException ignored) {
+                        // relationships to tables we couldn't open are skipped
+                    }
+                }
+                rels = new ArrayList<>(byName.values());
+            }
+            for (Relationship rel : rels) {
+                String from;
+                String to0;
+                try {
+                    from = rel.getFromTable().getName();
+                    to0 = rel.getToTable().getName();
+                } catch (RuntimeException e) {
+                    continue;
+                }
+                String to = to0;
                 if (!importedTables.contains(from) || !importedTables.contains(to)) continue;
                 if (rel.getFromColumns().size() != 1) {
                     warnings.add("Skipped relationship '" + rel.getName() + "' (multi-field relationships aren't supported yet).");

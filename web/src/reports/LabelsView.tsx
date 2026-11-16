@@ -152,7 +152,7 @@ export function qrFor(ws: WorkspaceApi, report: ReportDef, data: ResultSet): QrL
     return { note: `QR codes need a way to find each record: the ${report.source.kind === "query" ? "query must include the table's primary key" : "table needs a primary key"}.` };
   }
   const form = q.target === "form" ? ws.doc.forms.find((f) => f.id === q.formId) : undefined;
-  const tableId = form?.source.kind === "table" ? form.source.id : report.source.kind === "table" ? report.source.id : null;
+  const tableId = form?.source?.kind === "table" ? form.source?.id : report.source.kind === "table" ? report.source.id : null;
   const open = form ? { kind: "form" as const, id: form.id } : tableId ? { kind: "table" as const, id: tableId } : null;
   if (!open) return { note: "Choose the form QR codes open (Design View → QR code)." };
   const base = q.baseUrl?.trim() || location.origin;

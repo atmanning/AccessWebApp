@@ -9,14 +9,17 @@ import { formatValue, isNumericType } from "../engine/values";
 import { ComboBox } from "../ui/ComboBox";
 import { useCommands, useWorkspace } from "../workspace/context";
 
+/** An unbound form's one "record": no fields (its controls hold their own values). */
+const UNBOUND: ResultSet = { columns: [], fields: [], rows: [[]] };
+
 /** Loads a form/report's record source; tables are read synchronously so edits show instantly. */
-export function useSource(source: SourceRef) {
+export function useSource(source: SourceRef | undefined) {
   const ws = useWorkspace();
   const [queryResult, setQueryResult] = useState<{ data?: ResultSet; error?: string }>({});
-  const table = source.kind === "table" ? ws.doc.tables.find((t) => t.id === source.id) : undefined;
+  const table = source?.kind === "table" ? ws.doc.tables.find((t) => t.id === source.id) : undefined;
 
   useEffect(() => {
-    if (source.kind !== "query") return;
+    if (source?.kind !== "query") return;
     let cancelled = false;
     readSource(ws.doc, source)
       .then((data) => !cancelled && setQueryResult({ data }))
@@ -24,7 +27,7 @@ export function useSource(source: SourceRef) {
     return () => {
       cancelled = true;
     };
-  }, [ws.doc, source.kind, source.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ws.doc, source?.kind, source?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const tableData = useMemo<ResultSet | undefined>(
     () =>
@@ -36,6 +39,7 @@ export function useSource(source: SourceRef) {
     [table],
   );
 
+  if (!source) return { data: UNBOUND, table: undefined };
   if (source.kind === "table") {
     return table ? { data: tableData, table } : { error: "The table this object is based on was deleted." };
   }
@@ -240,7 +244,7 @@ export function FormReportDesign({ kind, obj }: { kind: "form" | "report"; obj: 
           Record Source
           <ComboBox
             className="text-input"
-            value={`${obj.source.kind}:${obj.source.id}`}
+            value={obj.source ? `${obj.source.kind}:${obj.source.id}` : ""}
             ariaLabel="Record Source"
             options={sources}
             onChange={(v) => {

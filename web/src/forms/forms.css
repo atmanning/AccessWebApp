@@ -51,10 +51,14 @@ select.fc-input:disabled { cursor: default; opacity: 1; background-color: color-
 .fc-check-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .fc-button {
-  width: 100%; height: 100%; box-sizing: border-box; margin: 0; padding: 0 12px;
+  width: 100%; height: 100%; box-sizing: border-box; margin: 0; padding: 0 8px;
   border: 1px solid transparent; border-radius: var(--f-radius); font: inherit; font-size: 14px; font-weight: 600;
-  cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background 0.12s, filter 0.12s, box-shadow 0.12s;
+  cursor: pointer; overflow: hidden; transition: background 0.12s, filter 0.12s, box-shadow 0.12s;
+  /* Long captions wrap onto a second line, as in Access, rather than being cut off. */
+  white-space: normal; line-height: 1.15; overflow-wrap: anywhere;
 }
+/* Boxes and lines are decoration: clicks go through to the controls they frame. */
+.fv-ctl.t-rectangle, .fv-ctl.t-line { pointer-events: none; }
 .fc-button.primary { background: var(--f-accent); color: var(--f-accent-text); }
 .fc-button.primary:hover:not(:disabled) { filter: brightness(1.08); box-shadow: 0 2px 8px color-mix(in srgb, var(--f-accent) 35%, transparent); }
 .fc-button.secondary { background: color-mix(in srgb, var(--f-accent) 14%, var(--f-surface)); color: var(--f-accent); }

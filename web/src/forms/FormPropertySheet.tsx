@@ -269,11 +269,14 @@ export function FormPropertySheet(props: {
           <Row label="Record Source">
             <Select
               label="Record Source"
-              value={`${form.source.kind}:${form.source.id}`}
-              options={sources}
+              value={form.source ? `${form.source.kind}:${form.source.id}` : ""}
+              options={[{ value: "", label: "(none: a menu or dialog)" }, ...sources]}
               onChange={(v) => {
                 const [k, id] = v.split(":");
-                onForm((f) => (f.source = { kind: k as "table" | "query", id }));
+                onForm((f) => {
+                  if (!v) delete f.source;
+                  else f.source = { kind: k as "table" | "query", id };
+                });
               }}
             />
           </Row>
@@ -332,7 +335,7 @@ export function FormPropertySheet(props: {
             <Select
               label="Source Object"
               value={one.sourceObject ?? ""}
-              options={[{ value: "", label: "(choose a table)" }, ...ws.doc.tables.filter((t) => !(form.source.kind === "table" && t.id === form.source.id)).map((t) => ({ value: t.id, label: `Table: ${t.name}` }))]}
+              options={[{ value: "", label: "(choose a table)" }, ...ws.doc.tables.filter((t) => !(form.source?.kind === "table" && t.id === form.source.id)).map((t) => ({ value: t.id, label: `Table: ${t.name}` }))]}
               onChange={(id) => {
                 const t = ws.doc.tables.find((x) => x.id === id);
                 const link = id ? suggestLink(ws.doc, form, id) : null;

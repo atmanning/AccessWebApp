@@ -3,7 +3,8 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { checkProjectIntegrity, projectDocSchema, type ProjectDoc } from "../../shared/model.js";
+import { checkProjectIntegrity, formSchema, projectDocSchema, querySchema, reportSchema, type ProjectDoc } from "../../shared/model.js";
+import { importFormsAndReports } from "./accessForms.js";
 import { fromExchangeDocument, type ExchangeDocument } from "../../shared/exchange.js";
 import { createLimiter, type ExporterConfig, type Limiter } from "./export.js";
 
@@ -66,6 +67,20 @@ async function importOnce(cfg: ExporterConfig, file: Buffer): Promise<{ doc: Pro
     });
 
     const { doc, warnings } = fromExchangeDocument(JSON.parse(json) as ExchangeDocument);
+    // Forms and reports (the Java tool reads tables, relationships and queries).
+    const designs = importFormsAndReports(file, doc);
+    for (const q of designs.queries) if (querySchema.safeParse(q).success) doc.queries.push(q);
+    for (const f of designs.forms) {
+      const ok = formSchema.safeParse(f);
+      if (ok.success) doc.forms.push(ok.data);
+      else warnings.push(`Form '${f.name}' couldn't be converted (${ok.error.issues[0]?.path.join(".")}: ${ok.error.issues[0]?.message}), so it was skipped.`);
+    }
+    for (const r of designs.reports) {
+      const ok = reportSchema.safeParse(r);
+      if (ok.success) doc.reports.push(ok.data);
+      else warnings.push(`Report '${r.name}' couldn't be converted (${ok.error.issues[0]?.message}), so it was skipped.`);
+    }
+    warnings.push(...designs.warnings);
     if (JSON.stringify(doc).length > MAX_DOC_BYTES) {
       throw new ImportError("This database is too large to store here (more than about 20 MB of data).");
     }

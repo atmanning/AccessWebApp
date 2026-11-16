@@ -137,7 +137,7 @@ enforcement.
 ## Importing from Access
 
 **Open Access database** on the home screen creates a new database from an `.accdb` or `.mdb` file (Access 97
-and later). **External Data → Access** inside a database adds another file's tables and queries to it, renaming
+and later). **External Data → Access** inside a database adds another file's tables, queries, forms and reports to it, renaming
 anything whose name is already taken (Customers → Customers1). Imports can be undone with Ctrl+Z.
 
 Imported: tables, data, field types and sizes, descriptions, default values, Required, primary keys, single-field
@@ -150,8 +150,27 @@ table plus each calculated field as an expression (one calculated field may use 
 and other queries where you used the calculated fields. Its results are editable, and the calculated columns update
 as soon as you change a field they use.
 
-Not imported (each one is listed in the notes shown after the import): forms, reports, macros, modules, linked
-tables, and Attachment, OLE Object and multi-value fields. Password-protected databases need the
+**Forms** come across as designed forms you can open and edit in Design View: every control in place (Access's twips
+become pixels), with its Control Source (fields and calculated `=…` expressions), captions, fonts, colors, borders,
+Format, Visible, Locked and Tab Stop, header/detail/footer heights and colors, the tab order, Navigation Buttons and
+Allow Edits/Additions/Deletions. Text boxes, labels, combo and list boxes (value lists, or tables/queries with their
+bound and displayed columns), check boxes (and option and toggle buttons), command buttons, subforms (linked on
+Link Master/Child Fields), rectangles, lines and bound pictures are supported. A record source or list that's a
+SQL statement becomes a saved query. **Unbound forms** (menus, switchboards, dialogs) come across without a
+record source. Command buttons keep their action when their VBA or embedded macro does a common one: open a form or
+report, go to the next/previous/first/last/new record, save, delete, or close; other VBA can't run here, so those
+buttons arrive without an action. Tab controls are flattened (their pages' controls stay in place); option group
+frames, charts, OLE/ActiveX controls and pictures pasted into the design (logos) are left out.
+
+**Reports** come across as reports on their record source with the fields of their detail section (left to right),
+grouped and sorted as in their Sorting and Grouping (the first group with a header, then the next level as the sort).
+Their exact print layout, calculated boxes and further group levels aren't reproduced yet.
+
+Form and report designs are read with [jetdb](https://github.com/dominion525/jetdb) (MIT/Apache-2.0), which decodes
+the format Access stores them in (`MSysAccessStorage`). Access 2000 and later files are supported.
+
+Not imported (each one is listed in the notes shown after the import): macros, modules (VBA), linked tables (their
+data lives in another file; they're skipped with that file's path), and Attachment, OLE Object and multi-value fields. Password-protected databases need the
 password removed first (Access: File → Info → Decrypt Database). Uploads are limited to 100 MB and about
 200,000 records.
 

@@ -81,6 +81,8 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
   const [sort, setSort] = useState<{ field: string; dir: "ASC" | "DESC" } | null>(null);
   const [focusField, setFocusField] = useState<string | null>(null);
   const [addedAt, setAddedAt] = useState<number | null>(null);
+  // Unbound controls (no Control Source) hold what's typed while the form is open, as in Access.
+  const [unbound, setUnbound] = useState<Record<string, CellValue>>({});
 
   const fieldList = useMemo(() => (data ? data.columns.map((name, i) => ({ name, field: data.fields[i] })) : []), [data]);
   const layout = useMemo(() => layoutOf(form, fieldList), [form, fieldList]);
@@ -347,6 +349,24 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
     }
     if (finding && isBound(c.type)) return <FindField c={c} inputId={inputId} field={c.field ? data.fields[colIdx(c.field)] : undefined} finding={finding} setFinding={setFinding} options={options[c.id]} onEnter={runFind} />;
     if (!isBound(c.type)) return <FormControlView c={c} inputId={inputId} run={{ value: null, readOnly: true, isNew, onCommit: () => {}, onAction: () => act(c), buttonDisabled: !!finding || buttonDisabled(c) }} />;
+    if (!c.field && (c.type === "textbox" || c.type === "combobox" || c.type === "listbox" || c.type === "checkbox")) {
+      const kind = c.type === "checkbox" ? "YesNo" : "ShortText";
+      return (
+        <FormControlView
+          c={c}
+          inputId={inputId}
+          run={{
+            value: unbound[c.id] ?? (kind === "YesNo" ? false : null),
+            field: { id: c.id, name: c.name, type: kind, required: false } as Field,
+            readOnly: !!c.locked,
+            isNew,
+            options: options[c.id],
+            onCommit: (input) => setUnbound((u) => ({ ...u, [c.id]: kind === "YesNo" ? input === true || input === "true" || input === "Yes" : input === "" ? null : (input as CellValue) })),
+            onAction: () => {},
+          }}
+        />
+      );
+    }
     const i = c.field ? colIdx(c.field) : -1;
     const field = i >= 0 ? data.fields[i] : undefined;
     const value: CellValue = row && i >= 0 ? row[i] : null;
@@ -476,7 +496,7 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
           )}
         </div>
       </div>
-      {!finding && (layout.navigationButtons !== false || filter) && (
+      {!finding && !!form.source && (layout.navigationButtons !== false || filter) && (
         <div className="record-nav">
           <span className="rn-label">Record:</span>
           <button onClick={() => go(0)} disabled={!count} title="First record">⏮</button>
