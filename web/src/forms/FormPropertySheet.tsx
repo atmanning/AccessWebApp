@@ -1,5 +1,7 @@
 /** Property Sheet for Form Design View: the form's properties, or the selected controls'. */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { CONTROL_EVENTS, EVENT_LABELS, FORM_EVENTS, macroSummary, type ControlEvent, type FormEvent, type MacroStep } from "../../../shared/macros";
+import { MacroBuilderDialog } from "../macros/MacroBuilder";
 import {
   BUTTON_ACTIONS,
   FORM_THEMES,
@@ -150,6 +152,43 @@ export function Select<T extends string>({ value, options, onChange, label }: { 
   return <ComboBox className="ps-input" value={value} options={options} onChange={onChange} ariaLabel={label} />;
 }
 
+/** An event property: [Embedded Macro] with … to open the Macro Builder (or the quick choices in `children`). */
+/** The events a kind of control has. */
+function eventsFor(type: FormControlType): ControlEvent[] {
+  if (type === "subform" || type === "rectangle" || type === "line") return [];
+  if (type === "button" || type === "label" || type === "image") return CONTROL_EVENTS.filter((e) => e !== "afterUpdate");
+  return [...CONTROL_EVENTS];
+}
+
+export function EventProp(props: { label: string; steps?: MacroStep[]; onSave: (s: MacroStep[] | undefined) => void; controls?: string[]; children?: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const has = !!props.steps?.length;
+  return (
+    <Row label={props.label}>
+      <div className="ps-macro">
+        {has ? <span title={macroSummary(props.steps!).join("\n")}>[Embedded Macro]</span> : props.children ?? <span className="muted">(none)</span>}
+        <button title="Build a macro for this event (Macro Builder)" aria-label={`${props.label}: Macro Builder`} onClick={() => setOpen(true)}>
+          …
+        </button>
+        {has && (
+          <button title="Remove the macro" aria-label={`${props.label}: remove macro`} onClick={() => props.onSave(undefined)}>
+            ✕
+          </button>
+        )}
+      </div>
+      {open && (
+        <MacroBuilderDialog
+          title={`Macro Builder: ${props.label}`}
+          steps={props.steps ?? []}
+          names={{ controls: props.controls }}
+          onSave={(s) => props.onSave(s.length ? s : undefined)}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </Row>
+  );
+}
+
 export function Group({ title, children }: { title: string; children: ReactNode }) {
   const [open, setOpen] = useState(true);
   return (
@@ -286,6 +325,26 @@ export function FormPropertySheet(props: {
           {flag("allowAdditions", "Allow Additions")}
           {flag("allowDeletions", "Allow Deletions")}
         </Group>
+        {!props.report && (
+          <Group title="Event">
+            {FORM_EVENTS.map((e: FormEvent) => (
+              <EventProp
+                key={e}
+                label={EVENT_LABELS[e]}
+                steps={form.events?.[e]}
+                controls={layout.controls.map((c) => c.name)}
+                onSave={(steps) =>
+                  onForm((f) => {
+                    const ev = { ...f.events, [e]: steps };
+                    if (!steps) delete ev[e];
+                    if (Object.keys(ev).length) f.events = ev;
+                    else delete f.events;
+                  })
+                }
+              />
+            ))}
+          </Group>
+        )}
         <p className="ps-tip">Click a control to see its properties. Shift+click or drag around controls to select several.</p>
       </div>
     );
@@ -410,17 +469,31 @@ export function FormPropertySheet(props: {
           )}
         </Group>
       )}
-      {one?.type === "button" && (
+      {one && !props.report && eventsFor(one.type).length > 0 && (
         <Group title="Event">
-          <Row label="On Click">
-            <Select
-              label="On Click"
-              value={one.action ?? "none"}
-              options={BUTTON_ACTIONS.map((a) => ({ value: a, label: ACTION_LABELS[a] }))}
-              onChange={(a) => onPatch({ action: a, target: a === "openForm" || a === "openReport" ? one.target : undefined })}
-            />
-          </Row>
-          {(one.action === "openForm" || one.action === "openReport") && (
+          {eventsFor(one.type).map((e) => (
+            <EventProp
+              key={e}
+              label={EVENT_LABELS[e]}
+              steps={one.events?.[e]}
+              controls={layout.controls.map((c) => c.name)}
+              onSave={(steps) => {
+                const ev = { ...one.events, [e]: steps };
+                if (!steps) delete ev[e];
+                onPatch({ events: Object.keys(ev).length ? ev : undefined });
+              }}
+            >
+              {e === "onClick" && one.type === "button" ? (
+                <Select
+                  label="On Click"
+                  value={one.action ?? "none"}
+                  options={BUTTON_ACTIONS.map((a) => ({ value: a, label: ACTION_LABELS[a] }))}
+                  onChange={(a) => onPatch({ action: a, target: a === "openForm" || a === "openReport" ? one.target : undefined })}
+                />
+              ) : undefined}
+            </EventProp>
+          ))}
+          {one.type === "button" && !one.events?.onClick?.length && (one.action === "openForm" || one.action === "openReport") && (
             <Row label={one.action === "openForm" ? "Form" : "Report"}>
               <Select
                 label="Object to open"

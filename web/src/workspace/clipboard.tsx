@@ -3,6 +3,7 @@
  * The clipboard lives in this browser, so you can paste into another database you open.
  */
 import { useState } from "react";
+import type { MacroDef } from "../../../shared/macros";
 import type { FormDef, LinkedTable, ObjectKind, ProjectDoc, QueryDef, ReportDef, Row, TableDef } from "../../../shared/model";
 import { appendRowsPlan } from "../engine/actions";
 import { Modal, useDialogs } from "../ui/dialogs";
@@ -21,7 +22,7 @@ const KEY = "accessweb.clipboard";
 let memory: ClipItem | null = null;
 
 export function copyObject(doc: ProjectDoc, projectId: string, kind: ObjectKind, id: string): ClipItem | null {
-  const list = { table: doc.tables, query: doc.queries, form: doc.forms, report: doc.reports, linked: doc.linkedTables ?? [] }[kind] as { id: string; name: string }[];
+  const list = { table: doc.tables, query: doc.queries, form: doc.forms, report: doc.reports, linked: doc.linkedTables ?? [], macro: doc.macros ?? [] }[kind] as { id: string; name: string }[];
   const object = list.find((o) => o.id === id);
   if (!object) return null;
   const item: ClipItem = { kind, object: structuredClone(object) as ClipItem["object"], projectId };
@@ -142,6 +143,12 @@ export function PasteDialog({ item, onClose }: { item: ClipItem; onClose: () => 
           }
           d.linkedTables = [...(d.linkedTables ?? []), l];
           created = { kind: "linked", id: l.id };
+          break;
+        }
+        case "macro": {
+          const m = { ...(item.object as MacroDef), id: newId("mc"), name: n };
+          d.macros = [...(d.macros ?? []), m];
+          created = { kind: "macro", id: m.id };
           break;
         }
         default: {

@@ -41,6 +41,13 @@ export const ReportIcon = svg(
     <path d="M5 7h6M5 9h6M5 11h4" stroke="#b5562b" />
   </>,
 );
+/** A scroll with a lightning bolt, like Access's macro icon. */
+export const MacroIcon = svg(
+  <>
+    <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" fill="#fff6e0" stroke="#a15c00" />
+    <path d="M9 3.5L5.5 8.5h3l-1.5 4 4-5.5h-3l1.5-3.5z" fill="#e8a317" stroke="#a15c00" strokeWidth="0.7" strokeLinejoin="round" />
+  </>,
+);
 export const KeyIcon = svg(
   <>
     <circle cx="5" cy="8" r="3" fill="#f2c94c" stroke="#9a7a12" />
@@ -329,4 +336,4 @@ export const OtherDbIcon = svg(
   </>,
 );
 
-export const OBJECT_ICONS = { table: TableIcon, query: QueryIcon, form: FormIcon, report: ReportIcon, linked: LinkedTableIcon } as const;
+export const OBJECT_ICONS = { table: TableIcon, query: QueryIcon, form: FormIcon, report: ReportIcon, linked: LinkedTableIcon, macro: MacroIcon } as const;

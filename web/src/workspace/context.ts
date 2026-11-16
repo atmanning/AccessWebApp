@@ -12,6 +12,18 @@ export interface Tab {
   view: ViewName;
   /** Go to the record whose `field` equals `value` (from a link such as a label's QR code); `n` makes repeats count. */
   goto?: RecordTarget;
+  /** How a macro opened it (OpenForm / OpenReport): only matching records, Data Mode…; `n` makes repeats count. */
+  open?: OpenArgs;
+}
+
+export interface OpenArgs {
+  /** Where Condition: an expression each record must match. */
+  where?: string;
+  /** "Add" (a new record), "Edit" or "Read Only". */
+  dataMode?: string;
+  /** Print as soon as it's shown (OpenReport with View: Print). */
+  print?: boolean;
+  n: number;
 }
 
 export interface RecordTarget {
@@ -96,7 +108,11 @@ export interface WorkspaceApi {
   doc: ProjectDoc;
   /** Applies an immer recipe to the document; each call is one undo step. */
   update: (recipe: (draft: ProjectDoc) => void) => void;
-  openObject: (kind: TabKind, id: string, view?: ViewName, goto?: Omit<RecordTarget, "n">) => void;
+  openObject: (kind: TabKind, id: string, view?: ViewName, goto?: Omit<RecordTarget, "n">, open?: Omit<OpenArgs, "n">) => void;
+  /** The document as it is now (`doc` is as of the last render; a macro may have changed it since). */
+  getDoc: () => ProjectDoc;
+  /** Closes every tab (QuitAccess). */
+  closeAll: () => void;
   closeTab: (key: string) => void;
   setTabView: (key: string, view: ViewName) => void;
   activeKey: string | null;
@@ -135,7 +151,7 @@ export function useCommands(tabKey: string, commands: ViewCommands) {
 export const tabKey = (kind: TabKind, id: string) => `${kind}:${id}`;
 
 export function defaultView(kind: TabKind): ViewName {
-  return { table: "datasheet", query: "datasheet", form: "form", report: "report", relationships: "relationships", linked: "datasheet", console: "console" }[kind] as ViewName;
+  return { table: "datasheet", query: "datasheet", form: "form", report: "report", relationships: "relationships", linked: "datasheet", console: "console", macro: "design" }[kind] as ViewName;
 }
 
 export function viewsFor(kind: TabKind): { view: ViewName; label: string }[] {
@@ -154,6 +170,8 @@ export function viewsFor(kind: TabKind): { view: ViewName; label: string }[] {
       return [{ view: "report", label: "Report View" }, { view: "design", label: "Design View" }];
     case "linked":
       return [{ view: "datasheet", label: "Datasheet View" }];
+    case "macro":
+      return [{ view: "design", label: "Design View" }];
     case "console":
       return [{ view: "console", label: "SQL Console" }];
     default:

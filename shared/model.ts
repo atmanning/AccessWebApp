@@ -5,6 +5,7 @@
  * field never touches the data.
  */
 import { z } from "zod";
+import { controlEventsSchema, formEventsSchema, macroSchema } from "./macros.js";
 
 export const FIELD_TYPES = ["AutoNumber", "ShortText", "LongText", "Number", "Currency", "DateTime", "YesNo", "Image"] as const;
 export type FieldType = (typeof FIELD_TYPES)[number];
@@ -296,6 +297,8 @@ export const formControlSchema = z.object({
   target: id.optional(),
   /** Button look (primary/secondary/outline/danger), or "switch" for a check box drawn as a switch. */
   variant: z.enum(["primary", "secondary", "outline", "danger", "switch"]).optional(),
+  /** Embedded macros run by the control's events (On Click takes the place of `action`). */
+  events: controlEventsSchema.optional(),
 });
 export type FormControl = z.infer<typeof formControlSchema>;
 
@@ -324,6 +327,8 @@ export const formSchema = z.object({
   columns: z.array(z.string()).max(255),
   /** Designed layout. Forms made before the designer get one generated from `columns`. */
   layout: formLayoutSchema.optional(),
+  /** Embedded macros run by the form's events. */
+  events: formEventsSchema.optional(),
 });
 export type FormDef = z.infer<typeof formSchema>;
 
@@ -540,6 +545,8 @@ export const projectDocSchema = z.object({
   reports: z.array(reportSchema).max(500),
   relationships: z.array(relationshipSchema).max(1000),
   linkedTables: z.array(linkedTableSchema).max(500).optional(),
+  /** Named macros (Navigation Pane → Macros); one named AutoExec runs when the database opens. */
+  macros: z.array(macroSchema).max(500).optional(),
   /** What scanning a name tag's QR code does at a scan station (Home → Scan Tags). */
   scanActions: z
     .array(
@@ -579,7 +586,7 @@ export const projectDocSchema = z.object({
 export type ProjectDoc = z.infer<typeof projectDocSchema>;
 export type ScanAction = NonNullable<ProjectDoc["scanActions"]>[number];
 
-export type ObjectKind = "table" | "query" | "form" | "report" | "linked";
+export type ObjectKind = "table" | "query" | "form" | "report" | "linked" | "macro";
 
 export function emptyProject(): ProjectDoc {
   return { version: 1, tables: [], queries: [], forms: [], reports: [], relationships: [] };

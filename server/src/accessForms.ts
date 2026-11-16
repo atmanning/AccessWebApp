@@ -10,6 +10,8 @@
 import { createRequire } from "node:module";
 import type { FormControl, FormControlType, FormDef, FormLayout, FormSection, ProjectDoc, QueryDef, ReportControl, ReportDef, ReportLayout, SourceRef } from "../../shared/model.js";
 import { cleanName, rid, unique } from "../../shared/exchange.js";
+import type { MacroDef, MacroStep } from "../../shared/macros.js";
+import { jetStatementsToSteps, vbaProcedure, vbaToSteps, type JetStatement } from "./accessMacros.js";
 
 type JetValue = string | number | boolean | null | Record<string, unknown>;
 interface JetProp {
@@ -31,7 +33,7 @@ interface JetDesign {
 }
 interface JetMacro {
   source?: { control?: string | null; event?: string };
-  statements?: { kind: string; name?: string; arguments?: unknown[] }[];
+  statements?: JetStatement[];
 }
 interface JetDatabase {
   forms(): { name: string; type: "Form" | "Report" }[];
@@ -40,6 +42,8 @@ interface JetDatabase {
   embeddedMacros(name: string, o: { type: string }): JetMacro[];
   modules(): { name: string; type: string }[];
   moduleSource(name: string): string;
+  macros(o?: { system?: boolean }): string[];
+  macro(name: string): JetMacro;
   free(): void;
 }
 
@@ -225,27 +229,34 @@ export function buttonAction(code: string): { action: FormControl["action"]; tar
   return null;
 }
 
-/** An embedded macro's click actions, as text buttonAction understands. */
-function macroAsCode(m: JetMacro): string {
-  const lines: string[] = [];
-  const args = (a: unknown[] | undefined) =>
-    (a ?? [])
-      .map((x) => (typeof x === "object" && x !== null ? String((x as { value?: unknown }).value ?? "") : String(x ?? "")))
-      .filter(Boolean);
-  for (const s of m.statements ?? []) {
-    if (s.kind !== "action" || !s.name) continue;
-    const a = args(s.arguments);
-    const n = s.name.toLowerCase();
-    if (n === "openform") lines.push(`DoCmd.OpenForm "${a[0] ?? ""}"`);
-    else if (n === "openreport") lines.push(`DoCmd.OpenReport "${a[0] ?? ""}"`);
-    else if (n === "gotorecord") {
-      const which = a.find((x) => /^(next|previous|first|last|new)$/i.test(x))?.toLowerCase() ?? "next";
-      lines.push(which === "new" ? "acNewRec" : `GoToRecord ac${which[0].toUpperCase()}${which.slice(1)}`);
-    } else if (n === "runmenucommand" || n === "runcommand") lines.push(`acCmd${a[0] ?? ""}`);
-    else if (n === "saverecord") lines.push("acCmdSaveRecord");
-    else if (n === "closewindow" || n === "close") lines.push("DoCmd.Close");
+/** A button's macro as one of the simple button actions, when it's just that (no arguments to keep). */
+export function simpleButtonAction(steps: MacroStep[]): { action: FormControl["action"]; target?: { kind: "form" | "report"; name: string } } | null {
+  if (steps.length !== 1 || steps[0].kind !== "action") return null;
+  const { action, args = {} } = steps[0];
+  const only = (...keys: string[]) => Object.keys(args).every((k) => keys.includes(k));
+  const literal = (v: string | undefined) => !!v && !v.trim().startsWith("=");
+  switch (action) {
+    case "OpenForm":
+      return only("FormName", "View") && literal(args.FormName) && !/design|datasheet/i.test(args.View ?? "") ? { action: "openForm", target: { kind: "form", name: args.FormName } } : null;
+    case "OpenReport":
+      return only("ReportName", "View") && literal(args.ReportName) && !/design|^print$/i.test(args.View ?? "") ? { action: "openReport", target: { kind: "report", name: args.ReportName } } : null;
+    case "GoToRecord": {
+      if (!only("Record", "ObjectType") || args.ObjectType) return null;
+      const r = (args.Record ?? "Next").toLowerCase();
+      return r === "next" ? { action: "nextRecord" } : r === "previous" ? { action: "previousRecord" } : r === "first" ? { action: "firstRecord" } : r === "last" ? { action: "lastRecord" } : r === "new" ? { action: "newRecord" } : null;
+    }
+    case "SaveRecord":
+      return { action: "saveRecord" };
+    case "DeleteRecord":
+      return { action: "deleteRecord" };
+    case "RunMenuCommand": {
+      const c = (args.Command ?? "").toLowerCase();
+      return c === "saverecord" ? { action: "saveRecord" } : c === "deleterecord" ? { action: "deleteRecord" } : c === "recordsgotonew" ? { action: "newRecord" } : c === "close" || c === "closewindow" ? { action: "closeForm" } : null;
+    }
+    case "CloseWindow":
+      return !args.ObjectName ? { action: "closeForm" } : null;
   }
-  return lines.join("\n");
+  return null;
 }
 
 interface Lookup {
@@ -258,12 +269,14 @@ export interface ImportedDesigns {
   reports: ReportDef[];
   /** Queries made for record sources and lists that were SQL statements. */
   queries: QueryDef[];
+  /** Named macros (Navigation Pane → Macros). */
+  macros: MacroDef[];
   warnings: string[];
 }
 
 /** Reads the forms and reports of an Access file and converts them for `doc` (its tables and queries). */
 export function importFormsAndReports(file: Buffer, doc: ProjectDoc): ImportedDesigns {
-  const out: ImportedDesigns = { forms: [], reports: [], queries: [], warnings: [] };
+  const out: ImportedDesigns = { forms: [], reports: [], queries: [], macros: [], warnings: [] };
   let db: JetDatabase;
   try {
     db = jetdb().Database.open(file);
@@ -274,6 +287,11 @@ export function importFormsAndReports(file: Buffer, doc: ProjectDoc): ImportedDe
     convert(db, doc, out);
   } catch (e) {
     out.warnings.push(`Forms and reports couldn't be read from this file (${(e as Error).message}).`);
+  }
+  try {
+    importMacros(db, out);
+  } catch (e) {
+    out.warnings.push(`Macros couldn't be read from this file (${(e as Error).message}).`);
   } finally {
     try {
       db.free();
@@ -283,6 +301,37 @@ export function importFormsAndReports(file: Buffer, doc: ProjectDoc): ImportedDe
   }
   return out;
 }
+
+/** Named macros, as they are (AutoExec too: it runs when the database opens here as well). */
+function importMacros(db: JetDatabase, out: ImportedDesigns) {
+  const taken = new Set<string>();
+  for (const name of db.macros()) {
+    let steps: MacroStep[];
+    try {
+      steps = jetStatementsToSteps(db.macro(name).statements);
+    } catch {
+      out.warnings.push(`Macro '${name}' couldn't be read, so it was skipped.`);
+      continue;
+    }
+    out.macros.push({ id: rid("mc"), name: unique(cleanName(name, "Macro"), taken), steps });
+  }
+}
+
+/** Access's event properties and the VBA procedure names they run. */
+const CONTROL_EVENT_PROPS = [
+  { prop: "OnClick", jet: "OnClick", vba: "Click", ev: "onClick" },
+  { prop: "OnDblClick", jet: "OnDblClick", vba: "DblClick", ev: "onDblClick" },
+  { prop: "AfterUpdate", jet: "AfterUpdate", vba: "AfterUpdate", ev: "afterUpdate" },
+] as const;
+const FORM_EVENT_PROPS = [
+  { prop: "OnOpen", jet: "OnOpen", vba: "Open", ev: "onLoad" },
+  { prop: "OnLoad", jet: "OnLoad", vba: "Load", ev: "onLoad" },
+  { prop: "OnCurrent", jet: "OnCurrent", vba: "Current", ev: "onCurrent" },
+  { prop: "OnUnload", jet: "OnUnload", vba: "Unload", ev: "onClose" },
+  { prop: "OnClose", jet: "OnClose", vba: "Close", ev: "onClose" },
+] as const;
+/** Events this app doesn't have, reported when they have code. */
+const OTHER_EVENTS = ["BeforeUpdate", "OnChange", "OnEnter", "OnExit", "OnGotFocus", "OnLostFocus", "OnKeyDown", "OnKeyPress", "OnMouseDown", "BeforeInsert", "AfterInsert", "OnDelete", "OnTimer", "OnError", "OnDirty"];
 
 function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
   const list = db.forms();
@@ -362,7 +411,7 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
     const id = rid(item.type === "Form" ? "f" : "r");
     (item.type === "Form" ? formIdByAccessName : reportIdByAccessName).set(item.name.toLowerCase(), id);
   }
-  const buttonTargets: { c: FormControl; kind: "form" | "report"; name: string }[] = [];
+  const buttonTargets: { c: FormControl; kind: "form" | "report"; name: string; steps: MacroStep[] }[] = [];
   const skippedKinds = new Map<string, number>();
   const skip = (what: string) => skippedKinds.set(what, (skippedKinds.get(what) ?? 0) + 1);
 
@@ -409,6 +458,38 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
     let section: FormSection | null = null;
     const vbaCode = moduleFor(item.name);
     let macros: JetMacro[] | null = null;
+    let unconverted = 0;
+    /** The form's control and field names (other names in VBA are variables). */
+    const knownNames = () =>
+      // Fields are unknown when the record source wasn't imported: then every bare name stays a field or control.
+      !source && sourceText ? undefined : new Set([...d.controls.map((x) => x.name.toLowerCase()), ...(source ? columnsOf(source) : []).map((x) => x.toLowerCase())]);
+    const otherEvents = new Set<string>();
+    /** An event's steps: its embedded macro, its VBA procedure, or the named macro it runs. */
+    const eventSteps = (value: string | undefined, control: string | null, jetEvent: string, procedure: string): MacroStep[] | undefined => {
+      const v = value?.trim();
+      // Embedded macros: found by control and event (some files don't set the event property).
+      if (!v || /^\[Embedded Macro\]$/i.test(v)) {
+        try {
+          macros ??= db.embeddedMacros(item.name, { type: "Form" });
+        } catch {
+          macros = [];
+        }
+        const mac = macros.find((x) => (x.source?.control ?? null)?.toLowerCase() === control?.toLowerCase() && x.source?.event?.toLowerCase() === jetEvent.toLowerCase());
+        return mac ? jetStatementsToSteps(mac.statements) : undefined;
+      }
+      if (/^\[Event Procedure\]$/i.test(v)) {
+        const body = vbaProcedure(vbaCode, procedure);
+        if (body === null) return undefined;
+        const r = vbaToSteps(body, { module: vbaCode, names: knownNames() });
+        unconverted += r.unconverted.length;
+        return r.steps;
+      }
+      if (v.startsWith("=")) {
+        unconverted++;
+        return [{ kind: "comment", text: `Not converted: this event calls the VBA function ${v.slice(1)}.` }];
+      }
+      return [{ kind: "action", action: "RunMacro", args: { MacroName: v } }];
+    };
 
     for (const jc of d.controls) {
       const code = (jc.typeCode ?? 0) & 0xff;
@@ -529,29 +610,24 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
           if (master.includes(";")) out.warnings.push(`Subform '${jc.name}' on form '${item.name}' is linked on several fields; only ${c.linkMaster} = ${c.linkChild} is used.`);
         }
       }
+      // Events: embedded macros, and VBA event procedures translated to macro steps.
+      const prefix = (p.str("EventProcPrefix") ?? jc.name).replace(/[^\w]/g, "_");
+      for (const e of CONTROL_EVENT_PROPS) {
+        const steps = eventSteps(p.str(e.prop), jc.name, e.jet, `${prefix}_${e.vba}`);
+        if (steps?.length) c.events = { ...c.events, [e.ev]: steps };
+      }
+      for (const e of OTHER_EVENTS) if (p.str(e)) otherEvents.add(e.replace(/^On/, "On "));
       if (kind === "button") {
         c.action = "none";
         c.variant = "secondary";
-        const onClick = p.str("OnClick") ?? "";
-        let codeText = "";
-        if (/^\[Event Procedure\]$/i.test(onClick)) {
-          const prefix = (p.str("EventProcPrefix") ?? jc.name).replace(/[^\w]/g, "_");
-          const sub = new RegExp(`Sub\\s+${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}_Click\\s*\\([\\s\\S]*?End Sub`, "i").exec(vbaCode);
-          codeText = sub?.[0] ?? "";
-        } else if (/^\[Embedded Macro\]$/i.test(onClick)) {
-          try {
-            macros ??= db.embeddedMacros(item.name, { type: "Form" });
-          } catch {
-            macros = [];
-          }
-          const mac = macros.find((x) => x.source?.control?.toLowerCase() === jc.name.toLowerCase() && /click/i.test(x.source?.event ?? ""));
-          codeText = mac ? macroAsCode(mac) : "";
+        const simple = c.events?.onClick ? simpleButtonAction(c.events.onClick) : null;
+        if (simple) {
+          // A plain Next / New / Open Form button: the built-in action (it greys out at the last record).
+          c.action = simple.action;
+          if (simple.target) buttonTargets.push({ c, kind: simple.target.kind, name: simple.target.name, steps: c.events!.onClick! });
+          delete c.events!.onClick;
+          if (!Object.keys(c.events!).length) delete c.events;
         }
-        const act = codeText ? buttonAction(codeText) : null;
-        if (act) {
-          c.action = act.action;
-          if (act.target) buttonTargets.push({ c, kind: act.target.kind, name: act.target.name });
-        } else if (onClick) skip("button actions written in VBA or macros");
       }
       layout.controls.push(c);
       if (p.has("TabIndex") || kind === "textbox" || kind === "combobox" || kind === "listbox" || kind === "checkbox" || kind === "button" || kind === "subform") {
@@ -576,7 +652,23 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
 
     const fields = new Set((source ? columnsOf(source) : []).map((f) => f.toLowerCase()));
     const columns = [...new Set(layout.controls.map((c) => c.field).filter((f): f is string => !!f && !f.startsWith("=") && fields.has(f.toLowerCase())))];
+    const formEvents: NonNullable<FormDef["events"]> = {};
+    for (const e of FORM_EVENT_PROPS) {
+      const steps = eventSteps(props.str(e.prop), null, e.jet, `Form_${e.vba}`);
+      if (steps?.length) formEvents[e.ev] = [...(formEvents[e.ev] ?? []), ...steps];
+    }
+    for (const e of OTHER_EVENTS) if (props.str(e)) otherEvents.add(e.replace(/^On/, "On "));
+    const mapped = new Set([...CONTROL_EVENT_PROPS, ...FORM_EVENT_PROPS].map((e) => e.jet.toLowerCase()));
+    for (const m of (macros as JetMacro[] | null) ?? []) {
+      const ev = m.source?.event;
+      if (ev && !mapped.has(ev.toLowerCase())) otherEvents.add(ev.replace(/^On(?=[A-Z])/, "On "));
+    }
+    if (unconverted) {
+      out.warnings.push(`Form '${item.name}': ${unconverted} line(s) of VBA couldn't become macro actions; they're kept as comments in its macros (Design View → Property Sheet → Event → …).`);
+    }
+    if (otherEvents.size) out.warnings.push(`Form '${item.name}' has code for events this app doesn't run yet (${[...otherEvents].join(", ")}).`);
     out.forms.push({
+      ...(Object.keys(formEvents).length ? { events: formEvents } : {}),
       id: formIdByAccessName.get(item.name.toLowerCase())!,
       name: unique(display, formNames),
       title: (props.str("Caption") ?? item.name).slice(0, 200),
@@ -592,15 +684,14 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
     const exists = id && (b.kind === "form" ? out.forms : out.reports).some((x) => x.id === id);
     if (exists) b.c.target = id;
     else {
+      // Keep it as a macro: it says which form it opens, and fails with that name if it's missing.
       b.c.action = "none";
-      skip("buttons that open forms or reports that weren't imported");
+      b.c.events = { ...b.c.events, onClick: b.steps };
     }
   }
   for (const [what, n] of skippedKinds) {
     out.warnings.push(
-      what === "button actions written in VBA or macros"
-        ? `${n} button(s) run VBA or macros that can't run here; they were imported without an action (choose one in the Property Sheet).`
-        : `${n} ${what} weren't imported.`,
+      `${n} ${what} weren't imported.`,
     );
   }
 }

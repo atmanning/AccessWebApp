@@ -28,6 +28,7 @@ import {
   WorkspaceContext,
   type StatusKind,
   type DeepLink,
+  type OpenArgs,
   type RecordTarget,
   type Tab,
   type TabKind,
@@ -56,6 +57,9 @@ import { NewLabelsDialog } from "../reports/NewLabelsDialog";
 import { defaultLabels } from "../reports/labels";
 import { readSource } from "../engine/engine";
 import { Ribbon } from "./Ribbon";
+import { MacroDesignView } from "../macros/MacroBuilder";
+import { useMacroRunner } from "../macros/useMacroRunner";
+import { endAllFormSessions, endFormSession, resetRuntime } from "../macros/runtime";
 
 type SaveState = "saved" | "pending" | "saving" | "error" | "conflict";
 const MAX_UNDO = 100;
@@ -208,16 +212,21 @@ export function Workspace(props: {
   }, [setStatus]);
 
   // ---- Tabs ------------------------------------------------------------------------------
-  const openObject = useCallback((kind: TabKind, id: string, view?: ViewName, goto?: Omit<RecordTarget, "n">) => {
+  const openObject = useCallback((kind: TabKind, id: string, view?: ViewName, goto?: Omit<RecordTarget, "n">, open?: Omit<OpenArgs, "n">) => {
     const key = tabKey(kind, id);
     const target = goto ? { ...goto, n: Date.now() } : undefined;
+    const how = open ? { ...open, n: Date.now() } : undefined;
     setTabs((ts) => {
       const existing = ts.find((t) => t.key === key);
       if (existing) {
-        if (!target && (!view || existing.view === view)) return ts;
-        return ts.map((t) => (t.key === key ? { ...t, ...(view ? { view } : {}), ...(target ? { goto: target, view: view ?? defaultView(kind) } : {}) } : t));
+        if (!target && !how && (!view || existing.view === view)) return ts;
+        return ts.map((t) =>
+          t.key === key
+            ? { ...t, ...(view ? { view } : {}), ...(target ? { goto: target, view: view ?? defaultView(kind) } : {}), ...(how ? { open: how, view: view ?? defaultView(kind) } : {}) }
+            : t,
+        );
       }
-      return [...ts, { key, kind, id, view: view ?? defaultView(kind), ...(target ? { goto: target } : {}) }];
+      return [...ts, { key, kind, id, view: view ?? defaultView(kind), ...(target ? { goto: target } : {}), ...(how ? { open: how } : {}) }];
     });
     setActiveKey(key);
     setBackstage(false);
@@ -237,6 +246,7 @@ export function Workspace(props: {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const closeTab = useCallback((key: string) => {
+    endFormSession(key);
     setTabs((ts) => {
       const i = ts.findIndex((t) => t.key === key);
       if (i < 0) return ts;
@@ -280,6 +290,11 @@ export function Workspace(props: {
       update,
       openObject,
       closeTab,
+      getDoc: () => docRef.current,
+      closeAll: () => {
+        endAllFormSessions();
+        setTabs([]);
+      },
       setTabView,
       activeKey,
       setStatus,
@@ -676,6 +691,7 @@ export function Workspace(props: {
 
   return (
     <WorkspaceContext.Provider value={wsApi}>
+      <AutoExec key={props.project.id} />
       <div className="app-shell">
         <header className="title-bar">
           <div className="qat">
@@ -725,6 +741,16 @@ export function Workspace(props: {
             createFormDesign: readOnly ? undefined : createFormDesign,
             createReport: () => createFormOrReport("report"),
             scanTags: readOnly ? undefined : () => setScanning(true),
+            createMacro: readOnly
+              ? undefined
+              : () => {
+                  const id = newId("mc");
+                  update((d) => {
+                    d.macros = [...(d.macros ?? []), { id, name: uniqueObjectName(d, "macro", "Macro1"), steps: [] }];
+                  });
+                  openObject("macro", id, "design");
+                  setStatus("Add actions with Add New Action, then Save. Open the macro from the Navigation Pane to run it.");
+                },
             createLabels: readOnly ? undefined : () => (doc.tables.length || doc.queries.length ? setNewLabels(true) : setStatus("Create a table first.", "error")),
             importText: publicView ? undefined : () => setImporting(true),
             importAccess: publicView ? undefined : () => accessInput.current?.click(),
@@ -975,6 +1001,18 @@ function liveCommands(all: Map<string, ViewCommands>, key: string | null): ViewC
   return live as ViewCommands;
 }
 
+/** Runs the AutoExec macro once when the database opens, as Access does. */
+function AutoExec() {
+  const ws = useWorkspaceDoc();
+  const run = useMacroRunner();
+  useEffect(() => {
+    resetRuntime();
+    const m = ws.doc.macros?.find((x) => x.name.toLowerCase() === "autoexec");
+    if (m?.steps.length) void run(m.steps);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return null;
+}
+
 function TabContent({ tab, refreshKey }: { tab: Tab; refreshKey: number }) {
   const ws = useWorkspaceDoc();
   if (tab.kind === "relationships") return <RelationshipsView tabKey={tab.key} />;
@@ -997,12 +1035,14 @@ function TabContent({ tab, refreshKey }: { tab: Tab; refreshKey: number }) {
     }
     case "form": {
       const f = ws.doc.forms.find((x) => x.id === tab.id)!;
-      return tab.view === "design" ? <FormDesigner key={key} form={f} tabKey={tab.key} /> : <FormRunView key={key} form={f} tabKey={tab.key} goto={tab.goto} />;
+      return tab.view === "design" ? <FormDesigner key={key} form={f} tabKey={tab.key} /> : <FormRunView key={key} form={f} tabKey={tab.key} goto={tab.goto} open={tab.open} />;
     }
+    case "macro":
+      return <MacroDesignView key={key} macro={ws.doc.macros!.find((x) => x.id === tab.id)!} tabKey={tab.key} />;
     case "report": {
       const r = ws.doc.reports.find((x) => x.id === tab.id)!;
       if (r.labels) return tab.view === "design" ? <LabelSetup key={key} report={r} /> : <LabelsView key={key} report={r} tabKey={tab.key} />;
-      return tab.view === "design" ? <ReportDesigner key={key} report={r} tabKey={tab.key} /> : <ReportView key={key} report={r} tabKey={tab.key} />;
+      return tab.view === "design" ? <ReportDesigner key={key} report={r} tabKey={tab.key} /> : <ReportView key={key} report={r} tabKey={tab.key} open={tab.open} />;
     }
   }
 }

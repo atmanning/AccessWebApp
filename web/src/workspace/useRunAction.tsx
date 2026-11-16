@@ -15,25 +15,46 @@ export function useRunAction() {
   const ws = useWorkspace();
   const dialogs = useDialogs();
 
-  return async function runAction(query: QueryDef, sql = query.sql): Promise<boolean> {
+  /**
+   * `warnings: false` (a macro after SetWarnings No) runs it without asking or reporting;
+   * `throwErrors` hands errors to the caller (a macro's OnError) instead of showing them.
+   */
+  return async function runAction(query: QueryDef, sql = query.sql, opts: { warnings?: boolean; throwErrors?: boolean } = {}): Promise<boolean> {
     if (!isActionType(typeOfQuery({ ...query, sql, mode: "sql" }))) return false;
+    const warnings = opts.warnings !== false;
+    const fail = async (message: string) => {
+      if (opts.throwErrors) throw new Error(message);
+      await dialogs.alert("Microsoft Access Web", message);
+    };
     if (ws.readOnly) {
+      if (opts.throwErrors) throw new Error("You have view-only access, so action queries can't change this database.");
       ws.setStatus("You have view-only access, so action queries can't change this database.", "error");
       return true;
     }
+    // The latest document: an earlier action in the same macro may have just changed it.
+    const doc = ws.getDoc();
     ws.setStatus(`Running ${query.name}…`);
     let plan;
     try {
-      const { tables } = await loadLinkedTables(ws.doc, ws.projectId, sql);
-      plan = await planAction(ws.doc, sql, query.id, tables);
+      const { tables } = await loadLinkedTables(doc, ws.projectId, sql);
+      plan = await planAction(doc, sql, query.id || undefined, tables);
     } catch (e) {
       ws.setStatus("");
-      await dialogs.alert("Microsoft Access Web", (e as Error).message);
+      await fail((e as Error).message);
       return true;
     }
     ws.setStatus("");
     if (plan.count === 0 && !plan.problems.length && plan.kind !== "makeTable") {
-      await dialogs.alert("Microsoft Access Web", "There's nothing to change: no records match this query.");
+      if (warnings) await dialogs.alert("Microsoft Access Web", "There's nothing to change: no records match this query.");
+      return true;
+    }
+    if (!warnings) {
+      try {
+        ws.update(plan.apply);
+        ws.setStatus(plan.done);
+      } catch (e) {
+        await fail((e as Error).message);
+      }
       return true;
     }
     const ok = await dialogs.confirm(
@@ -60,7 +81,7 @@ export function useRunAction() {
       ws.update(plan.apply);
       ws.setStatus(plan.done);
     } catch (e) {
-      await dialogs.alert("Microsoft Access Web", (e as Error).message);
+      await fail((e as Error).message);
     }
     return true;
   };

@@ -7,7 +7,9 @@ import { readSource, type ResultSet } from "../engine/engine";
 import { ComboBox } from "../ui/ComboBox";
 import { DesignedReport } from "../reports/DesignedReport";
 import { wizardLayout } from "../reports/reportLayout";
-import { useCommands, useWorkspace } from "../workspace/context";
+import { useCommands, useWorkspace, type OpenArgs } from "../workspace/context";
+import { truthy } from "../engine/expr";
+import { makeFormCalc } from "../forms/formCalc";
 
 /** An unbound form's one "record": no fields (its controls hold their own values). */
 const UNBOUND: ResultSet = { columns: [], fields: [], rows: [[]] };
@@ -46,9 +48,28 @@ export function useSource(source: SourceRef | undefined) {
   return { ...queryResult, table: undefined };
 }
 
-export function ReportView({ report, tabKey }: { report: ReportDef; tabKey: string }) {
-  const { data, error } = useSource(report.source);
+export function ReportView({ report, tabKey, open }: { report: ReportDef; tabKey: string; open?: OpenArgs }) {
+  const { data: all, error } = useSource(report.source);
   const ws = useWorkspace();
+  // Opened by a macro with a Where Condition: only the matching records.
+  const { data, whereError } = useMemo(() => {
+    if (!all || !open?.where) return { data: all, whereError: null };
+    try {
+      const calc = makeFormCalc(ws.doc, { controls: [] }, all.columns);
+      return { data: { ...all, rows: all.rows.filter((r) => truthy(calc.evaluate(open.where!, r, () => []))) }, whereError: null };
+    } catch (e) {
+      return { data: all, whereError: `The Where Condition ${open.where} can't be worked out: ${(e as Error).message}` };
+    }
+  }, [all, open?.where, open?.n]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (whereError) ws.setStatus(whereError, "error");
+  }, [whereError]); // eslint-disable-line react-hooks/exhaustive-deps
+  // OpenReport with View: Print prints it once it's laid out.
+  useEffect(() => {
+    if (!open?.print || !data) return;
+    const t = setTimeout(() => window.print(), 300);
+    return () => clearTimeout(t);
+  }, [open?.n, !!data]); // eslint-disable-line react-hooks/exhaustive-deps
   useCommands(tabKey, { print: () => window.print() });
   // Redraw when public links load (a page QR code to this report's public link needs it).
   usePublicLinks(ws.projectId);

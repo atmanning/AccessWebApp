@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { checkProjectIntegrity, formSchema, projectDocSchema, querySchema, reportSchema, type ProjectDoc } from "../../shared/model.js";
 import { importFormsAndReports } from "./accessForms.js";
+import { macroSchema } from "../../shared/macros.js";
 import { fromExchangeDocument, type ExchangeDocument } from "../../shared/exchange.js";
 import { createLimiter, type ExporterConfig, type Limiter } from "./export.js";
 
@@ -79,6 +80,11 @@ async function importOnce(cfg: ExporterConfig, file: Buffer): Promise<{ doc: Pro
       const ok = reportSchema.safeParse(r);
       if (ok.success) doc.reports.push(ok.data);
       else warnings.push(`Report '${r.name}' couldn't be converted (${ok.error.issues[0]?.message}), so it was skipped.`);
+    }
+    for (const m of designs.macros) {
+      const ok = macroSchema.safeParse(m);
+      if (ok.success) doc.macros = [...(doc.macros ?? []), ok.data];
+      else warnings.push(`Macro '${m.name}' couldn't be converted (${ok.error.issues[0]?.message}), so it was skipped.`);
     }
     warnings.push(...designs.warnings);
     if (JSON.stringify(doc).length > MAX_DOC_BYTES) {

@@ -9,6 +9,7 @@ import { tabKey, useWorkspace } from "./context";
 import { deleteObject, dependents, findObject, KIND_LABEL, KIND_PLURAL, objectsOf, renameObject, validateObjectName } from "./docOps";
 import { QUERY_TYPE_ICONS, typeOfQuery } from "./queryKinds";
 import { useRunAction } from "./useRunAction";
+import { useMacroRunner } from "../macros/useMacroRunner";
 
 /** Navigation Pane groups. Linked tables are listed with the tables, as in Access. */
 const GROUPS: { group: ObjectKind; kinds: ObjectKind[] }[] = [
@@ -16,6 +17,7 @@ const GROUPS: { group: ObjectKind; kinds: ObjectKind[] }[] = [
   { group: "query", kinds: ["query"] },
   { group: "form", kinds: ["form"] },
   { group: "report", kinds: ["report"] },
+  { group: "macro", kinds: ["macro"] },
 ];
 
 function linkTitle(l: LinkedTable | undefined) {
@@ -84,6 +86,7 @@ export function NavPane(props: {
   const ws = useWorkspace();
   const dialogs = useDialogs();
   const runAction = useRunAction();
+  const runMacro = useMacroRunner();
   const [search, setSearch] = useState("");
   const [closedGroups, setClosedGroups] = useState<Set<ObjectKind>>(new Set());
   const [menu, setMenu] = useState<{ x: number; y: number; kind: ObjectKind; id: string } | null>(null);
@@ -112,6 +115,16 @@ export function NavPane(props: {
 
   /** Opening an action query runs it (after a warning), as in Access; everything else opens. */
   const openItem = async (kind: ObjectKind, id: string) => {
+    // Opening a macro runs it, as in Access (Design View edits it).
+    if (kind === "macro") {
+      const m = ws.doc.macros?.find((x) => x.id === id);
+      if (m) {
+        ws.setStatus(`Running the macro '${m.name}'…`);
+        const r = await runMacro(m.steps);
+        if (r.ok) ws.setStatus(`Ran the macro '${m.name}'.`);
+      }
+      return;
+    }
     const q = kind === "query" ? ws.doc.queries.find((x) => x.id === id) : undefined;
     if (q && isActionType(typeOfQuery(q))) {
       const verb = QUERY_TYPE_LABELS[typeOfQuery(q)].toLowerCase();
@@ -187,12 +200,14 @@ export function NavPane(props: {
   const menuQuery = menu?.kind === "query" ? ws.doc.queries.find((x) => x.id === menu.id) : undefined;
   const menuItems = menu
     ? [
-        ...(menuQuery && isActionType(typeOfQuery(menuQuery))
+        ...(menu.kind === "macro"
+          ? [{ label: "Run", run: () => openItem(menu.kind, menu.id) }]
+          : menuQuery && isActionType(typeOfQuery(menuQuery))
           ? [
               { label: "Run", run: () => openItem(menu.kind, menu.id) },
               { label: "Preview (Datasheet View)", run: () => ws.openObject(menu.kind, menu.id, "datasheet") },
             ]
-          : [{ label: "Open", run: () => ws.openObject(menu.kind, menu.id) }]),
+            : [{ label: "Open", run: () => ws.openObject(menu.kind, menu.id) }]),
         ...(menu.kind !== "linked" ? [{ label: "Design View", run: () => ws.openObject(menu.kind, menu.id, "design") }] : []),
         ...(menu.kind === "query" ? [{ label: "SQL View", run: () => ws.openObject(menu.kind, menu.id, "sql") }] : []),
         ...(menu.kind === "report" && ws.signedIn && ws.role === "owner" ? [{ label: "Public Link…", run: () => setPublicReport(menu.id) }] : []),
@@ -234,6 +249,8 @@ export function NavPane(props: {
             .filter((o) => !query || o.name.toLowerCase().includes(query))
             .sort((a, b) => a.name.localeCompare(b.name));
           if (query && !items.length) return null;
+          // Like Access, the Macros group shows once there's a macro.
+          if (group === "macro" && !items.length) return null;
           const open = !closedGroups.has(group);
           return (
             <div key={group} className="nav-group" role="treeitem" aria-expanded={open}>

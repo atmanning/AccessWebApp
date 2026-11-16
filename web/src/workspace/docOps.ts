@@ -13,11 +13,11 @@ import { convertValue } from "../engine/values";
 
 export const newId = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
 
-export const KIND_LABEL: Record<ObjectKind, string> = { table: "Table", query: "Query", form: "Form", report: "Report", linked: "Linked Table" };
-export const KIND_PLURAL: Record<ObjectKind, string> = { table: "Tables", query: "Queries", form: "Forms", report: "Reports", linked: "Linked Tables" };
+export const KIND_LABEL: Record<ObjectKind, string> = { table: "Table", query: "Query", form: "Form", report: "Report", linked: "Linked Table", macro: "Macro" };
+export const KIND_PLURAL: Record<ObjectKind, string> = { table: "Tables", query: "Queries", form: "Forms", report: "Reports", linked: "Linked Tables", macro: "Macros" };
 
 export function objectsOf(doc: ProjectDoc, kind: ObjectKind): { id: string; name: string }[] {
-  return { table: doc.tables, query: doc.queries, form: doc.forms, report: doc.reports, linked: doc.linkedTables ?? [] }[kind];
+  return { table: doc.tables, query: doc.queries, form: doc.forms, report: doc.reports, linked: doc.linkedTables ?? [], macro: doc.macros ?? [] }[kind];
 }
 
 export function findObject(doc: ProjectDoc, kind: ObjectKind, id: string) {
@@ -115,6 +115,7 @@ export function deleteObject(doc: ProjectDoc, kind: ObjectKind, id: string) {
   } else if (kind === "query") doc.queries = doc.queries.filter((q) => q.id !== id);
   else if (kind === "linked") doc.linkedTables = (doc.linkedTables ?? []).filter((t) => t.id !== id);
   else if (kind === "form") doc.forms = doc.forms.filter((f) => f.id !== id);
+  else if (kind === "macro") doc.macros = (doc.macros ?? []).filter((m) => m.id !== id);
   else doc.reports = doc.reports.filter((r) => r.id !== id);
   if (doc.relationshipLayout?.[id]) delete doc.relationshipLayout[id];
   // Lookup fields that listed this table or query go back to plain text boxes.

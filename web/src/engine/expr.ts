@@ -137,7 +137,7 @@ function tokenize(src: string): Tok[] {
 
 export type Node =
   | { k: "lit"; v: ExprValue }
-  | { k: "ref"; name: string }
+  | { k: "ref"; name: string; path?: string[] }
   | { k: "star" }
   | { k: "call"; name: string; args: Node[] }
   | { k: "bin"; op: string; l: Node; r: Node }
@@ -356,13 +356,25 @@ class Parser {
   }
   /** [Orders].[CustomerID] or [Forms]![Customers]![Name]: the last part is the name. */
   qualified(first: string): Node {
-    let name = first;
+    const path = [first];
     while ((this.isOp(".") || this.isOp("!")) && (this.t[this.i + 1]?.k === "ref" || this.t[this.i + 1]?.k === "word")) {
       this.i++;
-      name = (this.next() as { v: string }).v;
+      path.push((this.next() as { v: string }).v);
     }
-    return { k: "ref", name };
+    const name = path[path.length - 1];
+    return path.length > 1 ? { k: "ref", name, path } : { k: "ref", name };
   }
+}
+
+/** Names that start a reference to something outside the record: open forms, temporary variables… */
+const GLOBAL_ROOTS = new Set(["forms", "reports", "tempvars", "localvars", "macroerror"]);
+let qualifiedResolver: ((path: string[]) => { value: ExprValue } | undefined) | null = null;
+/**
+ * Resolves references like [Forms]![Orders]![CustomerID] and [TempVars]![UserName] (set by the
+ * macro runtime). Returning undefined falls back to the last name, as before ([Orders].[ID] → [ID]).
+ */
+export function setQualifiedResolver(fn: ((path: string[]) => { value: ExprValue } | undefined) | null) {
+  qualifiedResolver = fn;
 }
 
 export type Compiled = { ok: true; node: Node } | { ok: false; error: string; at: number };
@@ -401,7 +413,8 @@ export function namesUsed(node: Node): string[] {
   const walk = (n: Node) => {
     switch (n.k) {
       case "ref":
-        out.push(n.name);
+        // [Forms]![Orders]![ID], [TempVars]![x]: not names of this form's fields or controls.
+        if (!n.path || !GLOBAL_ROOTS.has(n.path[0].toLowerCase())) out.push(n.name);
         return;
       case "call":
         n.args.forEach(walk);
@@ -499,7 +512,7 @@ function numberText(n: number): string {
   if (Number.isInteger(n)) return String(n);
   return String(Number(n.toPrecision(15)));
 }
-const truthy = (v: ExprValue) => v !== null && v !== "" && v !== false && v !== 0 && v !== "0";
+export const truthy = (v: ExprValue) => v !== null && v !== "" && v !== false && v !== 0 && v !== "0";
 
 function compareValues(a: ExprValue, b: ExprValue): number {
   if (isDate(a) && isDate(b)) return serial(a) - serial(b);
@@ -776,6 +789,8 @@ const FN_LIST: Fn[] = [
   { name: "Left", cat: "Text", syntax: "Left(«string», «length»)", desc: "The first characters of a piece of text.", min: 2, max: 2, run: ([s, n]) => nullOr(s, (s) => text(s).slice(0, Math.max(0, num(n)))) },
   { name: "Right", cat: "Text", syntax: "Right(«string», «length»)", desc: "The last characters of a piece of text.", min: 2, max: 2, run: ([s, n]) => nullOr(s, (s) => (num(n) <= 0 ? "" : text(s).slice(-num(n)))) },
   { name: "Mid", cat: "Text", syntax: "Mid(«string», «start», «length»)", desc: "Characters from the middle of text, starting at «start» (1 is the first). Leave out «length» for the rest.", min: 2, max: 3, run: ([s, st, n]) => nullOr(s, (s) => text(s).substr(Math.max(0, num(st) - 1), n === undefined || n === null ? undefined : num(n))) },
+  { name: "Chr", cat: "Text", syntax: "Chr(«charcode»)", desc: "The character with this code: Chr(10) is a new line.", min: 1, max: 1, run: ([n]) => nullOr(n, (n) => String.fromCharCode(num(n))) },
+  { name: "Asc", cat: "Text", syntax: "Asc(«string»)", desc: "The code of the first character.", min: 1, max: 1, run: ([s]) => nullOr(s, (s) => text(s).charCodeAt(0) || 0) },
   { name: "Len", cat: "Text", syntax: "Len(«string»)", desc: "How many characters the text has.", min: 1, max: 1, run: ([s]) => nullOr(s, (s) => text(s).length) },
   { name: "Trim", cat: "Text", syntax: "Trim(«string»)", desc: "The text without spaces at the start and end.", min: 1, max: 1, run: ([s]) => nullOr(s, (s) => text(s).trim()) },
   { name: "LTrim", cat: "Text", syntax: "LTrim(«string»)", desc: "The text without spaces at the start.", min: 1, max: 1, run: ([s]) => nullOr(s, (s) => text(s).trimStart()) },
@@ -907,6 +922,10 @@ export function evaluate(node: Node, ctx: ExprContext, depth = 0): ExprValue {
     case "star":
       throw new ExprError("* can only be used in Count(*).");
     case "ref": {
+      if (node.path && qualifiedResolver) {
+        const hit = qualifiedResolver(node.path);
+        if (hit) return hit.value;
+      }
       const v = ctx.lookup(node.name);
       if (v === undefined) throw new ExprError(`There's no field or control named [${node.name}].`, "#Name?");
       return v;

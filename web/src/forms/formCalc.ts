@@ -17,7 +17,9 @@ export interface FormCalc {
   /** A calculated control's value for one record, with the form's records for totals. */
   value(c: FormControl, row: readonly CellValue[] | null, records: () => readonly (readonly CellValue[])[], vars?: Record<string, ExprValue>): CalcResult;
   /** An expression (without its control) for one record: used by the Expression Builder's preview. */
-  preview(expression: string, row: readonly CellValue[] | null, records: () => readonly (readonly CellValue[])[], format?: string): CalcResult;
+  preview(expression: string, row: readonly CellValue[] | null, records: () => readonly (readonly CellValue[])[], format?: string, vars?: Record<string, ExprValue>): CalcResult;
+  /** An expression's value for one record; throws when it can't be worked out (macros). */
+  evaluate(expression: string, row: readonly CellValue[] | null, records: () => readonly (readonly CellValue[])[], vars?: Record<string, ExprValue>): ExprValue;
 }
 
 export function makeFormCalc(doc: ProjectDoc, layout: Pick<FormLayout, "controls"> | { controls: readonly FormControl[] }, columns: string[]): FormCalc {
@@ -76,7 +78,12 @@ export function makeFormCalc(doc: ProjectDoc, layout: Pick<FormLayout, "controls
 
   return {
     value: (c, row, records, vars) => run(c.field ?? "", row, records, c.format, c.id, vars),
-    preview: (expression, row, records, format) => run(expression, row, records, format),
+    preview: (expression, row, records, format, vars) => run(expression, row, records, format, undefined, vars),
+    evaluate: (expression, row, records, vars) => {
+      const compiled = compileExpression(expression);
+      if (!compiled.ok) throw new ExprError(`${expression.replace(/^\s*=/, "")}: ${compiled.error}`);
+      return evaluate(compiled.node, contextFor(row, records, new Set(), vars));
+    },
   };
 }
 

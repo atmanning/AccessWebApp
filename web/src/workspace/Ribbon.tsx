@@ -24,6 +24,7 @@ import {
   RelationshipsIcon,
   ReportIcon,
   LabelsIcon,
+  MacroIcon,
   RowHeightIcon,
   RunIcon,
   ShowTableIcon,
@@ -86,6 +87,7 @@ export interface RibbonActions {
   createFormDesign?: () => void;
   createReport: () => void;
   createLabels?: () => void;
+  createMacro?: () => void;
   /** Home → Scan Tags: the scan station. */
   scanTags?: () => void;
   importText?: () => void;
@@ -368,6 +370,9 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
             <Group label="Reports">
               <Big icon={<ReportIcon size={32} />} label="Report" onClick={actions.createReport} title="Create a report from the selected table or query" />
               <Big icon={<LabelsIcon size={32} />} label="Labels" onClick={actions.createLabels} title="Labels or name tags for every record, on sheets of labels (with QR codes if you like)" />
+            </Group>
+            <Group label="Macros & Code">
+              <Big icon={<MacroIcon size={32} />} label="Macro" onClick={actions.createMacro} title="Create a macro: a list of actions (open a form, run SQL, show a message…) to run from the Navigation Pane or a button" />
             </Group>
           </>
         )}

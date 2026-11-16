@@ -44,7 +44,7 @@ export function Modal(props: {
 
 type DialogRequest =
   | { kind: "alert"; title: string; message: ReactNode; resolve: (v: void) => void }
-  | { kind: "confirm"; title: string; message: ReactNode; okLabel: string; danger?: boolean; resolve: (v: boolean) => void }
+  | { kind: "confirm"; title: string; message: ReactNode; okLabel: string; cancelLabel?: string; danger?: boolean; resolve: (v: boolean) => void }
   | {
       kind: "prompt";
       title: string;
@@ -56,7 +56,7 @@ type DialogRequest =
 
 export interface DialogApi {
   alert(title: string, message: ReactNode): Promise<void>;
-  confirm(title: string, message: ReactNode, opts?: { okLabel?: string; danger?: boolean }): Promise<boolean>;
+  confirm(title: string, message: ReactNode, opts?: { okLabel?: string; cancelLabel?: string; danger?: boolean }): Promise<boolean>;
   prompt(title: string, message: ReactNode, initial?: string, validate?: (v: string) => string | null): Promise<string | null>;
 }
 
@@ -69,7 +69,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
   const api: DialogApi = {
     alert: (title, message) => new Promise((resolve) => push({ kind: "alert", title, message, resolve })),
     confirm: (title, message, opts) =>
-      new Promise((resolve) => push({ kind: "confirm", title, message, okLabel: opts?.okLabel ?? "OK", danger: opts?.danger, resolve })),
+      new Promise((resolve) => push({ kind: "confirm", title, message, okLabel: opts?.okLabel ?? "OK", cancelLabel: opts?.cancelLabel, danger: opts?.danger, resolve })),
     prompt: (title, message, initial = "", validate) =>
       new Promise((resolve) => push({ kind: "prompt", title, message, initial, validate, resolve })),
   };
@@ -113,7 +113,7 @@ function DialogView({ req, done }: { req: DialogRequest; done: () => void }) {
           <button className={req.kind === "confirm" && req.danger ? "danger" : "primary"} onClick={ok}>
             {req.kind === "confirm" ? req.okLabel : "OK"}
           </button>
-          {req.kind !== "alert" && <button onClick={cancel}>Cancel</button>}
+          {req.kind !== "alert" && <button onClick={cancel}>{(req.kind === "confirm" && req.cancelLabel) || "Cancel"}</button>}
         </>
       }
     >

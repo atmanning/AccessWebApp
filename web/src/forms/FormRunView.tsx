@@ -4,12 +4,15 @@ import type { CellValue, Field, FormControl, FormDef, ProjectDoc } from "../../.
 import { readSource } from "../engine/engine";
 import { formatValue } from "../engine/values";
 import { compileCriteria } from "../engine/findCriteria";
-import { isExpression } from "../engine/expr";
+import { isExpression, truthy, type ExprValue } from "../engine/expr";
+import type { ControlEvent, FormEvent } from "../../../shared/macros";
+import { useMacroRunner } from "../macros/useMacroRunner";
+import { formSession, registerForm, type FormHandle } from "../macros/runtime";
 import { makeFormCalc } from "./formCalc";
 import { SubformView } from "./subform";
 import { useLayout } from "../ui/layout";
 import { useSource } from "../views/FormReportViews";
-import { useCommands, useWorkspace, type RecordTarget } from "../workspace/context";
+import { useCommands, useWorkspace, type OpenArgs, type RecordTarget } from "../workspace/context";
 import { useTableEditing } from "../workspace/useTableEditing";
 import { FormControlView, type ChoiceOption } from "./FormControls";
 import { isBound, layoutOf, parseValueList, readingOrder, tabSequence, themeStyle } from "./formLayout";
@@ -62,33 +65,81 @@ export function useRowSources(doc: ProjectDoc, controls: FormControl[]) {
 /** Criteria typed in Find mode, by field name; several requests are ORed (Access's "Or" tabs). */
 type FindRequest = Record<string, string>;
 
-export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: string; goto?: RecordTarget }) {
+/** What macros change on a control while the form is open (SetProperty). */
+type Override = { hidden?: boolean; locked?: boolean; disabled?: boolean; caption?: string; color?: string; backColor?: string };
+
+/** A color from SetProperty: "#rrggbb", or Access's number (blue·65536 + green·256 + red). */
+function colorOf(v: ExprValue): string | undefined {
+  if (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v.trim())) return v.trim();
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  const hex = (x: number) => (x & 255).toString(16).padStart(2, "0");
+  return `#${hex(n)}${hex(n >> 8)}${hex(n >> 16)}`;
+}
+
+export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKey: string; goto?: RecordTarget; open?: OpenArgs }) {
   const ws = useWorkspace();
+  const runMacro = useMacroRunner();
+  // Kept while the tab is open, so switching tabs doesn't reset the form (see formSession).
+  const session = useMemo(() => formSession(tabKey), [tabKey]);
+  const saved = session.state as Partial<{
+    pos: number;
+    filter: Record<string, string>[] | null;
+    filterOn: boolean;
+    sort: { field: string; dir: "ASC" | "DESC" } | null;
+    unbound: Record<string, CellValue>;
+    where: string | null;
+    overrides: Record<string, Override>;
+    readOnlyMode: boolean;
+  }>;
   const { compact } = useLayout();
   const { data, error, table } = useSource(form.source);
   const editing = useTableEditing(table);
   /** Position in the found (filtered and sorted) records. */
-  const [pos, setPos] = useState(0);
+  const [pos, setPos] = useState(saved.pos ?? 0);
   const [isNew, setIsNew] = useState(false);
   const [fieldError, setFieldError] = useState<{ id: string; msg: string } | null>(null);
 
   // ---- Find mode (Filter by Form): type criteria into the form's own fields ----
   const [finding, setFinding] = useState<{ requests: FindRequest[]; active: number; message?: string } | null>(null);
-  const [filter, setFilter] = useState<FindRequest[] | null>(null);
-  const [filterOn, setFilterOn] = useState(false);
+  const [filter, setFilter] = useState<FindRequest[] | null>(saved.filter ?? null);
+  const [filterOn, setFilterOn] = useState(saved.filterOn ?? false);
   // Records added or edited while filtered stay in view until the filter is applied again, as in Access.
   const [kept, setKept] = useState<Set<string>>(new Set());
-  const [sort, setSort] = useState<{ field: string; dir: "ASC" | "DESC" } | null>(null);
+  const [sort, setSort] = useState<{ field: string; dir: "ASC" | "DESC" } | null>(saved.sort ?? null);
   const [focusField, setFocusField] = useState<string | null>(null);
   const [addedAt, setAddedAt] = useState<number | null>(null);
   // Unbound controls (no Control Source) hold what's typed while the form is open, as in Access.
-  const [unbound, setUnbound] = useState<Record<string, CellValue>>({});
+  const [unbound, setUnbound] = useState<Record<string, CellValue>>(saved.unbound ?? {});
+  // Set by macros: a Where Condition (OpenForm, ApplyFilter), control properties, Data Mode Read Only.
+  const [where, setWhere] = useState<string | null>("where" in saved ? saved.where! : (open?.where ?? null));
+  const [overrides, setOverrides] = useState<Record<string, Override>>(saved.overrides ?? {});
+  const [readOnlyMode, setReadOnlyMode] = useState(saved.readOnlyMode ?? /read\s*only/i.test(open?.dataMode ?? ""));
+  session.state = { pos, filter, filterOn, sort, unbound, where, overrides, readOnlyMode };
 
   const fieldList = useMemo(() => (data ? data.columns.map((name, i) => ({ name, field: data.fields[i] })) : []), [data]);
-  const layout = useMemo(() => layoutOf(form, fieldList), [form, fieldList]);
+  const designed = useMemo(() => layoutOf(form, fieldList), [form, fieldList]);
+  // The layout with what macros changed (SetProperty Visible, Enabled, Caption…).
+  const layout = useMemo(
+    () =>
+      Object.keys(overrides).length
+        ? { ...designed, controls: designed.controls.map((c) => (overrides[c.id] ? { ...c, ...overrides[c.id], ...(overrides[c.id].disabled ? { locked: true } : {}) } : c)) }
+        : designed,
+    [designed, overrides],
+  );
   const options = useRowSources(ws.doc, layout.controls);
-  const canAdd = !!table && !ws.readOnly && layout.allowAdditions !== false;
-  const canDelete = !!table && !ws.readOnly && layout.allowDeletions !== false;
+  const canAdd = !!table && !ws.readOnly && !readOnlyMode && layout.allowAdditions !== false;
+  const canDelete = !!table && !ws.readOnly && !readOnlyMode && layout.allowDeletions !== false;
+  /** Unbound controls' values by control name, for expressions ([txtSearch]). */
+  const unboundVars = useMemo(() => {
+    const out: Record<string, ExprValue> = {};
+    for (const c of designed.controls) {
+      if (c.field || !(c.type === "textbox" || c.type === "combobox" || c.type === "listbox" || c.type === "checkbox")) continue;
+      out[c.name] = c.id in unbound ? (unbound[c.id] as ExprValue) : c.type === "checkbox" ? false : null;
+    }
+    return out;
+  }, [designed.controls, unbound]);
+  const calc = useMemo(() => (data ? makeFormCalc(ws.doc, layout, data.columns) : null), [ws.doc, layout, data]);
 
   const colOf = (name: string) => (data ? data.columns.findIndex((c) => c.toLowerCase() === name.toLowerCase()) : -1);
   const keyOf = (i: number) => (table ? String(table.rows[i]?._id ?? i) : String(i));
@@ -127,6 +178,13 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
   const order = useMemo(() => {
     if (!data) return [];
     let idx = data.rows.map((_, i) => i);
+    if (where && calc) {
+      try {
+        idx = idx.filter((i) => kept.has(keyOf(i)) || truthy(calc.evaluate(where, data.rows[i], () => [], unboundVars)));
+      } catch (e) {
+        ws.setStatus(`The filter ${where} can't be worked out: ${(e as Error).message}`, "error");
+      }
+    }
     if (filterOn && filter) {
       const f = compileFind(filter);
       if ("test" in f && f.test) idx = idx.filter((i) => kept.has(keyOf(i)) || f.test!(i));
@@ -149,7 +207,7 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
       });
     }
     return idx;
-  }, [data, filter, filterOn, kept, sort, shownBy]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data, filter, filterOn, kept, sort, shownBy, where, calc]); // eslint-disable-line react-hooks/exhaustive-deps
   const count = order.length;
 
   useEffect(() => {
@@ -234,6 +292,12 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
   };
   const toggleFilter = () => {
     if (finding) return runFind();
+    if (where) {
+      setWhere(null);
+      setKept(new Set());
+      setPos(0);
+      return ws.setStatus("Showing all records.");
+    }
     if (!filter) return startFind();
     setFilterOn((on) => !on);
     setKept(new Set());
@@ -257,19 +321,92 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
     );
   });
 
-  const calc = useMemo(() => (data ? makeFormCalc(ws.doc, layout, data.columns) : null), [ws.doc, layout, data]);
-
   useCommands(tabKey, {
     newRecord: goNew,
     deleteRecord,
     find: startFind,
     filterByForm: startFind,
     toggleFilter,
-    filterOn: !!finding || filterOn,
+    filterOn: !!finding || filterOn || !!where,
     sortAsc: () => sortBy("ASC"),
     sortDesc: () => sortBy("DESC"),
     removeSort: () => sortBy(null),
   });
+
+  // ---- Macros: what they can do to this form, and the form's events ----
+  type Host = Omit<FormHandle, "formId" | "name" | "tabKey">;
+  const hostRef = useRef<Host | null>(null);
+  const handle = useMemo<FormHandle>(() => {
+    const call =
+      <K extends keyof Host>(k: K) =>
+      (...a: Parameters<Host[K]>) => {
+        const h = hostRef.current;
+        if (!h) throw new Error(`The form '${form.name}' is still opening.`);
+        return (h[k] as (...x: unknown[]) => ReturnType<Host[K]>)(...a);
+      };
+    return {
+      formId: form.id,
+      name: form.name,
+      tabKey,
+      value: call("value"),
+      evaluate: call("evaluate"),
+      goToRecord: call("goToRecord"),
+      goToControl: call("goToControl"),
+      newRecord: call("newRecord"),
+      saveRecord: call("saveRecord"),
+      deleteRecord: call("deleteRecord"),
+      undo: call("undo"),
+      requery: call("requery"),
+      applyFilter: call("applyFilter"),
+      findRecord: call("findRecord"),
+      setValue: call("setValue"),
+      setProperty: call("setProperty"),
+      close: call("close"),
+    };
+  }, [form.id, form.name, tabKey]);
+  // Registered until the tab closes (endFormSession), so [Forms]![Name]![Control] works from other tabs too.
+  useEffect(() => {
+    session.unregister?.();
+    session.unregister = registerForm(handle);
+  }, [handle]); // eslint-disable-line react-hooks/exhaustive-deps
+  const formRef = useRef(form);
+  formRef.current = form;
+  const fireForm = (e: FormEvent) => {
+    const steps = formRef.current.events?.[e];
+    if (steps?.length) void runMacro(steps, handle);
+  };
+  const fireControl = (c: FormControl, e: ControlEvent) => {
+    const steps = c.events?.[e];
+    if (!steps?.length) return false;
+    void runMacro(steps, handle);
+    return true;
+  };
+  const loaded = !!data && !!calc;
+  // Opened by a macro: only the records matching its Where Condition, at a new record for Data Mode Add.
+  useEffect(() => {
+    if (!open || !loaded || session.appliedOpen === open.n) return;
+    session.appliedOpen = open.n;
+    setWhere(open.where ?? null);
+    setKept(new Set());
+    setReadOnlyMode(/read\s*only/i.test(open.dataMode ?? ""));
+    if (/add/i.test(open.dataMode ?? "") && canAdd) setIsNew(true);
+    else {
+      setIsNew(false);
+      setPos(0);
+    }
+  }, [open?.n, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!loaded || session.loaded) return;
+    session.loaded = true;
+    fireForm("onLoad");
+  }, [loaded]); // eslint-disable-line react-hooks/exhaustive-deps
+  const currentKey = isNew ? "new" : String(order[pos] ?? "");
+  useEffect(() => {
+    if (!loaded || finding || session.lastCurrent === currentKey) return;
+    session.lastCurrent = currentKey;
+    fireForm("onCurrent");
+  }, [loaded, currentKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  session.onClose = () => fireForm("onClose");
 
   if (error) return <div className="query-error"><strong>This form can't open.</strong><p>{error}</p></div>;
   if (!data) return <div className="empty-view">Loading…</div>;
@@ -280,21 +417,125 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
   /** The records the form shows (for Sum, Count… in calculated controls). */
   const foundRows = () => order.map((i) => data.rows[i]);
 
-  const save = (c: FormControl, field: Field, input: string | boolean) => {
+  /** Saves a field of the record (a new record is added by its first field); returns the error, if any. */
+  const commitField = (field: Field, input: string | boolean): string | null => {
     const err = editing.commit(isNew ? "new" : rowIndex, field.id, input);
+    if (err) return err;
+    if (isNew) {
+      setIsNew(false);
+      setAddedAt(data.rows.length); // the record that was just added
+    } else if (filterOn || where) setKept((k) => new Set(k).add(keyOf(rowIndex)));
+    return null;
+  };
+  const save = (c: FormControl, field: Field, input: string | boolean) => {
+    const err = commitField(field, input);
     if (err) {
       setFieldError({ id: c.id, msg: err });
       ws.setStatus(err, "error");
       return;
     }
     setFieldError(null);
-    if (isNew) {
+    fireControl(c, "afterUpdate");
+  };
+
+  const controlByName = (name: string) => designed.controls.find((c) => c.name.toLowerCase() === name.toLowerCase());
+  const exprRow = row;
+  hostRef.current = {
+    value: (name) => {
+      const c = controlByName(name);
+      if (c && !c.field) return c.id in unbound ? (unbound[c.id] as ExprValue) : c.type === "checkbox" ? false : null;
+      if (c?.field && isExpression(c.field)) return calc!.value(c, exprRow, foundRows, unboundVars).value;
+      const i = colIdx(c?.field ?? name);
+      if (i < 0) return undefined;
+      return exprRow ? (exprRow[i] as ExprValue) : null;
+    },
+    evaluate: (e) => makeFormCalc(ws.getDoc(), layout, data.columns).evaluate(e, exprRow, foundRows, unboundVars),
+    goToRecord: (record, offset) => {
+      const r = record.toLowerCase().replace(/\s+/g, "");
+      const to = (n: number) => {
+        if (n < 0 || n > count - 1) throw new Error("You can't go to the specified record (you may be at the end of the records).");
+        go(n);
+      };
+      if (r === "first") return to(0);
+      if (r === "last") return to(count - 1);
+      if (r === "next") return isNew ? to(count) : to(pos + offset);
+      if (r === "previous") return to(isNew ? count - offset : pos - offset);
+      if (r === "goto") return to(offset - 1);
+      if (r === "new" || r === "newrec") return goNew();
+      throw new Error(`'${record}' isn't a Record choice (Next, Previous, First, Last, Go To or New).`);
+    },
+    goToControl: (name) => {
+      const c = controlByName(name);
+      const box = c && rootRef.current?.querySelector<HTMLElement>(`[data-ctl="${c.id}"]`);
+      const el = box?.querySelector<HTMLElement>("input, select, textarea, button, [tabindex]");
+      // After a message box closes (it gives the focus back to the button first).
+      if (el) setTimeout(() => el.focus(), 30);
+      if (c?.field) setFocusField(c.field);
+      return !!c;
+    },
+    newRecord: goNew,
+    saveRecord: () => (document.activeElement as HTMLElement | null)?.blur?.(),
+    deleteRecord,
+    undo: () => (document.activeElement as HTMLElement | null)?.blur?.(),
+    requery: () => setKept(new Set()),
+    applyFilter: (w) => {
+      setWhere(w);
+      setKept(new Set());
+      if (w === null) setFilterOn(false);
       setIsNew(false);
-      setAddedAt(data.rows.length); // the record that was just added
-    } else if (filterOn) setKept((k) => new Set(k).add(keyOf(rowIndex)));
+      setPos(0);
+    },
+    findRecord: (text, match) => {
+      const needle = text.toLowerCase();
+      const fieldsShown = designed.controls.filter((c) => c.field && !isExpression(c.field) && isBound(c.type)).map((c) => colIdx(c.field!)).filter((i) => i >= 0);
+      const hit = (r: CellValue[]) =>
+        fieldsShown.some((i) => {
+          const v = r[i] === null || r[i] === undefined ? "" : String(r[i]).toLowerCase();
+          return /any/i.test(match) ? v.includes(needle) : /start/i.test(match) ? v.startsWith(needle) : v === needle;
+        });
+      for (let k = 1; k <= count; k++) {
+        const p = (pos + k) % count;
+        if (hit(data.rows[order[p]])) {
+          go(p);
+          return true;
+        }
+      }
+      return false;
+    },
+    setValue: (name, v) => {
+      const c = controlByName(name);
+      if (c && !c.field) {
+        setUnbound((u) => ({ ...u, [c.id]: v as CellValue }));
+        return null;
+      }
+      if (c?.field && isExpression(c.field)) return `${c.name} is calculated (=…), so it can't be set.`;
+      const i = colIdx(c?.field ?? name);
+      if (i < 0) return `There's no control or field named '${name}' on ${form.name}.`;
+      const field = data.fields[i];
+      if (!field || !table || ws.readOnly || readOnlyMode) return "This form's records can't be changed.";
+      return commitField(field, typeof v === "boolean" ? v : v === null ? "" : String(v));
+    },
+    setProperty: (name, property, v) => {
+      const c = controlByName(name);
+      if (!c) return `There's no control named '${name}' on ${form.name}.`;
+      const yes = typeof v === "string" ? /^(true|yes|on|-1|1)$/i.test(v.trim()) : truthy(v);
+      const set = (o: Override) => setOverrides((all) => ({ ...all, [c.id]: { ...all[c.id], ...o } }));
+      switch (property.toLowerCase()) {
+        case "visible": return set({ hidden: !yes }), null;
+        case "enabled": return set({ disabled: !yes }), null;
+        case "locked": return set({ locked: yes }), null;
+        case "caption": return set({ caption: v === null ? "" : String(v) }), null;
+        case "forecolor": return set({ color: colorOf(v) }), null;
+        case "backcolor": return set({ backColor: colorOf(v) }), null;
+        case "value": return hostRef.current!.setValue(name, v);
+      }
+      return `The property '${property}' can't be set here (Visible, Enabled, Locked, Caption, ForeColor, BackColor or Value).`;
+    },
+    close: () => ws.closeTab(tabKey),
   };
 
   const act = (c: FormControl) => {
+    if (fireControl(c, "onClick")) return;
     switch (c.action) {
       case "firstRecord": return go(0);
       case "previousRecord": return go(isNew ? count - 1 : pos - 1);
@@ -317,6 +558,8 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
     }
   };
   const buttonDisabled = (c: FormControl) => {
+    if (overrides[c.id]?.disabled) return true;
+    if (c.events?.onClick?.length) return false;
     switch (c.action) {
       case "firstRecord":
       case "previousRecord": return !isNew && pos <= 0;
@@ -344,7 +587,7 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
     }
     if (isExpression(c.field)) {
       // Calculated: worked out from the record; nothing to type (or search) here.
-      const r = finding ? { text: "", value: null } : calc ? calc.value(c, row, foundRows) : { text: "", value: null };
+      const r = finding ? { text: "", value: null } : calc ? calc.value(c, row, foundRows, unboundVars) : { text: "", value: null };
       return <FormControlView c={c} inputId={inputId} run={{ value: null, readOnly: true, isNew, display: { text: r.text, error: "error" in r ? r.error : undefined, numeric: typeof r.value === "number" }, onCommit: () => {}, onAction: () => {} }} />;
     }
     if (finding && isBound(c.type)) return <FindField c={c} inputId={inputId} field={c.field ? data.fields[colIdx(c.field)] : undefined} finding={finding} setFinding={setFinding} options={options[c.id]} onEnter={runFind} />;
@@ -361,7 +604,11 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
             readOnly: !!c.locked,
             isNew,
             options: options[c.id],
-            onCommit: (input) => setUnbound((u) => ({ ...u, [c.id]: kind === "YesNo" ? input === true || input === "true" || input === "Yes" : input === "" ? null : (input as CellValue) })),
+            onCommit: (input) => {
+              setUnbound((u) => ({ ...u, [c.id]: kind === "YesNo" ? input === true || input === "true" || input === "Yes" : input === "" ? null : (input as CellValue) }));
+              // After Update sees the new value once it's in place.
+              setTimeout(() => fireControl(c, "afterUpdate"), 0);
+            },
             onAction: () => {},
           }}
         />
@@ -371,7 +618,7 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
     const field = i >= 0 ? data.fields[i] : undefined;
     const value: CellValue = row && i >= 0 ? row[i] : null;
     const readOnly =
-      ws.readOnly || !table || !field || field.type === "AutoNumber" || !!c.locked || (!isNew && layout.allowEdits === false) || (isNew && !canAdd);
+      ws.readOnly || readOnlyMode || !table || !field || field.type === "AutoNumber" || !!c.locked || (!isNew && layout.allowEdits === false) || (isNew && !canAdd);
     return (
       <FormControlView
         c={c}
@@ -422,7 +669,15 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
     const list = ordered.filter((c) => c.section === s && !c.hidden);
     if (!compact) {
       return list.map((c) => (
-        <div key={valueKey(c)} className={`fv-ctl t-${c.type} ${c.tabStop === false ? "no-tab" : ""}`} data-field={isExpression(c.field) ? undefined : c.field} style={{ left: c.x, top: c.y, width: c.w, height: c.h }}>
+        <div
+          key={valueKey(c)}
+          className={`fv-ctl t-${c.type} ${c.tabStop === false ? "no-tab" : ""}`}
+          data-field={isExpression(c.field) ? undefined : c.field}
+          data-ctl={c.id}
+          onDoubleClick={c.events?.onDblClick?.length ? () => fireControl(c, "onDblClick") : undefined}
+          onClick={c.type !== "button" && c.events?.onClick?.length && !finding ? () => fireControl(c, "onClick") : undefined}
+          style={{ left: c.x, top: c.y, width: c.w, height: c.h }}
+        >
           {renderControl(c)}
         </div>
       ));
@@ -448,7 +703,7 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
       }
       flush();
       out.push(
-        <div key={valueKey(c)} className={`fv-ctl flow t-${c.type} ${c.tabStop === false ? "no-tab" : ""}`} data-field={isExpression(c.field) ? undefined : c.field} style={c.multiline || c.type === "listbox" || c.type === "image" || c.type === "subform" ? { minHeight: c.h } : undefined}>
+        <div key={valueKey(c)} className={`fv-ctl flow t-${c.type} ${c.tabStop === false ? "no-tab" : ""}`} data-field={isExpression(c.field) ? undefined : c.field} data-ctl={c.id} onDoubleClick={c.events?.onDblClick?.length ? () => fireControl(c, "onDblClick") : undefined} onClick={c.events?.onClick?.length && !finding ? () => fireControl(c, "onClick") : undefined} style={c.multiline || c.type === "listbox" || c.type === "image" || c.type === "subform" ? { minHeight: c.h } : undefined}>
           {renderControl(c)}
         </div>,
       );
@@ -496,7 +751,7 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
           )}
         </div>
       </div>
-      {!finding && !!form.source && (layout.navigationButtons !== false || filter) && (
+      {!finding && !!form.source && (layout.navigationButtons !== false || filter || where) && (
         <div className="record-nav">
           <span className="rn-label">Record:</span>
           <button onClick={() => go(0)} disabled={!count} title="First record">⏮</button>
@@ -505,6 +760,11 @@ export function FormRunView({ form, tabKey, goto }: { form: FormDef; tabKey: str
           <button onClick={() => go(pos + 1)} disabled={isNew || pos >= count - 1} title="Next record">▶</button>
           <button onClick={() => go(count - 1)} disabled={!count} title="Last record">⏭</button>
           <button onClick={goNew} disabled={!canAdd} title="New (blank) record">▶*</button>
+          {where && (!filter || !filterOn) && (
+            <button className="rn-filter-toggle on" onClick={toggleFilter} title={`Showing the records where ${where}. Click to show all records.`}>
+              Filtered
+            </button>
+          )}
           {filter && (
             <button
               className={`rn-filter-toggle ${filterOn ? "on" : ""}`}
