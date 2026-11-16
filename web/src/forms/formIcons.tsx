@@ -87,3 +87,17 @@ export const TabOrderIcon = svg(
     <path d="M13 3.5v9m-1.6-1.6L13 12.5l1.6-1.6" fill="none" stroke="#c42b1c" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
   </>,
 );
+
+// Report Design
+export const GroupSortIcon = svg(
+  <>
+    <rect x="1.5" y="2" width="13" height="3" fill="#fff" stroke={C} />
+    <rect x="4" y="6.5" width="10.5" height="2.5" fill="#fff" stroke={C} />
+    <rect x="4" y="10.5" width="10.5" height="2.5" fill="#fff" stroke={C} />
+    <path d="M2.5 6v6.5h1.5" fill="none" stroke={A} />
+  </>,
+);
+export const PageSetupIcon = svg(<><path d="M3 1.5h7l3 3v10H3z" fill="#fff" stroke={C} /><path d="M10 1.5v3h3" fill="none" stroke={C} /><rect x="5" y="6" width="6" height="6" fill="none" stroke={A} strokeDasharray="1.5 1" /></>);
+export const PageNumbersIcon = svg(<><path d="M3 1.5h10v13H3z" fill="#fff" stroke={C} /><text x="8" y="12.5" fontSize="6" textAnchor="middle" fill={A} fontWeight="700">#</text></>);
+export const DateTimeIcon = svg(<><rect x="1.5" y="3" width="13" height="11" rx="1" fill="#fff" stroke={C} /><path d="M1.5 6h13M5 1.5v3M11 1.5v3" stroke={C} /><path d="M4 8.5h2M7 8.5h2M10 8.5h2M4 11h2M7 11h2" stroke={A} /></>);
+export const TitleIcon = svg(<><rect x="1.5" y="2" width="13" height="12" fill="#fff" stroke={C} /><path d="M4 5h8M8 5v7" stroke={A} strokeWidth="1.6" /></>);

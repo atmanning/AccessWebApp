@@ -79,6 +79,13 @@ export interface FormDesignCommands {
   remove: () => void;
   /** Opens the Tab Order dialog. */
   tabOrder: () => void;
+  /** Report Design: the same tools, plus report ones. */
+  report?: boolean;
+  groupSort?: () => void;
+  pageSetup?: () => void;
+  insertPageNumbers?: () => void;
+  insertDateTime?: () => void;
+  insertTitle?: () => void;
 }
 
 export type StatusKind = "info" | "error";

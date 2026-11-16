@@ -52,7 +52,7 @@ function useColumnsOf(kind: string | undefined, id: string | undefined) {
   return cols;
 }
 
-function Row({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
+export function Row({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return (
     <div className="ps-row" title={hint}>
       <span className="ps-label">{label}</span>
@@ -61,7 +61,7 @@ function Row({ label, children, hint }: { label: string; children: ReactNode; hi
   );
 }
 
-function TextProp(props: { value: string | undefined; onCommit: (v: string) => void; multiline?: boolean; placeholder?: string; label: string; validate?: (v: string) => string | null }) {
+export function TextProp(props: { value: string | undefined; onCommit: (v: string) => void; multiline?: boolean; placeholder?: string; label: string; validate?: (v: string) => string | null }) {
   const [err, setErr] = useState<string | null>(null);
   const commit = (el: HTMLInputElement | HTMLTextAreaElement) => {
     if (el.value === (props.value ?? "")) return setErr(null);
@@ -90,7 +90,7 @@ function TextProp(props: { value: string | undefined; onCommit: (v: string) => v
   );
 }
 
-function NumberProp(props: { value: number | undefined; min: number; max: number; onCommit: (v: number | undefined) => void; label: string; allowBlank?: boolean }) {
+export function NumberProp(props: { value: number | undefined; min: number; max: number; onCommit: (v: number | undefined) => void; label: string; allowBlank?: boolean }) {
   const commit = (el: HTMLInputElement) => {
     const t = el.value.trim();
     if (!t) {
@@ -123,7 +123,7 @@ function NumberProp(props: { value: number | undefined; min: number; max: number
   );
 }
 
-function BoolProp({ value, onChange, label }: { value: boolean; onChange: (v: boolean) => void; label: string }) {
+export function BoolProp({ value, onChange, label }: { value: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
     <label className="ps-switch">
       <input type="checkbox" checked={value} aria-label={label} onChange={(e) => onChange(e.target.checked)} />
@@ -132,7 +132,7 @@ function BoolProp({ value, onChange, label }: { value: boolean; onChange: (v: bo
   );
 }
 
-function ColorProp({ value, onChange, label }: { value: string | undefined; onChange: (v: string | undefined) => void; label: string }) {
+export function ColorProp({ value, onChange, label }: { value: string | undefined; onChange: (v: string | undefined) => void; label: string }) {
   return (
     <span className="ps-color">
       <input type="color" aria-label={label} value={value ?? "#000000"} onChange={(e) => onChange(e.target.value)} className={value ? "" : "auto"} />
@@ -146,11 +146,11 @@ function ColorProp({ value, onChange, label }: { value: string | undefined; onCh
   );
 }
 
-function Select<T extends string>({ value, options, onChange, label }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; label: string }) {
+export function Select<T extends string>({ value, options, onChange, label }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; label: string }) {
   return <ComboBox className="ps-input" value={value} options={options} onChange={onChange} ariaLabel={label} />;
 }
 
-function Group({ title, children }: { title: string; children: ReactNode }) {
+export function Group({ title, children }: { title: string; children: ReactNode }) {
   const [open, setOpen] = useState(true);
   return (
     <section className="ps-group">
@@ -172,6 +172,8 @@ export function FormPropertySheet(props: {
   onPatch: (patch: Patch) => void;
   onForm: (fn: (f: FormDef, l: FormLayout) => void) => void;
   onClose?: () => void;
+  /** Report Design: only what report controls have (no tab stops, attached labels or placeholders). */
+  report?: boolean;
 }) {
   const { form, layout, selected, fields, onPatch, onForm } = props;
   const ws = useWorkspace();
@@ -305,7 +307,7 @@ export function FormPropertySheet(props: {
           <Row label="Name">
             <TextProp label="Name" value={one.name} validate={nameError} onCommit={(v) => onPatch({ name: v.trim() })} />
           </Row>
-          {takesFocus(one.type) && (
+          {takesFocus(one.type) && !props.report && (
             <>
               <Row label="Tab Stop" hint="Whether Tab and Enter stop at this control">
                 <BoolProp label="Tab Stop" value={one.tabStop !== false} onChange={(b) => onPatch({ tabStop: b ? undefined : false })} />
@@ -374,7 +376,7 @@ export function FormPropertySheet(props: {
               />
             )}
           </Row>
-          {one.type === "textbox" && isExpression(one.field) && (
+          {one.type === "textbox" && (isExpression(one.field) || props.report) && (
             <Row label="Format" hint="How the calculated value is shown">
               <input
                 key={one.format ?? ""}
@@ -399,8 +401,9 @@ export function FormPropertySheet(props: {
             </Row>
           )}
           {(one.type === "combobox" || one.type === "listbox") && <RowSourceProps c={one} onPatch={onPatch} />}
-          {bool("locked", "Locked")}
-          {(one.type === "textbox" || one.type === "combobox") && (
+          {!props.report && bool("locked", "Locked")}
+          {props.report && one.type === "textbox" && !isExpression(one.field) && bool("hideDuplicates" as keyof FormControl, "Hide Duplicates")}
+          {!props.report && (one.type === "textbox" || one.type === "combobox") && (
             <Row label="Placeholder">
               <TextProp label="Placeholder" value={one.placeholder} onCommit={(v) => onPatch({ placeholder: v.slice(0, 200) || undefined })} />
             </Row>
@@ -438,7 +441,7 @@ export function FormPropertySheet(props: {
             <TextProp label="Caption" value={one.caption} multiline={one.type === "label"} onCommit={(v) => onPatch({ caption: v.slice(0, 500) })} />
           </Row>
         )}
-        {one && hasLabel(one.type) && (
+        {one && hasLabel(one.type) && !props.report && (
           <>
             <Row label="Label">
               <TextProp label="Label" value={one.label} onCommit={(v) => onPatch({ label: v.slice(0, 200) })} />
@@ -458,7 +461,7 @@ export function FormPropertySheet(props: {
             {one.labelPos === "left" && num("labelWidth", "Label Width", true)}
           </>
         )}
-        {one?.type === "textbox" && bool("multiline", "Multiple Lines")}
+        {one?.type === "textbox" && !props.report && bool("multiline", "Multiple Lines")}
         {one?.type === "button" && (
           <Row label="Style">
             <Select

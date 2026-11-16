@@ -12,9 +12,10 @@ import { Modal, showImportWarnings, useDialogs } from "../ui/dialogs";
 import { dateShortcut, insertAtCaret, isTextBox, nowText } from "../ui/dateKeys";
 import { mergeProjects } from "../../../shared/exchange";
 import { MenuIcon, AccessIcon, BackIcon, CloseIcon, OBJECT_ICONS, RedoIcon, RelationshipsIcon, SaveIcon, UndoIcon, ConsoleIcon } from "../ui/icons";
-import { FormReportDesign, ReportView } from "../views/FormReportViews";
+import { ReportView } from "../views/FormReportViews";
 import { FormRunView } from "../forms/FormRunView";
 import { FormDesigner } from "../forms/FormDesigner";
+import { ReportDesigner } from "../reports/ReportDesigner";
 import { autoLayout } from "../forms/formLayout";
 import { QueryDatasheet, QueryDesignView, QuerySqlView } from "../views/QueryViews";
 import { RelationshipsView } from "../views/RelationshipsView";
@@ -942,7 +943,7 @@ function signature(c: ViewCommands | undefined): string {
   if (!c) return "";
   const present = Object.entries(c).filter(([, v]) => typeof v === "function").map(([k]) => k).sort();
   const f = c.formDesign;
-  const form = f ? [f.tool, f.selectionCount, f.theme, f.fieldList, f.propertySheet] : null;
+  const form = f ? [f.tool, f.selectionCount, f.theme, f.fieldList, f.propertySheet, f.report ?? false] : null;
   return JSON.stringify([present, c.queryType ?? null, c.totals ?? null, c.filterOn ?? null, form]);
 }
 
@@ -1001,7 +1002,7 @@ function TabContent({ tab, refreshKey }: { tab: Tab; refreshKey: number }) {
     case "report": {
       const r = ws.doc.reports.find((x) => x.id === tab.id)!;
       if (r.labels) return tab.view === "design" ? <LabelSetup key={key} report={r} /> : <LabelsView key={key} report={r} tabKey={tab.key} />;
-      return tab.view === "design" ? <FormReportDesign key={key} kind="report" obj={r} /> : <ReportView key={key} report={r} tabKey={tab.key} />;
+      return tab.view === "design" ? <ReportDesigner key={key} report={r} tabKey={tab.key} /> : <ReportView key={key} report={r} tabKey={tab.key} />;
     }
   }
 }

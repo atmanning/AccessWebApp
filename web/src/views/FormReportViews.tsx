@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PublicLinkButton } from "../reports/PublicReportDialog";
-import { QrCode } from "../reports/QrCode";
-import { pageQrFor, type PageQr } from "../reports/pageQr";
+import { pageQrFor } from "../reports/pageQr";
 import { usePublicLinks } from "../reports/PublicReportDialog";
-import type { CellValue, FormDef, ReportDef, SourceRef } from "../../../shared/model";
+import type { FormDef, ReportDef, SourceRef } from "../../../shared/model";
 import { readSource, type ResultSet } from "../engine/engine";
-import { formatValue, isNumericType } from "../engine/values";
 import { ComboBox } from "../ui/ComboBox";
+import { DesignedReport } from "../reports/DesignedReport";
+import { wizardLayout } from "../reports/reportLayout";
 import { useCommands, useWorkspace } from "../workspace/context";
 
 /** An unbound form's one "record": no fields (its controls hold their own values). */
@@ -52,13 +52,16 @@ export function ReportView({ report, tabKey }: { report: ReportDef; tabKey: stri
   useCommands(tabKey, { print: () => window.print() });
   // Redraw when public links load (a page QR code to this report's public link needs it).
   usePublicLinks(ws.projectId);
+  // Reports without a design yet show the Report Wizard layout Design View starts from.
+  const layout = useMemo(() => (data ? (report.layout ?? wizardLayout(report, data.columns.map((name, i) => ({ name, field: data.fields[i] })))) : null), [report, data]);
   if (error) return <div className="query-error"><strong>This report can't open.</strong><p>{error}</p></div>;
-  if (!data) return <div className="empty-view">Loading…</div>;
+  if (!data || !layout) return <div className="empty-view">Loading…</div>;
   const qr = pageQrFor(ws, report);
   return (
-    <ReportBody
-      report={report}
+    <DesignedReport
+      report={{ ...report, layout }}
       data={data}
+      doc={ws.doc}
       imageUrl={ws.imageUrl}
       pageQr={qr}
       toolbar={
@@ -71,252 +74,8 @@ export function ReportView({ report, tabKey }: { report: ReportDef; tabKey: stri
   );
 }
 
-/** A list report drawn from its data: in the app, and on a public report link. */
-export function ReportBody({
-  report,
-  data,
-  imageUrl,
-  toolbar,
-  highlight,
-  pageQr,
-}: {
-  report: ReportDef;
-  data: ResultSet;
-  imageUrl: (id: string) => string;
-  toolbar?: ReactNode;
-  /** Rows to pick out (a public report opened from someone's name tag). */
-  highlight?: (row: CellValue[]) => boolean;
-  /** A QR code printed in a corner of the page. */
-  pageQr?: PageQr | null;
-}) {
-  const prepared = useMemo(() => {
-    const idx = (n?: string) => (n ? data.columns.findIndex((c) => c.toLowerCase() === n.toLowerCase()) : -1);
-    const cols = report.columns.map((name) => ({ name, i: idx(name) })).filter((c) => c.i >= 0);
-    const g = idx(report.groupBy);
-    const s = idx(report.sortBy);
-    const rows = [...data.rows];
-    const cmp = (a: CellValue, b: CellValue) =>
-      typeof a === "number" && typeof b === "number" ? a - b : String(a ?? "").localeCompare(String(b ?? ""), undefined, { numeric: true });
-    rows.sort((a, b) => (g >= 0 ? cmp(a[g], b[g]) : 0) || (s >= 0 ? cmp(a[s], b[s]) : 0));
-    const groups: { key: CellValue; rows: CellValue[][] }[] = [];
-    if (g < 0) groups.push({ key: null, rows });
-    else {
-      for (const r of rows) {
-        const last = groups[groups.length - 1];
-        if (last && last.key === r[g]) last.rows.push(r);
-        else groups.push({ key: r[g], rows: [r] });
-      }
-    }
-    return { cols: cols.filter((c) => c.i !== g), groupField: g >= 0 ? data.fields[g] : undefined, groups, total: rows.length };
-  }, [data, report]);
-
-  const sumOf = (rows: CellValue[][], i: number) => rows.reduce<number>((acc, r) => acc + (typeof r[i] === "number" ? (r[i] as number) : 0), 0);
-  const summable = (i: number) => {
-    const t = data.fields[i]?.type;
-    return t === "Currency" || (t === "Number" && !/id$/i.test(data.columns[i]));
-  };
-  const today = new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-
-  return (
-    <div className="report-view">
-      {toolbar && <div className="report-toolbar">{toolbar}</div>}
-      <div className="report-page printable">
-        {pageQr?.link && (
-          <div className={`report-qr ${pageQr.position}`} style={{ width: `${pageQr.size}in` }}>
-            <QrCode text={pageQr.link} size={`${pageQr.size}in`} title={pageQr.caption || "Scan to open"} />
-            {pageQr.caption && <div className="report-qr-caption">{pageQr.caption}</div>}
-          </div>
-        )}
-        <div
-          className="report-header"
-          style={
-            pageQr?.link && pageQr.position.startsWith("top")
-              ? { [pageQr.position === "top-right" ? "paddingRight" : "paddingLeft"]: `${pageQr.size + 0.15}in`, minHeight: `${pageQr.size}in` }
-              : undefined
-          }
-        >
-          <h1>{report.title || report.name}</h1>
-          <div className="report-date">{today}</div>
-        </div>
-        <table className="report-table">
-          <thead>
-            <tr>
-              {prepared.cols.map((c) => (
-                <th key={c.name} className={isNumericType(data.fields[c.i]?.type) ? "num" : ""}>{c.name}</th>
-              ))}
-            </tr>
-          </thead>
-          {prepared.groups.map((grp, gi) => (
-            <tbody key={gi}>
-              {report.groupBy && (
-                <tr className="group-header">
-                  <td colSpan={prepared.cols.length}>
-                    {report.groupBy}: <strong>{formatValue(prepared.groupField, grp.key) || "(blank)"}</strong>
-                  </td>
-                </tr>
-              )}
-              {grp.rows.map((r, ri) => (
-                <tr key={ri} className={highlight?.(r) ? "highlight" : undefined} ref={highlight?.(r) ? (el) => el?.scrollIntoView({ block: "center" }) : undefined}>
-                  {prepared.cols.map((c) => (
-                    <td key={c.name} className={isNumericType(data.fields[c.i]?.type) ? "num" : ""}>
-                      {data.fields[c.i]?.type === "Image" && r[c.i] ? (
-                        <img className="report-img" src={imageUrl(String(r[c.i]))} alt="" loading="lazy" />
-                      ) : (
-                        formatValue(data.fields[c.i], r[c.i])
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-              {report.groupBy && (
-                <tr className="group-footer">
-                  {prepared.cols.map((c, ci) => (
-                    <td key={c.name} className={isNumericType(data.fields[c.i]?.type) ? "num" : ""}>
-                      {summable(c.i) ? formatValue(data.fields[c.i], sumOf(grp.rows, c.i)) : ci === 0 ? `${grp.rows.length} record(s)` : ""}
-                    </td>
-                  ))}
-                </tr>
-              )}
-            </tbody>
-          ))}
-          <tfoot>
-            <tr className="grand-total">
-              {prepared.cols.map((c, ci) => (
-                <td key={c.name} className={isNumericType(data.fields[c.i]?.type) ? "num" : ""}>
-                  {summable(c.i)
-                    ? formatValue(data.fields[c.i], prepared.groups.reduce((a, g) => a + sumOf(g.rows, c.i), 0))
-                    : ci === 0
-                      ? `Total: ${prepared.total} record(s)`
-                      : ""}
-                </td>
-              ))}
-            </tr>
-          </tfoot>
-        </table>
-        <div
-          className="report-footer"
-          style={
-            pageQr?.link && pageQr.position.startsWith("bottom")
-              ? { minHeight: `${pageQr.size + (pageQr.caption ? 0.3 : 0.05)}in`, [pageQr.position === "bottom-right" ? "paddingRight" : "paddingLeft"]: `${pageQr.size + 0.15}in` }
-              : undefined
-          }
-        >
-          Page 1 of 1
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** Design view for forms and reports: record source, fields, grouping. */
-export function FormReportDesign({ kind, obj }: { kind: "form" | "report"; obj: FormDef | ReportDef }) {
-  const ws = useWorkspace();
-  const { data } = useSource(obj.source);
-  const available = data?.columns ?? [];
-
-  const mutate = (fn: (o: FormDef & ReportDef) => void) =>
-    ws.update((d) => {
-      const list = (kind === "form" ? d.forms : d.reports) as (FormDef & ReportDef)[];
-      fn(list.find((x) => x.id === obj.id)!);
-    });
-
-  const sources = [
-    ...ws.doc.tables.map((t) => ({ value: `table:${t.id}`, label: `Table: ${t.name}` })),
-    ...ws.doc.queries.map((q) => ({ value: `query:${q.id}`, label: `Query: ${q.name}` })),
-  ];
-  const report = kind === "report" ? (obj as ReportDef) : null;
-
-  return (
-    <div className="object-design">
-      <div className="od-panel">
-        <h3>Property Sheet</h3>
-        <label>
-          Caption / Title
-          <input
-            className="text-input"
-            defaultValue={obj.title}
-            key={obj.title}
-            maxLength={200}
-            onBlur={(e) => e.target.value !== obj.title && mutate((o) => (o.title = e.target.value))}
-          />
-        </label>
-        <label>
-          Record Source
-          <ComboBox
-            className="text-input"
-            value={obj.source ? `${obj.source.kind}:${obj.source.id}` : ""}
-            ariaLabel="Record Source"
-            options={sources}
-            onChange={(v) => {
-              const [k, id] = v.split(":");
-              // Fields are kept; any the new source lacks are flagged "(not in source)" below.
-              mutate((o) => {
-                o.source = { kind: k as "table" | "query", id };
-              });
-            }}
-          />
-        </label>
-        {report && (
-          <>
-            <label>
-              Group On
-              <ComboBox
-                className="text-input"
-                value={report.groupBy ?? ""}
-                ariaLabel="Group On"
-                options={[{ value: "", label: "(no grouping)" }, ...available.map((c) => ({ value: c, label: c }))]}
-                onChange={(v) => mutate((o) => (v ? (o.groupBy = v) : delete o.groupBy))}
-              />
-            </label>
-            <label>
-              Sort By
-              <ComboBox
-                className="text-input"
-                value={report.sortBy ?? ""}
-                ariaLabel="Sort By"
-                options={[{ value: "", label: "(source order)" }, ...available.map((c) => ({ value: c, label: c }))]}
-                onChange={(v) => mutate((o) => (v ? (o.sortBy = v) : delete o.sortBy))}
-              />
-            </label>
-          </>
-        )}
-      </div>
-      {report && <PageQrSettings report={report} mutate={mutate} />}
-      <div className="od-panel">
-        <h3>Fields on this {kind}</h3>
-        <p className="muted small">Tick fields to show them. Use the arrows to change their order.</p>
-        <ul className="field-picker">
-          {[...obj.columns, ...available.filter((c) => !obj.columns.includes(c))].map((c) => {
-            const on = obj.columns.includes(c);
-            const i = obj.columns.indexOf(c);
-            const missing = !available.includes(c);
-            return (
-              <li key={c} className={missing ? "missing" : ""}>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={on}
-                    onChange={() => mutate((o) => (o.columns = on ? o.columns.filter((x) => x !== c) : [...o.columns, c]))}
-                  />
-                  {c} {missing && <em>(not in source)</em>}
-                </label>
-                {on && (
-                  <span className="order-btns">
-                    <button className="icon-btn" disabled={i === 0} aria-label={`Move ${c} up`} onClick={() => mutate((o) => { [o.columns[i - 1], o.columns[i]] = [o.columns[i], o.columns[i - 1]]; })}>▲</button>
-                    <button className="icon-btn" disabled={i === obj.columns.length - 1} aria-label={`Move ${c} down`} onClick={() => mutate((o) => { [o.columns[i + 1], o.columns[i]] = [o.columns[i], o.columns[i + 1]]; })}>▼</button>
-                  </span>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-    </div>
-  );
-}
-
 /** Design View → QR code: a code printed in a corner of the report's page. */
-function PageQrSettings({ report, mutate }: { report: ReportDef; mutate: (fn: (o: FormDef & ReportDef) => void) => void }) {
+export function PageQrSettings({ report, mutate }: { report: ReportDef; mutate: (fn: (o: FormDef & ReportDef) => void) => void }) {
   const ws = useWorkspace();
   const q = report.pageQr;
   const isPublic = usePublicLinks(ws.projectId).has(report.id);

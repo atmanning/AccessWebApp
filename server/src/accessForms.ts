@@ -8,7 +8,7 @@
  * Sizes in Access are twips (1440 per inch); here they're pixels (96 per inch): divide by 15.
  */
 import { createRequire } from "node:module";
-import type { FormControl, FormControlType, FormDef, FormLayout, FormSection, ProjectDoc, QueryDef, ReportDef, SourceRef } from "../../shared/model.js";
+import type { FormControl, FormControlType, FormDef, FormLayout, FormSection, ProjectDoc, QueryDef, ReportControl, ReportDef, ReportLayout, SourceRef } from "../../shared/model.js";
 import { cleanName, rid, unique } from "../../shared/exchange.js";
 
 type JetValue = string | number | boolean | null | Record<string, unknown>;
@@ -154,12 +154,12 @@ function selectColumns(sql: string): string[] {
 const firstFromTable = (sql: string) => /\bFROM\s+(?:\(\s*)*(\[[^\]]+\]|[\w$#@]+)/i.exec(sql)?.[1]?.replace(/^\[|\]$/g, "");
 
 /** The group levels of a report (Sorting and Grouping): field, and whether it has a group header. */
-export function readGroupLevels(blob: Uint8Array): { field: string; header: boolean }[] {
+export function readGroupLevels(blob: Uint8Array): { field: string; header: boolean; footer?: boolean; descending?: boolean }[] {
   const b = Buffer.from(blob.buffer, blob.byteOffset, blob.byteLength);
   // Access 2002+ layout (version 0x14 / 0x15); the 2000 format (0x13) is a different tree.
   if (b.length < 32 || (b[0] !== 0x14 && b[0] !== 0x15)) return [];
   let p = 14;
-  const levels: { field: string; header: boolean }[] = [];
+  const levels: { field: string; header: boolean; footer?: boolean; descending?: boolean }[] = [];
   const group = () => {
     const props = new Map<number, Buffer>();
     for (let guard = 0; guard < 5000; guard++) {
@@ -181,7 +181,8 @@ export function readGroupLevels(blob: Uint8Array): { field: string; header: bool
       // 0x9F: a group level; 27 its Field/Expression, 175 Group Header = Yes.
       if (depth === 0 && type === 0x9f && g.props.has(27)) {
         const field = g.props.get(27)!.toString("utf16le").replace(/^=/, "");
-        levels.push({ field: bareField(field), header: g.props.has(175) });
+        // 175 Group Header, 176 Group Footer, 174 Sort Order (descending).
+        levels.push({ field: bareField(field), header: g.props.has(175), ...(g.props.has(176) ? { footer: true } : {}), ...(g.props.has(174) ? { descending: true } : {}) });
       }
       nodes(g.trailer, depth + 1);
     }
@@ -680,7 +681,16 @@ function listSource(
   if (cols[shown] && cols[shown] !== c.boundColumn) c.displayColumn = cols[shown].slice(0, 64);
 }
 
-/** A report: its record source, the fields of its detail section, and its grouping and sorting. */
+/** Paper sizes Access stores (DEVMODE dmPaperSize) that reports here know. */
+const PAPER: Record<number, "letter" | "legal" | "tabloid" | "a4" | "a5"> = { 1: "letter", 5: "legal", 3: "tabloid", 9: "a4", 11: "a5" };
+
+const bytesOf = (v: JetValue | undefined): Buffer | null => (v && typeof v === "object" ? Buffer.from(Object.values(v as Record<string, number>)) : null);
+
+/**
+ * A report as a designed layout (Report Design View): page setup from its print settings, every
+ * section with its height, color and Force New Page, the group levels from Sorting and Grouping,
+ * and its controls in place.
+ */
 function convertReport(
   db: JetDatabase,
   name: string,
@@ -701,54 +711,166 @@ function convertReport(
   }
   const available = columnsOf(source);
   const known = new Map(available.map((f) => [f.toLowerCase(), f]));
-  // Bound text boxes in the detail and group headers, left to right (top to bottom for stacked ones).
-  let section = 0;
-  const placed: { field: string; top: number; left: number; group: boolean }[] = [];
-  let title: string | undefined;
-  let calculated = 0;
-  for (const jc of d.controls) {
-    const code = (jc.typeCode ?? 0) & 0xff;
-    const p = new Props(jc.properties);
-    if (code >= AC.detail && code <= AC.groupFooter) {
-      section = code;
-      continue;
-    }
-    if (code === AC.label && section === AC.header && !title) title = p.str("Caption");
-    const cs = p.str("ControlSource");
-    if (!cs || (code !== AC.textbox && code !== AC.checkbox && code !== AC.combobox)) continue;
-    if (section !== AC.detail && section !== AC.groupHeader) continue;
-    if (cs.startsWith("=")) {
-      calculated++;
-      continue;
-    }
-    const f = known.get(bareField(cs).toLowerCase());
-    if (f) placed.push({ field: f, top: p.num("Top", 0), left: p.num("Left", 0), group: section === AC.groupHeader });
-  }
-  placed.sort((a, b) => Number(b.group) - Number(a.group) || Math.round(a.top / 200) - Math.round(b.top / 200) || a.left - b.left);
-  const columns = [...new Set(placed.map((x) => x.field))];
 
-  let levels: { field: string; header: boolean }[] = [];
+  // Page setup: margins (PrtMip, twips) and paper size and orientation (PrtDevMode).
+  const margins = { top: 0.5, right: 0.5, bottom: 0.5, left: 0.5 };
+  const mip = bytesOf(d.properties.find((p) => p.name === "PrtMip")?.value);
+  if (mip && mip.length >= 16) {
+    const inch = (o: number) => clamp(Math.round((mip.readInt32LE(o) / 1440) * 100) / 100, 0, 4);
+    Object.assign(margins, { left: inch(0), top: inch(4), right: inch(8), bottom: inch(12) });
+  }
+  let size: "letter" | "legal" | "tabloid" | "a4" | "a5" = "letter";
+  let landscape = false;
+  const dev = bytesOf(d.properties.find((p) => p.name === "PrtDevMode")?.value);
+  if (dev && dev.length >= 48) {
+    if (dev.readUInt16LE(44) === 2) landscape = true;
+    size = PAPER[dev.readUInt16LE(46)] ?? "letter";
+  }
+
+  // Group levels (Sorting and Grouping), each a group here; levels without a header or footer just sort.
+  let levels: { field: string; header: boolean; footer?: boolean; descending?: boolean }[] = [];
   try {
     levels = readGroupLevels(db.formStream(name, { type: "Report", stream: "blob" }));
   } catch {
     /* no grouping read */
   }
-  const usable = levels.map((l) => ({ ...l, field: known.get(l.field.toLowerCase()) })).filter((l): l is { field: string; header: boolean } => !!l.field);
-  const group = usable.find((l) => l.header);
-  const sort = usable.find((l) => l !== group) ?? (props.str("OrderBy") ? { field: known.get(bareField(props.str("OrderBy")!.split(",")[0].replace(/\s+DESC$/i, "")).toLowerCase()) } : undefined);
-  const notes: string[] = [];
-  if (calculated) notes.push(`${calculated} calculated box(es)`);
-  if (usable.filter((l) => l.header).length > 1) notes.push("more than one grouping level");
-  if (notes.length) out.warnings.push(`Report '${name}' was simplified: ${notes.join(" and ")} aren't shown yet.`);
+  const groups: ReportLayout["groups"] = levels.map((lv, i) => ({ id: `g${i}`, field: known.get(lv.field.toLowerCase()) ?? lv.field, header: 0, footer: 0, ...(lv.descending ? { descending: true } : {}) }));
 
+  const layout: ReportLayout = {
+    page: { size, ...(landscape ? { landscape: true } : {}), margins },
+    width: clamp(px(props.num("Width", 10080)), 48, 4600),
+    sections: { reportHeader: 0, pageHeader: 0, detail: 0, pageFooter: 0, reportFooter: 0 },
+    groups,
+    sorts: [],
+    // Access's default font: Calibri 11 pt.
+    fontSize: 15,
+    controls: [],
+  };
+  const sectionProps: NonNullable<ReportLayout["sectionProps"]> = {};
+  const names = new Set<string>();
+  let key: string | null = null;
+  let skipped = 0;
+  for (const jc of d.controls) {
+    const code = (jc.typeCode ?? 0) & 0xff;
+    const p = new Props(jc.properties);
+    if (code >= AC.detail && code <= AC.groupFooter) {
+      const level = p.num("BreakLevel", 0);
+      key =
+        code === AC.detail ? "detail"
+        : code === AC.header ? "reportHeader"
+        : code === AC.footer ? "reportFooter"
+        : code === AC.pageHeader ? "pageHeader"
+        : code === AC.pageFooter ? "pageFooter"
+        : groups[level] ? `${code === AC.groupHeader ? "gh" : "gf"}:${groups[level].id}` : null;
+      if (!key) continue;
+      const h = clamp(px(p.num("Height", 0)), 0, key === "detail" || key.startsWith("report") ? 4000 : 2000);
+      if (key.startsWith("g")) {
+        const g = groups[level];
+        // A group section of no height still counts (it can force a new page).
+        g[key.startsWith("gh") ? "header" : "footer"] = Math.max(1, h);
+      } else layout.sections[key as keyof ReportLayout["sections"]] = h;
+      const sp: NonNullable<ReportLayout["sectionProps"]>[string] = {};
+      const back = color(p.num("BackColor", -1));
+      if (back && back !== "#ffffff") sp.backColor = back;
+      const fnp = p.num("ForceNewPage", 0);
+      if (fnp === 1 || fnp === 3) sp.forceNewPage = "before";
+      else if (fnp === 2) sp.forceNewPage = "after";
+      if (p.flipped("Visible")) sp.hidden = true;
+      if (Object.keys(sp).length) sectionProps[key] = sp;
+      continue;
+    }
+    if (!key) continue;
+    const kind: ReportControl["type"] | null =
+      code === AC.label ? "label"
+      : code === AC.textbox || code === AC.combobox || code === AC.listbox ? "textbox"
+      : code === AC.checkbox || code === AC.option || code === AC.toggle ? "checkbox"
+      : code === AC.rectangle ? "rectangle"
+      : code === AC.line ? "line"
+      : (code === AC.image || code === AC.boundObject) && p.str("ControlSource") ? "image"
+      : null;
+    if (!kind) {
+      if (code !== AC.emptyCell && code !== AC.pageBreak) skipped++;
+      continue;
+    }
+    const c: ReportControl = {
+      id: rid("c"),
+      type: kind,
+      name: unique(cleanName(jc.name, kind), names),
+      section: key,
+      x: clamp(px(p.num("Left", 0)), 0, 4000),
+      y: clamp(px(p.num("Top", 0)), 0, 4000),
+      w: clamp(px(p.num("Width", kind === "line" ? 0 : 1440)), 1, 4000),
+      h: clamp(px(p.num("Height", kind === "line" ? 0 : 315)), 1, 4000),
+    };
+    const cs = p.str("ControlSource");
+    if (cs && kind !== "label") c.field = cs.startsWith("=") ? cs.slice(0, 4000) : (known.get(bareField(cs).toLowerCase()) ?? bareField(cs));
+    const caption = p.str("Caption");
+    if (kind === "label") c.caption = (caption ?? "").replace(/&(?!&)/g, "").replace(/&&/g, "&").slice(0, 500);
+    if (kind === "checkbox") c.caption = "";
+    const fmt = p.str("Format");
+    if (fmt && kind === "textbox") c.format = fmt.slice(0, 100);
+    if (p.flipped("Visible")) c.hidden = true;
+    if (p.flipped("HideDuplicates")) c.hideDuplicates = true;
+    const fontSize = p.num("FontSize", 0);
+    if (fontSize) c.fontSize = clamp(Math.round((fontSize * 96) / 72), 8, 72);
+    if (p.num("FontWeight", 400) >= 600) c.bold = true;
+    if (p.flipped("FontItalic")) c.italic = true;
+    const align = p.num("TextAlign", 0);
+    if (align >= 1 && align <= 3) c.align = (["left", "center", "right"] as const)[align - 1];
+    const fore = color(p.num("ForeColor", -1));
+    if (fore && kind !== "line" && kind !== "rectangle") c.color = fore;
+    const backStyle = p.num("BackStyle", kind === "label" || kind === "rectangle" || kind === "textbox" ? 0 : 1);
+    const back = color(p.num("BackColor", -1));
+    if (back && backStyle === 1 && kind !== "line") c.backColor = back;
+    const border = color(p.num("BorderColor", -1));
+    const style = p.has("BorderStyle") ? p.num("BorderStyle", 1) : p.num("OldBorderStyle", kind === "label" ? 0 : 1);
+    if (kind === "line" || kind === "rectangle") {
+      c.borderWidth = clamp(p.num("BorderWidth", 0) + 1, 1, 12);
+      if (border) c.borderColor = border;
+      if (style === 0 && kind === "rectangle") c.borderWidth = 0;
+    } else if (style !== 0 && kind !== "label") {
+      c.borderWidth = clamp(p.num("BorderWidth", 0) + 1, 1, 12);
+      if (border) c.borderColor = border;
+    }
+    layout.controls.push(c);
+  }
+  // Sections hold their controls; the report is as wide as its widest control.
+  for (const c of layout.controls) {
+    const bottom = c.y + c.h;
+    if (c.section.startsWith("g")) {
+      const g = groups.find((x) => x.id === c.section.slice(3));
+      if (g) {
+        const which = c.section.startsWith("gh") ? "header" : "footer";
+        if (bottom > g[which]) g[which] = clamp(bottom, 0, 2000);
+      }
+    } else {
+      const k = c.section as keyof ReportLayout["sections"];
+      if (bottom > layout.sections[k]) layout.sections[k] = clamp(bottom, 0, 4000);
+    }
+  }
+  // As wide as its controls reach (Access's design width is often far wider than anything on it).
+  const reach = layout.controls.reduce((m, c) => Math.max(m, c.x + c.w), 0);
+  layout.width = clamp(reach || layout.width, 48, 4600);
+  // A group section of no height with nothing in it and no page break isn't needed.
+  for (const g of groups) {
+    for (const which of ["header", "footer"] as const) {
+      const k = `${which === "header" ? "gh" : "gf"}:${g.id}`;
+      if (g[which] === 1 && !layout.controls.some((c) => c.section === k) && !sectionProps[k]) g[which] = 0;
+    }
+  }
+  if (Object.keys(sectionProps).length) layout.sectionProps = sectionProps;
+  if (skipped) out.warnings.push(`Report '${name}': ${skipped} control(s) (charts, subreports, OLE objects or pictures in the design) weren't imported.`);
+
+  const detail = layout.controls.filter((c) => c.section === "detail" && c.field && !c.field.startsWith("=") && known.has(c.field.toLowerCase())).sort((a, b) => a.y - b.y || a.x - b.x);
   const report: ReportDef = {
     id: "",
     name: "",
-    title: (props.str("Caption") ?? title ?? name).slice(0, 200),
+    title: (props.str("Caption") ?? name).slice(0, 200),
     source: { kind: source.kind, id: source.id },
-    columns: (columns.length ? columns : available).slice(0, 255),
+    columns: [...new Set(detail.map((c) => c.field!))].slice(0, 255),
+    layout,
   };
-  if (group?.field) report.groupBy = group.field;
-  if (sort?.field && sort.field !== report.groupBy) report.sortBy = sort.field;
+  const firstGroup = groups.find((g) => g.header > 0 || g.footer > 0);
+  if (firstGroup && known.has(firstGroup.field.toLowerCase())) report.groupBy = firstGroup.field;
   return report;
 }

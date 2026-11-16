@@ -139,6 +139,11 @@ export function renameField(doc: ProjectDoc, table: TableDef, fieldId: string, n
       o.columns = o.columns.map((c) => (c === old ? name : c));
       if ("groupBy" in o && o.groupBy === old) o.groupBy = name;
       if ("sortBy" in o && o.sortBy === old) o.sortBy = name;
+      // A designed report's grouping and sorting.
+      if ("layout" in o && o.layout && "groups" in o.layout) {
+        for (const g of o.layout.groups) if (g.field === old) g.field = name;
+        for (const x of o.layout.sorts) if (x.field === old) x.field = name;
+      }
       if ("layout" in o && o.layout) {
         for (const c of o.layout.controls) {
           if (c.field === old) {

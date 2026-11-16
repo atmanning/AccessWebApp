@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 import type { Field, ReportDef } from "../../../shared/model";
 import { api, type ReportSnapshot } from "../api";
 import type { ResultSet } from "../engine/engine";
-import { ReportBody } from "../views/FormReportViews";
 import { LabelsBody } from "./LabelsView";
+import { DesignedReport } from "./DesignedReport";
+import { wizardLayout } from "./reportLayout";
 import { localNow } from "../scan/scanActions";
 
 /**
@@ -104,23 +105,20 @@ export function PublicReportPage({ token }: { token: string }) {
         <span className="small muted">Updated {updated}</span>
         {found && <span className="public-report-found">★ The highlighted record is the one you scanned.</span>}
         <span className="spacer" />
-        {!report.labels && (
-          <button className="primary" onClick={() => window.print()}>
-            Print…
-          </button>
-        )}
+
       </div>
       {rec !== null && key && <RecordPanel token={token} recKey={key} rec={rec} />}
-      {report.labels ? (
-        <LabelsBody report={report} data={data} qr={qrIdx >= 0 ? { link: (row) => String(row[qrIdx] ?? "") } : {}} hideTips highlight={highlight} fitWidth />
-      ) : (
-        <ReportBody
-          report={report}
+      {!report.labels ? (
+        <DesignedReport
+          report={{ ...report, layout: report.layout ?? wizardLayout(report, data.columns.map((name, i) => ({ name, field: (data.fields[i] ?? undefined) as Field | undefined }))) }}
           data={data}
           imageUrl={imageUrl}
           highlight={highlight}
+          fitWidth
           pageQr={report.pageQr ? { ...report.pageQr, link: (snap.report as { pageQrLink?: string | null }).pageQrLink ?? null } : null}
         />
+      ) : (
+        <LabelsBody report={report} data={data} qr={qrIdx >= 0 ? { link: (row) => String(row[qrIdx] ?? "") } : {}} hideTips highlight={highlight} fitWidth />
       )}
       <div className="public-report-foot small muted">Shared with Access Web</div>
     </div>

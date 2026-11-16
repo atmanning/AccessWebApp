@@ -43,7 +43,7 @@ import {
 import { viewsFor, type Tab, type ViewCommands, type ViewName } from "./context";
 import { QUERY_TYPES, QUERY_TYPE_LABELS, type QueryType } from "../../../shared/model";
 import { QUERY_TYPE_ICONS } from "./queryKinds";
-import { FORM_CONTROL_TYPES, FORM_THEMES } from "../../../shared/model";
+import { FORM_CONTROL_TYPES, FORM_THEMES, REPORT_CONTROL_TYPES } from "../../../shared/model";
 import { CONTROL_LABELS, THEMES } from "../forms/formLayout";
 import {
   AlignBottomIcon,
@@ -60,6 +60,11 @@ import {
   SameHeightIcon,
   SameWidthIcon,
   StackedIcon,
+  GroupSortIcon,
+  PageSetupIcon,
+  PageNumbersIcon,
+  DateTimeIcon,
+  TitleIcon,
 } from "../forms/formIcons";
 
 const QUERY_TYPE_HELP: Record<QueryType, string> = {
@@ -161,7 +166,9 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
         ? "query"
         : tab?.kind === "form" && tab.view === "design"
           ? "form"
-          : null;
+          : tab?.kind === "report" && tab.view === "design" && commands.formDesign?.report
+            ? "report"
+            : null;
   const [active, setActive] = useState<RibbonTab>("home");
   // Where to draw the View menu. It's rendered at the page level (portal) so the ribbon
   // and navigation pane can't clip or cover it.
@@ -282,7 +289,7 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
         ))}
         {designContext && (
           <button role="tab" aria-selected={active === "design"} className={`contextual ${active === "design" && (!compact || open) ? "active" : ""}`} onClick={() => pickTab("design")}>
-            {designContext === "table" ? "Table Design" : designContext === "query" ? "Query Design" : "Form Design"}
+            {designContext === "table" ? "Table Design" : designContext === "query" ? "Query Design" : designContext === "report" ? "Report Design" : "Form Design"}
           </button>
         )}
       </div>
@@ -449,6 +456,58 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
               <Group label="Layout">
                 <Big icon={<StackedIcon size={32} />} label="Stacked" onClick={() => f.relayout("stacked")} title="Arrange the fields in one column" />
                 <Big icon={<ColumnsIcon size={32} />} label="Two Columns" onClick={() => f.relayout("columns")} title="Arrange the fields in two columns" />
+              </Group>
+              <Group label="Arrange">
+                <div className="rb-stack">
+                  <Small icon={<AlignLeftIcon />} label="Align Left" onClick={many ? () => f.align("left") : undefined} />
+                  <Small icon={<AlignRightIcon />} label="Align Right" onClick={many ? () => f.align("right") : undefined} />
+                  <Small icon={<SameWidthIcon />} label="Same Width" onClick={many ? () => f.sameSize("width") : undefined} title="Make the selected controls as wide as the widest" />
+                </div>
+                <div className="rb-stack">
+                  <Small icon={<AlignTopIcon />} label="Align Top" onClick={many ? () => f.align("top") : undefined} />
+                  <Small icon={<AlignBottomIcon />} label="Align Bottom" onClick={many ? () => f.align("bottom") : undefined} />
+                  <Small icon={<SameHeightIcon />} label="Same Height" onClick={many ? () => f.sameSize("height") : undefined} title="Make the selected controls as tall as the tallest" />
+                </div>
+                <div className="rb-stack">
+                  <Small icon={<FrontIcon />} label="Bring to Front" onClick={f.selectionCount ? () => f.order("front") : undefined} />
+                  <Small icon={<BackIcon />} label="Send to Back" onClick={f.selectionCount ? () => f.order("back") : undefined} />
+                  <Small icon={<DeleteIcon />} label="Delete" onClick={f.selectionCount ? f.remove : undefined} />
+                </div>
+              </Group>
+            </>
+          );
+        })()}
+        {active === "design" && designContext === "report" && c.formDesign && (() => {
+          const f = c.formDesign;
+          const many = f.selectionCount > 1;
+          const chunks = [REPORT_CONTROL_TYPES.slice(0, 3), REPORT_CONTROL_TYPES.slice(3)];
+          return (
+            <>
+              <Group label="Views">{viewButton}</Group>
+              <Group label="Grouping & Totals">
+                <Big icon={<GroupSortIcon size={32} />} label="Group & Sort" onClick={f.groupSort} title="Group, Sort, and Total: group the records, sort them, add group headers and footers" />
+              </Group>
+              <Group label="Controls">
+                {chunks.map((chunk, i) => (
+                  <div className="rb-stack" key={i}>
+                    {chunk.map((t) => {
+                      const Icon = CONTROL_ICONS[t];
+                      return <Small key={t} icon={<Icon />} label={CONTROL_LABELS[t]} pressed={f.tool === t} onClick={() => f.setTool(t)} title={`${CONTROL_LABELS[t]}: click, then click or drag on the report`} />;
+                    })}
+                  </div>
+                ))}
+              </Group>
+              <Group label="Header / Footer">
+                <div className="rb-stack">
+                  <Small icon={<TitleIcon />} label="Title" onClick={f.insertTitle} title="Add a title to the Report Header" />
+                  <Small icon={<PageNumbersIcon />} label="Page Numbers" onClick={f.insertPageNumbers} title='Add "Page N of M" to the Page Footer' />
+                  <Small icon={<DateTimeIcon />} label="Date and Time" onClick={f.insertDateTime} title="Add today's date and time to the Report Header" />
+                </div>
+              </Group>
+              <Group label="Tools">
+                <Big icon={<FieldListIcon size={32} />} label="Add Existing Fields" pressed={f.fieldList} onClick={f.toggleFieldList} title="Show or hide the toolbox and field list" />
+                <Big icon={<PropertySheetIcon size={32} />} label="Property Sheet" pressed={f.propertySheet} onClick={f.togglePropertySheet} />
+                <Big icon={<PageSetupIcon size={32} />} label="Page Setup" onClick={f.pageSetup} title="Paper size, orientation and margins" />
               </Group>
               <Group label="Arrange">
                 <div className="rb-stack">

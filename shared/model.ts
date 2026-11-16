@@ -381,6 +381,77 @@ export const labelLayoutSchema = z.object({
 });
 export type LabelLayout = z.infer<typeof labelLayoutSchema>;
 
+/** Controls a report can hold (Report Design's toolbox). */
+export const REPORT_CONTROL_TYPES = ["label", "textbox", "checkbox", "image", "rectangle", "line"] as const;
+/**
+ * Report sections, top to bottom: report header, page header, a header per group level ("gh:<id>"),
+ * detail, a footer per group level ("gf:<id>"), page footer, report footer.
+ */
+export const REPORT_FIXED_SECTIONS = ["reportHeader", "pageHeader", "detail", "pageFooter", "reportFooter"] as const;
+export type ReportFixedSection = (typeof REPORT_FIXED_SECTIONS)[number];
+export const reportSectionKey = z.string().regex(/^(reportHeader|pageHeader|detail|pageFooter|reportFooter|g[hf]:[A-Za-z0-9_-]{1,64})$/);
+
+/** A report control: a form control placed in a report section (sizes in pixels, 96 per inch). */
+export const reportControlSchema = formControlSchema.extend({
+  section: reportSectionKey,
+  /** Text boxes: grow taller to show all their text (and push what's below down). */
+  canGrow: z.boolean().optional(),
+  /** Text boxes: leave blank when the value is the same as the record before. */
+  hideDuplicates: z.boolean().optional(),
+});
+export type ReportControl = z.infer<typeof reportControlSchema>;
+
+export const PAGE_SIZES = ["letter", "legal", "tabloid", "a4", "a5", "custom"] as const;
+
+/** A designed report (Access's Report Design View): page setup, sections, grouping and controls. */
+export const reportLayoutSchema = z.object({
+  page: z.object({
+    size: z.enum(PAGE_SIZES),
+    /** Custom size, in inches (portrait); ignored for the named sizes. */
+    width: inches(1, 48).optional(),
+    height: inches(1, 48).optional(),
+    landscape: z.boolean().optional(),
+    margins: z.object({ top: inches(0, 4), right: inches(0, 4), bottom: inches(0, 4), left: inches(0, 4) }),
+  }),
+  /** Width of the report's sections, in pixels. */
+  width: px(48, 4600),
+  sections: z.object({ reportHeader: px(0, 4000), pageHeader: px(0, 2000), detail: px(0, 4000), pageFooter: px(0, 2000), reportFooter: px(0, 4000) }),
+  /** Group levels, outermost first (Group, Sort, and Total). Header/footer 0 = none. */
+  groups: z
+    .array(
+      z.object({
+        id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
+        field: z.string().min(1).max(200),
+        descending: z.boolean().optional(),
+        header: px(0, 2000),
+        footer: px(0, 2000),
+        /** Keep the group's header, records and footer on one page when they fit. */
+        keepTogether: z.boolean().optional(),
+      }),
+    )
+    .max(10),
+  /** Further sorting inside the groups. */
+  sorts: z.array(z.object({ field: z.string().min(1).max(200), descending: z.boolean().optional() })).max(10),
+  /** Per-section settings, by section key. */
+  sectionProps: z
+    .record(
+      reportSectionKey,
+      z.object({
+        backColor: hexColor.optional(),
+        /** Start a new page before or after this section. */
+        forceNewPage: z.enum(["before", "after"]).optional(),
+        /** Don't split the section across pages. */
+        keepTogether: z.boolean().optional(),
+        hidden: z.boolean().optional(),
+      }),
+    )
+    .optional(),
+  /** Base font (px) for controls without their own size. */
+  fontSize: px(8, 72).optional(),
+  controls: z.array(reportControlSchema).max(3000),
+});
+export type ReportLayout = z.infer<typeof reportLayoutSchema>;
+
 export const reportSchema = z.object({
   id,
   name: nameSchema,
@@ -391,6 +462,8 @@ export const reportSchema = z.object({
   sortBy: z.string().optional(),
   /** Set for a labels report (name tags, address labels) instead of a list. */
   labels: labelLayoutSchema.optional(),
+  /** A designed report (Report Design View); reports without one show as a simple list of `columns`. */
+  layout: reportLayoutSchema.optional(),
   /** A QR code printed on the report's page: to this report (public link or in the app) or another web address. */
   pageQr: z
     .object({

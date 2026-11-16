@@ -4,6 +4,7 @@
  * copy is refreshed whenever someone who can edit has the database open and the data changes.
  */
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { reportFieldsUsed } from "./reportLayout";
 import type { CellValue, ReportDef } from "../../../shared/model";
 import { api, type PublicReportLink, type ReportSnapshot } from "../api";
 import { readSource } from "../engine/engine";
@@ -44,7 +45,7 @@ export async function buildSnapshot(ws: WorkspaceApi, report: ReportDef): Promis
   const data = await readSource(ws.doc, report.source);
   const wanted = new Set(
     [
-      ...(report.labels ? report.labels.lines.flatMap((l) => placeholders(l.text)) : report.columns),
+      ...(report.labels ? report.labels.lines.flatMap((l) => placeholders(l.text)) : report.layout ? reportFieldsUsed(report.layout) : report.columns),
       report.groupBy,
       report.sortBy,
     ]
