@@ -12,6 +12,16 @@ export function browserPicture(data: Buffer): { mime: string; data: Buffer } | n
   if (direct) return { mime: direct, data };
   // A BMP file, or a bare DIB.
   if (data.length > 54 && data[0] === 0x42 && data[1] === 0x4d) return png(dibToRgba(data, 14, data.readUInt32LE(10)));
+  // A bare DIB (BITMAPINFOHEADER first): the pixels follow the header, palette and color masks.
+  const hs = data.length > 40 ? data.readUInt32LE(0) : 0;
+  if (hs === 40 || hs === 108 || hs === 124) {
+    const bpp = data.readUInt16LE(14);
+    const compression = data.readUInt32LE(16);
+    const colors = bpp <= 8 ? data.readUInt32LE(32) || 1 << bpp : 0;
+    const masks = hs === 40 && (compression === 3 || compression === 6) ? (compression === 6 ? 16 : 12) : 0;
+    const pic = png(dibToRgba(data, 0, hs + colors * 4 + masks));
+    if (pic) return pic;
+  }
   // An EMF metafile (record 1, " EMF" at byte 40), possibly after a small header.
   for (let off = 0; off < Math.min(64, data.length - 44); off++) {
     if (data.readUInt32LE(off) === 1 && data.toString("latin1", off + 40, off + 44) === " EMF") return png(emfBitmap(data, off));

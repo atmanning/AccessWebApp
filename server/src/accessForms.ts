@@ -113,6 +113,10 @@ class Props {
   has(name: string) {
     return this.m.has(name);
   }
+  /** Binary properties Access hasn't named in this file version (pictures live in some). */
+  unnamedBytes(): Uint8Array[] {
+    return [...this.m].filter(([k, v]) => /^0x/i.test(k) && v instanceof Uint8Array).map(([, v]) => v as unknown as Uint8Array);
+  }
   bytes(name: string): Uint8Array | undefined {
     const v = this.m.get(name);
     return v instanceof Uint8Array ? v : undefined;
@@ -125,7 +129,8 @@ function designPicture(db: JetDatabase, out: ImportedDesigns, p: Props): string 
   let st = pictureState.get(out);
   if (!st) pictureState.set(out, (st = { resources: null, byHash: new Map() }));
   let raw: Buffer | undefined;
-  const embedded = p.bytes("PictureData");
+  // PictureData, or (newer files) an unnamed property such as 0x023E that holds the picture file itself.
+  const embedded = p.bytes("PictureData") ?? p.unnamedBytes().find((b) => b.length > 32 && browserPicture(Buffer.from(b)));
   if (embedded?.length) raw = Buffer.from(embedded);
   else {
     // A shared image (Picture names a row of MSysResources).

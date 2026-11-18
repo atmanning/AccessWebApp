@@ -64,5 +64,7 @@ describe("pictures from Access designs", () => {
     expect(r.mime).toBe("image/png");
     expect(pixels(r.data)[0]).toEqual([255, 0, 0, 255]);
     expect(browserPicture(Buffer.from("not a picture"))).toBeNull();
+    // A bare DIB (no BMP file header), as some Access files store a picture.
+    expect(pixels(browserPicture(bmp().subarray(14))!.data)[3]).toEqual([255, 255, 255, 255]);
   });
 });
