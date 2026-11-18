@@ -11,7 +11,7 @@ import { createRequire } from "node:module";
 import type { FormControl, FormControlType, FormDef, FormLayout, FormSection, ProjectDoc, QueryDef, ReportControl, ReportDef, ReportLayout, SourceRef } from "../../shared/model.js";
 import { cleanName, rid, unique } from "../../shared/exchange.js";
 import type { MacroDef, MacroStep } from "../../shared/macros.js";
-import { jetStatementsToSteps, vbaConstants, vbaProcedure, vbaToSteps, type JetStatement } from "./accessMacros.js";
+import { findProcedure, jetStatementsToSteps, vbaConstants, vbaEventCall, vbaProcedure, vbaToSteps, type JetStatement, type VbaProcedure } from "./accessMacros.js";
 
 type JetValue = string | number | boolean | null | Record<string, unknown>;
 interface JetProp {
@@ -384,13 +384,17 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
   let vba: Map<string, string> | null = null;
   /** Const and Enum values from every module (status codes and the like that event code compares with). */
   let constants: Map<string, string> | null = null;
+  /** Standard modules' code: their Subs and Functions can be called from event code. */
+  const standard: string[] = [];
   const vbaConstantsAll = () => {
     if (constants) return constants;
     const sources: string[] = [];
     try {
       for (const m of db.modules()) {
         try {
-          sources.push(db.moduleSource(m.name) || "");
+          const src = db.moduleSource(m.name) || "";
+          sources.push(src);
+          if (m.type === "Standard") standard.push(src);
         } catch {
           /* unreadable module */
         }
@@ -399,6 +403,17 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
       /* no VBA project */
     }
     return (constants = vbaConstants(sources));
+  };
+  const procCache = new Map<string, VbaProcedure | null>();
+  const standardProcedure = (name: string) => {
+    const k = name.toLowerCase();
+    if (!procCache.has(k)) {
+      vbaConstantsAll();
+      let hit: VbaProcedure | null = null;
+      for (const src of standard) if ((hit = findProcedure(src, name))) break;
+      procCache.set(k, hit);
+    }
+    return procCache.get(k)!;
   };
   const moduleFor = (formName: string) => {
     if (!vba) {
@@ -464,10 +479,12 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
     if (props.flipped("AllowEdits")) layout.allowEdits = false;
     if (props.flipped("AllowAdditions")) layout.allowAdditions = false;
     if (props.flipped("AllowDeletions")) layout.allowDeletions = false;
-    const view = props.num("DefaultView", 0);
-    if (view === 1 || view === 2) {
-      out.warnings.push(`Form '${item.name}' shows ${view === 1 ? "continuous records" : "a datasheet"} in Access; here it shows one record at a time (open the table or a subform for a list).`);
-    }
+    // Default View: 0 Single Form, 1 Continuous Forms (Access leaves it out then), 2 Datasheet, 5 Split Form.
+    const view = props.num("DefaultView", 1);
+    if (view === 1 && source) layout.defaultView = "continuous";
+    else if (view === 2) layout.defaultView = "datasheet";
+    else if (view === 5) layout.defaultView = "split";
+    else if (view === 3 || view === 4) out.warnings.push(`Form '${item.name}' is a PivotTable or PivotChart in Access; here it shows one record at a time.`);
 
     const sourceTable = source ? tableOf(source) : undefined;
     const fieldType = (f: string | undefined) => (f ? sourceTable?.fields.find((x) => x.name.toLowerCase() === f.toLowerCase())?.type : undefined);
@@ -477,6 +494,13 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
     const vbaCode = moduleFor(item.name);
     let macros: JetMacro[] | null = null;
     let unconverted = 0;
+    const vbaOpts = () => ({
+      module: vbaCode,
+      names: knownNames(),
+      constants: vbaConstantsAll(),
+      formName: item.name,
+      procedures: (n: string) => findProcedure(vbaCode, n) ?? standardProcedure(n),
+    });
     /** The form's control and field names (other names in VBA are variables). */
     const knownNames = () =>
       // Fields are unknown when the record source wasn't imported: then every bare name stays a field or control.
@@ -498,11 +522,16 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
       if (/^\[Event Procedure\]$/i.test(v)) {
         const body = vbaProcedure(vbaCode, procedure);
         if (body === null) return undefined;
-        const r = vbaToSteps(body, { module: vbaCode, names: knownNames(), constants: vbaConstantsAll(), formName: item.name });
+        const r = vbaToSteps(body, vbaOpts());
         unconverted += r.unconverted.length;
         return r.steps;
       }
       if (v.startsWith("=")) {
+        const r = vbaEventCall(v, vbaOpts());
+        if (r) {
+          unconverted += r.unconverted.length;
+          return r.steps;
+        }
         unconverted++;
         return [{ kind: "comment", text: `Not converted: this event calls the VBA function ${v.slice(1)}.` }];
       }
@@ -606,7 +635,11 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
         const objName = m ? m[2] : so;
         const objKind = m ? m[1].toLowerCase() : "form";
         let table: ReturnType<typeof tableOf>;
-        if (objKind === "table" || objKind === "query") {
+        const subFormId = objKind === "form" ? formIdByAccessName.get(objName.toLowerCase()) : undefined;
+        if (subFormId) {
+          // The form itself, shown in its own Default View (a datasheet, continuous records…).
+          c.sourceForm = subFormId;
+        } else if (objKind === "table" || objKind === "query") {
           const ref = sourceFor(objName, `${display} ${c.name} source`);
           table = ref ? tableOf(ref) : undefined;
         } else {
@@ -615,11 +648,15 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
           const ref = sourceFor(subSource, `${cleanName(objName, "Subform")} source`);
           table = ref ? tableOf(ref) : undefined;
         }
-        if (!table) {
-          out.warnings.push(`Subform '${jc.name}' on form '${item.name}' shows '${objName}', whose records couldn't be found, so it was skipped.`);
-          continue;
+        if (!table && !subFormId) {
+          out.warnings.push(
+            objName
+              ? `Subform '${jc.name}' on form '${item.name}' shows '${objName}', whose records couldn't be found, so it was skipped.`
+              : `Subform '${jc.name}' on form '${item.name}' gets its form from VBA as it opens, so it was imported empty: choose its Source Object in Design View.`,
+          );
+          if (objName) continue;
         }
-        c.sourceObject = table.id;
+        if (table && !subFormId) c.sourceObject = table.id;
         const master = p.str("LinkMasterFields");
         const child = p.str("LinkChildFields");
         if (master && child) {

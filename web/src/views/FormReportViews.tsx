@@ -15,7 +15,8 @@ import { makeFormCalc } from "../forms/formCalc";
 const UNBOUND: ResultSet = { columns: [], fields: [], rows: [[]] };
 
 /** Loads a form/report's record source; tables are read synchronously so edits show instantly. */
-export function useSource(source: SourceRef | undefined) {
+/** A form's or report's records. `editable`: a query's results also say where each value is saved (forms). */
+export function useSource(source: SourceRef | undefined, opts: { editable?: boolean } = {}) {
   const ws = useWorkspace();
   const [queryResult, setQueryResult] = useState<{ data?: ResultSet; error?: string }>({});
   const table = source?.kind === "table" ? ws.doc.tables.find((t) => t.id === source.id) : undefined;
@@ -23,7 +24,7 @@ export function useSource(source: SourceRef | undefined) {
   useEffect(() => {
     if (source?.kind !== "query") return;
     let cancelled = false;
-    readSource(ws.doc, source)
+    readSource(ws.doc, source, opts)
       .then((data) => !cancelled && setQueryResult({ data }))
       .catch((e: Error) => !cancelled && setQueryResult({ error: e.message }));
     return () => {

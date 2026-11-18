@@ -4,6 +4,7 @@ import type { CellValue, Field, ProjectDoc, SourceRef, TableDef } from "../../..
 import { isSelect, SqlSyntaxError, tokenize, translateAccessSql } from "./accessSql";
 import { parseStatement, type Statement } from "./statements";
 import { analyzeUpdatable } from "./updatable";
+import { FUNCTION_LIST, toExpr } from "./expr";
 
 export interface ResultSet {
   columns: string[];
@@ -93,6 +94,20 @@ function registerAccessFunctions(db: Database) {
   for (const [name, fn] of Object.entries(fns)) {
     for (const arity of optionalArgs[name] ?? [fn.length]) {
       const wrapper = (...args: unknown[]) => (fn as (...a: unknown[]) => unknown)(...args);
+      Object.defineProperty(wrapper, "length", { value: arity });
+      db.create_function(name, wrapper as (...a: unknown[]) => never);
+    }
+  }
+  // The rest of Access's functions (DateValue, Format, DateAdd, InStr, Round…), as in expressions.
+  for (const f of FUNCTION_LIST) {
+    const name = f.name.toLowerCase();
+    if (!f.run || name in fns || name === "iif" || f.cat === "SQL Aggregate" || f.cat === "Domain Aggregate") continue;
+    const run = f.run;
+    for (let arity = f.min; arity <= Math.min(f.max, 8); arity++) {
+      const wrapper = (...args: unknown[]) => {
+        const v = run(args.map((x) => toExpr(x)));
+        return typeof v === "boolean" ? (v ? 1 : 0) : v;
+      };
       Object.defineProperty(wrapper, "length", { value: arity });
       db.create_function(name, wrapper as (...a: unknown[]) => never);
     }
@@ -340,7 +355,7 @@ function friendlySqlError(msg: string) {
 }
 
 /** Rows of a table or query as name-keyed records, for forms and reports. */
-export async function readSource(doc: ProjectDoc, source: SourceRef): Promise<ResultSet & { table?: TableDef }> {
+export async function readSource(doc: ProjectDoc, source: SourceRef, opts: { editable?: boolean } = {}): Promise<ResultSet & { table?: TableDef }> {
   if (source.kind === "table") {
     const t = doc.tables.find((x) => x.id === source.id);
     if (!t) throw new Error("The table this object is based on was deleted.");
@@ -353,5 +368,5 @@ export async function readSource(doc: ProjectDoc, source: SourceRef): Promise<Re
   }
   const q = doc.queries.find((x) => x.id === source.id);
   if (!q) throw new Error("The query this object is based on was deleted.");
-  return runQuery(doc, q.sql, { excludeQueryId: q.id });
+  return runQuery(doc, q.sql, { excludeQueryId: q.id, ...(opts.editable ? { editable: true } : {}) });
 }

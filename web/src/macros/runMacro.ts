@@ -11,6 +11,8 @@ import { localVars, macroError, openForm, tempVars, type FormHandle } from "./ru
 export type OpenKind = "form" | "report" | "table" | "query";
 
 export interface MacroEnv {
+  /** Report a failed action in the status bar instead of a message box (events that run on their own, like On Load). */
+  quietErrors?: boolean;
   /** The form whose event runs the macro (what actions without an Object Name act on). */
   form?: FormHandle;
   /** Works out an expression (with the form's record, when there is one). Throws when it can't. */
@@ -112,7 +114,7 @@ async function runSteps(steps: readonly MacroStep[], st: RunState): Promise<void
             await runNamed(st.onError.macro, st);
             throw new Stop(false);
           }
-          await st.env.message(`${s.action} failed: ${message}`, "Action Failed", "Critical");
+          if (!st.env.quietErrors) await st.env.message(`${s.action} failed: ${message}`, "Action Failed", "Critical");
           throw new MacroActionError(`${s.action}: ${message}`);
         }
         await tick();

@@ -1,6 +1,6 @@
 /** Form View: the designed form, bound to one record at a time. */
 import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { CellValue, Field, FormControl, FormDef, ProjectDoc } from "../../../shared/model";
+import type { CellValue, Field, FormControl, FormDef, FormViewMode, ProjectDoc } from "../../../shared/model";
 import { readSource } from "../engine/engine";
 import { formatValue } from "../engine/values";
 import { compileCriteria } from "../engine/findCriteria";
@@ -13,7 +13,8 @@ import { SubformView } from "./subform";
 import { useLayout } from "../ui/layout";
 import { useSource } from "../views/FormReportViews";
 import { useCommands, useWorkspace, type OpenArgs, type RecordTarget } from "../workspace/context";
-import { useTableEditing } from "../workspace/useTableEditing";
+import { useFormEditor } from "./formEditor";
+import { Datasheet, type DatasheetColumn } from "../views/Datasheet";
 import { FormControlView, type ChoiceOption } from "./FormControls";
 import { isBound, layoutOf, parseValueList, readingOrder, tabSequence, themeStyle } from "./formLayout";
 
@@ -77,7 +78,25 @@ function colorOf(v: ExprValue): string | undefined {
   return `#${hex(n)}${hex(n >> 8)}${hex(n >> 16)}`;
 }
 
-export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKey: string; goto?: RecordTarget; open?: OpenArgs }) {
+/** A form shown in a subform control: only the records linked to the main form's record. */
+export interface EmbeddedLink {
+  /** Link Master Fields / Link Child Fields (both, or neither for all records). */
+  master?: string;
+  child?: string;
+  /** The main form's value of Link Master Fields (undefined: its record is new). */
+  value: CellValue | undefined;
+  parentNew: boolean;
+  readOnly?: boolean;
+  /** How many forms deep (a subform's subform…), to stop a form showing itself forever. */
+  depth: number;
+}
+
+/** One record as shown: the current one, or one row of a continuous form. */
+type Rec = { row: CellValue[] | null; rowIndex: number | undefined; isNew: boolean; p: number };
+
+const sameKey = (a: CellValue | undefined, b: CellValue | undefined) => a !== null && a !== undefined && b !== null && b !== undefined && String(a) === String(b);
+
+export function FormRunView({ form, tabKey, goto, open, embedded }: { form: FormDef; tabKey: string; goto?: RecordTarget; open?: OpenArgs; embedded?: EmbeddedLink }) {
   const ws = useWorkspace();
   const runMacro = useMacroRunner();
   // Kept while the tab is open, so switching tabs doesn't reset the form (see formSession).
@@ -93,8 +112,8 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
     readOnlyMode: boolean;
   }>;
   const { compact } = useLayout();
-  const { data, error, table } = useSource(form.source);
-  const editing = useTableEditing(table);
+  const { data, error, table } = useSource(form.source, { editable: true });
+  const editor = useFormEditor(data, table);
   /** Position in the found (filtered and sorted) records. */
   const [pos, setPos] = useState(saved.pos ?? 0);
   const [isNew, setIsNew] = useState(false);
@@ -108,7 +127,10 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
   const [kept, setKept] = useState<Set<string>>(new Set());
   const [sort, setSort] = useState<{ field: string; dir: "ASC" | "DESC" } | null>(saved.sort ?? null);
   const [focusField, setFocusField] = useState<string | null>(null);
-  const [addedAt, setAddedAt] = useState<number | null>(null);
+  /** The key of a record just added (or opened by link), to go to once it's in the data. */
+  const [addedKey, setAddedKey] = useState<string | null>(null);
+  /** Continuous forms show this many records, then "Show more". */
+  const [limit, setLimit] = useState(100);
   // Unbound controls (no Control Source) hold what's typed while the form is open, as in Access.
   const [unbound, setUnbound] = useState<Record<string, CellValue>>(saved.unbound ?? {});
   // Set by macros: a Where Condition (OpenForm, ApplyFilter), control properties, Data Mode Read Only.
@@ -128,8 +150,10 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
     [designed, overrides],
   );
   const options = useRowSources(ws.doc, layout.controls);
-  const canAdd = !!table && !ws.readOnly && !readOnlyMode && layout.allowAdditions !== false;
-  const canDelete = !!table && !ws.readOnly && !readOnlyMode && layout.allowDeletions !== false;
+  // A subform adds records for the main form's record, so not before that one is saved.
+  const linkBlocked = !!embedded?.child && (embedded.parentNew || embedded.value === undefined || embedded.value === null || embedded.value === "");
+  const canAdd = editor.canAdd && !ws.readOnly && !readOnlyMode && !embedded?.readOnly && !linkBlocked && layout.allowAdditions !== false;
+  const canDelete = editor.canDelete && !ws.readOnly && !readOnlyMode && !embedded?.readOnly && layout.allowDeletions !== false;
   /** Unbound controls' values by control name, for expressions ([txtSearch]). */
   const unboundVars = useMemo(() => {
     const out: Record<string, ExprValue> = {};
@@ -142,7 +166,7 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
   const calc = useMemo(() => (data ? makeFormCalc(ws.doc, layout, data.columns) : null), [ws.doc, layout, data]);
 
   const colOf = (name: string) => (data ? data.columns.findIndex((c) => c.toLowerCase() === name.toLowerCase()) : -1);
-  const keyOf = (i: number) => (table ? String(table.rows[i]?._id ?? i) : String(i));
+  const keyOf = editor.keyOf;
   // What a lookup (combo/list box) shows for each stored value, by field name.
   const shownBy = useMemo(() => {
     const out = new Map<string, Map<string, string>>();
@@ -178,6 +202,10 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
   const order = useMemo(() => {
     if (!data) return [];
     let idx = data.rows.map((_, i) => i);
+    if (embedded?.child) {
+      const ci = colOf(embedded.child);
+      idx = ci < 0 ? [] : idx.filter((i) => sameKey(data.rows[i][ci], embedded.value));
+    }
     if (where && calc) {
       try {
         idx = idx.filter((i) => kept.has(keyOf(i)) || truthy(calc.evaluate(where, data.rows[i], () => [], unboundVars)));
@@ -207,7 +235,7 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
       });
     }
     return idx;
-  }, [data, filter, filterOn, kept, sort, shownBy, where, calc]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data, filter, filterOn, kept, sort, shownBy, where, calc, embedded?.value, embedded?.child]); // eslint-disable-line react-hooks/exhaustive-deps
   const count = order.length;
 
   useEffect(() => {
@@ -219,14 +247,16 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
   }, [data, canAdd]);
   // A record just added: keep it in view (even when filtered) and go to it.
   useEffect(() => {
-    if (addedAt === null || !data || addedAt >= data.rows.length) return;
-    if (filterOn) setKept((k) => new Set(k).add(keyOf(addedAt)));
-    const p = order.indexOf(addedAt);
+    if (addedKey === null || !data) return;
+    const i = data.rows.findIndex((_, r) => keyOf(r) === addedKey);
+    if (i < 0) return;
+    if (filterOn || where) setKept((k) => new Set(k).add(addedKey));
+    const p = order.indexOf(i);
     if (p >= 0) {
       setPos(p);
-      setAddedAt(null);
+      setAddedKey(null);
     }
-  }, [data, order, addedAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data, order, addedKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Opened at one record (a label's QR code): find it by its key and show it, even if filtered out.
   useEffect(() => {
@@ -236,7 +266,7 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
     if (i < 0) return ws.setStatus(`There's no record with ${goto.field} ${goto.value} any more.`, "error");
     setFinding(null);
     setIsNew(false);
-    setAddedAt(i);
+    setAddedKey(keyOf(i));
     const shown = layout.controls.filter((c) => c.field && !isExpression(c.field) && isBound(c.type) && c.type !== "image" && c.field.toLowerCase() !== goto.field.toLowerCase()).slice(0, 2).map((c) => data.rows[i][colOf(c.field!)]);
     ws.setStatus(`Opened ${shown.filter((v) => v !== null && v !== "").join(" ") || "the record"} from its link.`);
   }, [goto?.n, data === undefined]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -249,7 +279,8 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
   };
   const goNew = () => {
     if (finding) return;
-    if (!table) return ws.setStatus("This form shows a query, so records can't be added here.", "error");
+    if (!editor.canAdd) return ws.setStatus("New records can't be added through this form's query (it joins several tables, or can't be edited). Add them in the table.", "error");
+    if (linkBlocked) return ws.setStatus("Fill in the main form's record first.", "error");
     if (!canAdd) return ws.setStatus("This form doesn't allow new records.", "error");
     (document.activeElement as HTMLElement | null)?.blur?.();
     setFieldError(null);
@@ -257,10 +288,10 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
   };
   const deleteRecord = async () => {
     if (finding) return;
-    if (!canDelete) return ws.setStatus(table ? "This form doesn't allow deleting records." : "This form shows a query, so records can't be deleted here.", "error");
+    if (!canDelete) return ws.setStatus(editor.canDelete ? "This form doesn't allow deleting records." : "Records can't be deleted through this form's query. Delete them in the table.", "error");
     if (isNew) return go(count - 1);
     if (!count) return;
-    if (await editing.deleteRows([order[pos]])) setPos((p) => Math.max(0, Math.min(p, count - 2)));
+    if (await editor.deleteRows([order[pos]])) setPos((p) => Math.max(0, Math.min(p, count - 2)));
   };
 
   const startFind = () => {
@@ -373,12 +404,13 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
   formRef.current = form;
   const fireForm = (e: FormEvent) => {
     const steps = formRef.current.events?.[e];
-    if (steps?.length) void runMacro(steps, handle);
+    // Form events run on their own, so a failure goes to the status bar, not a message box.
+    if (steps?.length) void runMacro(steps, handle, { quiet: true });
   };
   const fireControl = (c: FormControl, e: ControlEvent) => {
     const steps = c.events?.[e];
     if (!steps?.length) return false;
-    void runMacro(steps, handle);
+    void runMacro(steps, handle, { quiet: e === "afterUpdate" });
     return true;
   };
   const loaded = !!data && !!calc;
@@ -417,18 +449,20 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
   /** The records the form shows (for Sum, Count… in calculated controls). */
   const foundRows = () => order.map((i) => data.rows[i]);
 
-  /** Saves a field of the record (a new record is added by its first field); returns the error, if any. */
-  const commitField = (field: Field, input: string | boolean): string | null => {
-    const err = editing.commit(isNew ? "new" : rowIndex, field.id, input);
+  const cur: Rec = { row, rowIndex, isNew, p: pos };
+  /** Saves a field of a record (a new record is added by its first field); returns the error, if any. */
+  const commitAt = (rec: Rec, col: number, input: string | boolean): string | null => {
+    const preset = embedded?.child ? { [embedded.child]: embedded.value ?? null } : undefined;
+    const err = editor.commit(rec.isNew ? "new" : rec.rowIndex!, col, input, preset);
     if (err) return err;
-    if (isNew) {
+    if (rec.isNew) {
       setIsNew(false);
-      setAddedAt(data.rows.length); // the record that was just added
-    } else if (filterOn || where) setKept((k) => new Set(k).add(keyOf(rowIndex)));
+      setAddedKey(editor.lastAddedKey()); // go to the record that was just added
+    } else if (filterOn || where) setKept((k) => new Set(k).add(keyOf(rec.rowIndex!)));
     return null;
   };
-  const save = (c: FormControl, field: Field, input: string | boolean) => {
-    const err = commitField(field, input);
+  const save = (c: FormControl, col: number, input: string | boolean, rec: Rec = cur) => {
+    const err = commitAt(rec, col, input);
     if (err) {
       setFieldError({ id: c.id, msg: err });
       ws.setStatus(err, "error");
@@ -445,6 +479,8 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
       const c = controlByName(name);
       if (/^newrecord$/i.test(name) && !c) return isNew;
       if (/^dirty$/i.test(name) && !c) return false;
+      if (/^filteron$/i.test(name) && !c) return !!where || filterOn;
+      if (/^filter$/i.test(name) && !c) return where ?? "";
       if (c && !c.field) return c.id in unbound ? (unbound[c.id] as ExprValue) : c.type === "checkbox" ? false : null;
       if (c?.field && isExpression(c.field)) return calc!.value(c, exprRow, foundRows, unboundVars).value;
       const i = colIdx(c?.field ?? name);
@@ -452,7 +488,7 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
       return exprRow ? (exprRow[i] as ExprValue) : null;
     },
     // [NewRecord] and [Dirty] stand for Me.NewRecord / Me.Dirty in macros translated from VBA.
-    evaluate: (e) => makeFormCalc(ws.getDoc(), layout, data.columns).evaluate(e, exprRow, foundRows, { NewRecord: isNew, Dirty: false, ...unboundVars }),
+    evaluate: (e) => makeFormCalc(ws.getDoc(), layout, data.columns).evaluate(e, exprRow, foundRows, { NewRecord: isNew, Dirty: false, FilterOn: !!where || filterOn, Filter: where ?? "", ...unboundVars }),
     goToRecord: (record, offset) => {
       const r = record.toLowerCase().replace(/\s+/g, "");
       const to = (n: number) => {
@@ -514,9 +550,8 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
       if (c?.field && isExpression(c.field)) return `${c.name} is calculated (=…), so it can't be set.`;
       const i = colIdx(c?.field ?? name);
       if (i < 0) return `There's no control or field named '${name}' on ${form.name}.`;
-      const field = data.fields[i];
-      if (!field || !table || ws.readOnly || readOnlyMode) return "This form's records can't be changed.";
-      return commitField(field, typeof v === "boolean" ? v : v === null ? "" : String(v));
+      if (ws.readOnly || readOnlyMode) return "This form's records can't be changed.";
+      return editor.readOnlyReason(i) ?? commitAt(cur, i, typeof v === "boolean" ? v : v === null ? "" : String(v));
     },
     setProperty: (name, property, v) => {
       const c = controlByName(name);
@@ -575,15 +610,33 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
     }
   };
 
-  const renderControl = (c: FormControl) => {
+  const renderControl = (c: FormControl, rec: Rec = cur) => {
     if (c.hidden) return null;
-    const inputId = `fv-${form.id}-${c.id}`;
+    const { row, isNew } = rec;
+    const inputId = rec === cur ? `fv-${form.id}-${c.id}` : `fv-${form.id}-${c.id}-${rec.isNew ? "new" : rec.p}`;
     if (c.type === "subform") {
       // Related records of this record (Link Child Fields = this record's Link Master Fields).
       const mi = c.linkMaster ? colIdx(c.linkMaster) : -1;
       const master = c.linkMaster ? (row && mi >= 0 ? row[mi] : undefined) : null;
+      const sub = c.sourceForm ? ws.doc.forms.find((f) => f.id === c.sourceForm) : undefined;
       const content = finding ? (
         <div className="sf-box sf-message">Related records aren't searched in Find.</div>
+      ) : c.sourceForm ? (
+        !sub ? (
+          <div className="sf-box sf-message">The form this subform showed was deleted. Choose another in the Property Sheet.</div>
+        ) : sub.id === form.id || (embedded?.depth ?? 0) >= 3 ? (
+          <div className="sf-box sf-message">A form can't show itself as a subform.</div>
+        ) : !!c.linkMaster && mi < 0 ? (
+          <div className="sf-box sf-message">The form's records have no field named {c.linkMaster}. Check Link Master Fields in the Property Sheet.</div>
+        ) : (
+          <div className="sf-box sf-form">
+            <FormRunView
+              form={sub}
+              tabKey={`${tabKey}|sf:${c.id}`}
+              embedded={{ master: c.linkMaster, child: c.linkChild, value: master ?? undefined, parentNew: isNew, readOnly: layout.allowEdits === false || readOnlyMode, depth: (embedded?.depth ?? 0) + 1 }}
+            />
+          </div>
+        )
       ) : (
         <SubformView c={c} master={master} newRecord={isNew} masterMissing={!!c.linkMaster && mi < 0} readOnly={layout.allowEdits === false} />
       );
@@ -622,7 +675,15 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
     const field = i >= 0 ? data.fields[i] : undefined;
     const value: CellValue = row && i >= 0 ? row[i] : null;
     const readOnly =
-      ws.readOnly || readOnlyMode || !table || !field || field.type === "AutoNumber" || !!c.locked || (!isNew && layout.allowEdits === false) || (isNew && !canAdd);
+      ws.readOnly ||
+      readOnlyMode ||
+      !!embedded?.readOnly ||
+      !field ||
+      editor.readOnlyReason(i) !== null ||
+      field.type === "AutoNumber" ||
+      !!c.locked ||
+      (!isNew && layout.allowEdits === false) ||
+      (isNew && !canAdd);
     return (
       <FormControlView
         c={c}
@@ -637,7 +698,7 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
           options: options[c.id],
           imageUrl: (imageId: string) => ws.imageUrl(imageId),
           uploadImage: ws.readOnly ? undefined : ws.uploadImage,
-          onCommit: (input) => field && save(c, field, input),
+          onCommit: (input) => field && save(c, i, input, rec),
           onAction: () => {},
         }}
       />
@@ -659,22 +720,76 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
   };
 
   // Remount a control when its record or value changes (undo, another control), so it shows the saved value.
-  const valueKey = (c: FormControl) => {
+  const valueKey = (c: FormControl, rec: Rec = cur) => {
     if (finding) return `${c.id}-find-${finding.active}`;
     const i = c.field ? colIdx(c.field) : -1;
-    return `${c.id}-${recordKey}-${row && i >= 0 ? String(row[i]) : ""}`;
+    const k = rec === cur ? recordKey : rec.isNew ? "new" : keyOf(rec.rowIndex!);
+    return `${c.id}-${k}-${rec.row && i >= 0 ? String(rec.row[i]) : ""}`;
   };
   const recordKey = isNew ? "new" : `${pos}`;
+  // Default View: Find always uses one record (the form's own fields hold the criteria).
+  const mode: FormViewMode = finding ? "single" : (layout.defaultView ?? "single");
+  const continuousRecs: Rec[] =
+    mode === "continuous"
+      ? [...order.slice(0, limit).map((ri, p) => ({ row: data.rows[ri], rowIndex: ri, isNew: false, p })), ...(canAdd ? [{ row: null, rowIndex: undefined, isNew: true, p: -1 }] : [])]
+      : [];
+  /** Clicking into a record of a continuous form makes it the current record (for macros, Delete…). */
+  const selectRec = (rec: Rec) => {
+    if (rec.isNew) {
+      if (!isNew) setIsNew(true);
+    } else if (isNew || rec.p !== pos) {
+      setIsNew(false);
+      setFieldError(null);
+      setPos(rec.p);
+    }
+  };
+  // Datasheet View: the detail section's text boxes, combo boxes and check boxes, in tab order.
+  const designedSheet = mode === "datasheet" || mode === "split" ? tabSequence(layout).filter((c) => c.section === "detail" && !c.hidden && (c.type === "textbox" || c.type === "combobox" || c.type === "listbox" || c.type === "checkbox") && !!c.field) : [];
+  // A datasheet form with no fields placed shows every column of its record source.
+  const sheetControls: FormControl[] =
+    designedSheet.length || (mode !== "datasheet" && mode !== "split")
+      ? designedSheet
+      : data.columns.map((name, i) => ({ id: `col${i}`, type: data.fields[i]?.type === "YesNo" ? "checkbox" : "textbox", name, field: name, section: "detail", x: 0, y: 0, w: 100, h: 20 }));
+  const captionOf = (c: FormControl) => {
+    // The control's own label, its attached label (just left of it), or the header label above it.
+    if (c.label) return c.label;
+    const attached = layout.controls.find((l) => l.type === "label" && l.caption && l.section === c.section && Math.abs(l.y - c.y) < 10 && l.x + l.w <= c.x + 6 && c.x - (l.x + l.w) < 48);
+    if (attached?.caption) return attached.caption;
+    const near = layout.controls.find((l) => l.type === "label" && l.caption && Math.abs(l.x - c.x) < 12 && l.section !== "detail");
+    return near?.caption ?? (isExpression(c.field) ? c.name : c.field!);
+  };
+  const sheetColumns: DatasheetColumn[] = sheetControls.map((c) => {
+    const ci = isExpression(c.field) ? -1 : colIdx(c.field!);
+    const field = ci >= 0 ? data.fields[ci] : ({ id: c.id, name: c.name, type: c.type === "checkbox" ? "YesNo" : "ShortText", required: false } as Field);
+    const reason = ci < 0 ? `${c.name} is calculated, so it can't be edited.` : c.locked ? `${c.name} is locked.` : editor.readOnlyReason(ci);
+    const opts = options[c.id];
+    return {
+      key: c.id,
+      label: captionOf(c),
+      field,
+      readOnly: !!reason,
+      readOnlyReason: reason ?? undefined,
+      lookup: opts?.length && (c.type === "combobox" || c.type === "listbox") ? { options: opts, limit: true } : undefined,
+    };
+  });
+  const sheetValue = (r: number, col: number): CellValue => {
+    const c = sheetControls[col];
+    const rowData = data.rows[order[r]];
+    if (!c || !rowData) return null;
+    if (isExpression(c.field)) return calc ? calc.value(c, rowData, foundRows, unboundVars).text : null;
+    const ci = colIdx(c.field!);
+    return ci >= 0 ? rowData[ci] : null;
+  };
   const sectionHeight = (s: "header" | "detail" | "footer") => layout.sections[s];
   // Desktop: the controls go into the page in tab order, so Tab follows it; phones stack them top to bottom.
   const ordered = compact ? readingOrder(layout.controls) : tabSequence(layout);
 
-  const sectionBody = (s: "header" | "detail" | "footer") => {
+  const sectionBody = (s: "header" | "detail" | "footer", rec: Rec = cur) => {
     const list = ordered.filter((c) => c.section === s && !c.hidden);
     if (!compact) {
       return list.map((c) => (
         <div
-          key={valueKey(c)}
+          key={valueKey(c, rec)}
           className={`fv-ctl t-${c.type} ${c.tabStop === false ? "no-tab" : ""}`}
           data-field={isExpression(c.field) ? undefined : c.field}
           data-ctl={c.id}
@@ -682,7 +797,7 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
           onClick={c.type !== "button" && c.events?.onClick?.length && !finding ? () => fireControl(c, "onClick") : undefined}
           style={{ left: c.x, top: c.y, width: c.w, height: c.h }}
         >
-          {renderControl(c)}
+          {renderControl(c, rec)}
         </div>
       ));
     }
@@ -693,7 +808,7 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
       if (buttons.length) {
         out.push(
           <div key={`b-${buttons[0].id}`} className="fv-btn-row">
-            {buttons.map((b) => <Fragment key={b.id}>{renderControl(b)}</Fragment>)}
+            {buttons.map((b) => <Fragment key={b.id}>{renderControl(b, rec)}</Fragment>)}
           </div>,
         );
       }
@@ -707,8 +822,8 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
       }
       flush();
       out.push(
-        <div key={valueKey(c)} className={`fv-ctl flow t-${c.type} ${c.tabStop === false ? "no-tab" : ""}`} data-field={isExpression(c.field) ? undefined : c.field} data-ctl={c.id} onDoubleClick={c.events?.onDblClick?.length ? () => fireControl(c, "onDblClick") : undefined} onClick={c.events?.onClick?.length && !finding ? () => fireControl(c, "onClick") : undefined} style={c.multiline || c.type === "listbox" || c.type === "image" || c.type === "subform" ? { minHeight: c.h } : undefined}>
-          {renderControl(c)}
+        <div key={valueKey(c, rec)} className={`fv-ctl flow t-${c.type} ${c.tabStop === false ? "no-tab" : ""}`} data-field={isExpression(c.field) ? undefined : c.field} data-ctl={c.id} onDoubleClick={c.events?.onDblClick?.length ? () => fireControl(c, "onDblClick") : undefined} onClick={c.events?.onClick?.length && !finding ? () => fireControl(c, "onClick") : undefined} style={c.multiline || c.type === "listbox" || c.type === "image" || c.type === "subform" ? { minHeight: c.h } : undefined}>
+          {renderControl(c, rec)}
         </div>,
       );
     }
@@ -729,9 +844,9 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
           }}
         />
       )}
-      <div className="fv-scroll">
+      {mode !== "datasheet" && <div className={`fv-scroll ${mode === "split" ? "split-top" : ""}`}>
         <div
-          className="fv-card"
+          className={`fv-card ${mode === "continuous" ? "continuous" : ""}`}
           style={compact ? undefined : { width: layout.width }}
           onKeyDown={(e) => {
             if (finding && e.key === "Escape") {
@@ -746,16 +861,78 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
             if (f) setFocusField(f);
           }}
         >
-          {(["header", "detail", "footer"] as const).map((s) =>
-            sectionHeight(s) > 0 ? (
-              <div key={s} className={`fv-section fv-${s}`} style={compact ? undefined : { height: sectionHeight(s) }}>
-                {sectionBody(s)}
-              </div>
-            ) : null,
+          {mode === "continuous" ? (
+            <>
+              {sectionHeight("header") > 0 && (
+                <div className="fv-section fv-header fv-sticky" style={compact ? undefined : { height: sectionHeight("header") }}>
+                  {sectionBody("header")}
+                </div>
+              )}
+              {continuousRecs.map((rec) => {
+                const current = rec.isNew ? isNew : !isNew && rec.p === pos;
+                return (
+                  <div
+                    key={rec.isNew ? "new" : keyOf(rec.rowIndex!)}
+                    className={`fv-section fv-detail fv-rec ${current ? "current" : ""} ${rec.isNew ? "new" : ""}`}
+                    style={compact ? undefined : { height: sectionHeight("detail") }}
+                    onMouseDownCapture={() => selectRec(rec)}
+                    onFocusCapture={() => selectRec(rec)}
+                  >
+                    {sectionBody("detail", rec)}
+                  </div>
+                );
+              })}
+              {order.length > limit && (
+                <div className="fv-more">
+                  <button onClick={() => setLimit((n) => n + 200)}>
+                    Show more ({order.length - limit} more record{order.length - limit === 1 ? "" : "s"})
+                  </button>
+                </div>
+              )}
+              {!order.length && !canAdd && <div className="fv-empty muted">No records.</div>}
+              {sectionHeight("footer") > 0 && (
+                <div className="fv-section fv-footer" style={compact ? undefined : { height: sectionHeight("footer") }}>
+                  {sectionBody("footer")}
+                </div>
+              )}
+            </>
+          ) : (
+            (["header", "detail", "footer"] as const).map((s) =>
+              sectionHeight(s) > 0 ? (
+                <div key={s} className={`fv-section fv-${s}`} style={compact ? undefined : { height: sectionHeight(s) }}>
+                  {sectionBody(s)}
+                </div>
+              ) : null,
+            )
           )}
         </div>
-      </div>
-      {!finding && !!form.source && (layout.navigationButtons !== false || filter || where) && (
+      </div>}
+      {(mode === "datasheet" || mode === "split") && (
+        <div className={`fv-sheet ${mode}`}>
+          <Datasheet
+            key={embedded ? String(embedded.value ?? "") : "sheet"}
+            columns={sheetColumns}
+            rowCount={order.length}
+            getValue={sheetValue}
+            rowKey={(r) => keyOf(order[r])}
+            editable={!ws.readOnly && !readOnlyMode && !embedded?.readOnly && layout.allowEdits !== false}
+            allowNew={canAdd}
+            autoFocus={false}
+            onCommit={(r, col, input) => {
+              const c = sheetControls[col];
+              const ci = c?.field ? colIdx(c.field) : -1;
+              if (ci < 0) return "This column can't be edited.";
+              return commitAt(r === "new" ? { row: null, rowIndex: undefined, isNew: true, p: -1 } : { row: data.rows[order[r]], rowIndex: order[r], isNew: false, p: r }, ci, input);
+            }}
+            onDeleteRows={(rs) => void editor.deleteRows(rs.map((r) => order[r]))}
+            newRowPlaceholder={(col) => (sheetControls[col]?.field && data.fields[colIdx(sheetControls[col].field!)]?.type === "AutoNumber" ? "(New)" : "")}
+            onStatus={ws.setStatus}
+            onCurrentRow={(r) => (r === "new" ? !isNew && canAdd && setIsNew(true) : (isNew || r !== pos) && (setIsNew(false), setPos(r)))}
+            emptyMessage={linkBlocked ? "Fill in the main form's record first." : canAdd ? undefined : "No records."}
+          />
+        </div>
+      )}
+      {!finding && !!form.source && mode !== "datasheet" && mode !== "split" && (layout.navigationButtons !== false || filter || where) && (
         <div className="record-nav">
           <span className="rn-label">Record:</span>
           <button onClick={() => go(0)} disabled={!count} title="First record">⏮</button>
@@ -786,7 +963,7 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
               {sort.field} {sort.dir === "ASC" ? "▲" : "▼"} ✕
             </button>
           )}
-          {!table && <span className="rn-filter">Read-only (query)</span>}
+          {!table && !data.edit?.ok && <span className="rn-filter" title={data.edit && !data.edit.ok ? data.edit.reason : undefined}>Read-only (query)</span>}
         </div>
       )}
     </div>

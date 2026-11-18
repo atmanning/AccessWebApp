@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { macroStepsSchema, macroSummary } from "../../shared/macros.js";
 import { importFormsAndReports, simpleButtonAction } from "../src/accessForms.js";
-import { jetStatementsToSteps, vbaConstants, vbaExpr, vbaProcedure, vbaToSteps } from "../src/accessMacros.js";
+import { findProcedure, jetStatementsToSteps, vbaConstants, vbaEventCall, vbaExpr, vbaProcedure, vbaToSteps } from "../src/accessMacros.js";
 
 const summary = (body: string, names?: string[]) => {
   const r = vbaToSteps(body, { names: names ? new Set(names.map((n) => n.toLowerCase())) : undefined });
@@ -235,5 +235,40 @@ Err_Handler:
       "SetWarnings WarningsOn: Yes",
       "CloseWindow",
     ]);
+  });
+
+  it("calls procedures in standard modules, with their arguments, and keeps their Exit Sub inside them", () => {
+    const std = `Public Sub OpenCustomer(ByVal lngID As Long, Optional strMode As String = "Edit")
+10    If lngID = 0 Then
+20        MsgBox "No customer"
+30        Exit Sub
+40    End If
+50    DoCmd.OpenForm "Customers", , , "CustomerID=" & lngID
+60    Set frm = Nothing
+End Sub
+Public Function Highlight(frm As Form)
+    frm.lblNote.Visible = True
+    Highlight = True
+End Function`;
+    const procedures = (n: string) => findProcedure(std, n);
+    const r = vbaToSteps("modCustomers.OpenCustomer Me.CustomerID\nHighlight Me\nBeep", { procedures });
+    expect(r.unconverted).toEqual([]);
+    expect(macroSummary(r.steps)).toEqual([
+      "Group: OpenCustomer (from VBA)",
+      "  SetLocalVar Name: lngID, Expression: [CustomerID]",
+      '  SetLocalVar Name: strMode, Expression: "Edit"',
+      "  If [LocalVars]![lngID] = 0 Then",
+      "    MessageBox Message: No customer",
+      "  Else",
+      '    OpenForm FormName: Customers, WhereCondition: ="CustomerID=" & [LocalVars]![lngID]',
+      "  End If",
+      "End Group",
+      "Group: Highlight (from VBA)",
+      "  SetProperty ControlName: lblNote, Property: Visible, Value: =True",
+      "End Group",
+      "Beep",
+    ]);
+    const ev = vbaEventCall("=OpenCustomer([CompanyID])", { procedures })!;
+    expect(macroSummary(ev.steps)[0]).toBe("SetLocalVar Name: lngID, Expression: [CompanyID]");
   });
 });

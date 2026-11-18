@@ -71,9 +71,52 @@ export function jetStatementsToSteps(list: readonly JetStatement[] | undefined):
 
 /** The body of `Sub <name>(…) … End Sub` in a module, or null. */
 export function vbaProcedure(code: string, name: string): string | null {
+  return findProcedure(code, name)?.body ?? null;
+}
+
+export interface VbaProcedure {
+  name: string;
+  kind: "sub" | "function";
+  params: { name: string; optional: boolean; default?: string }[];
+  body: string;
+}
+
+/** A Sub or Function in a module: its parameters and body. */
+export function findProcedure(code: string, name: string): VbaProcedure | null {
   const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const m = new RegExp(`^[ \\t]*(?:(?:Private|Public)\\s+)?Sub\\s+${esc}\\s*\\([^)\\r\\n]*\\)[^\\r\\n]*\\r?\\n([\\s\\S]*?)^[ \\t]*End\\s+Sub\\b`, "im").exec(code);
-  return m ? m[1] : null;
+  const m = new RegExp(
+    `^[ \\t]*(?:(?:Private|Public|Friend)\\s+)?(?:Static\\s+)?(Sub|Function)\\s+(${esc})\\s*\\(([^)\\r\\n]*(?:\\)[^)\\r\\n]*)?)\\)[^\\r\\n]*\\r?\\n([\\s\\S]*?)^[ \\t]*(?:\\d+\\s+)?End\\s+\\1\\b`,
+    "im",
+  ).exec(code);
+  if (!m) return null;
+  const params = m[3]
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .map((x) => {
+      const d = /^(Optional\s+)?(?:(?:ByVal|ByRef|ParamArray)\s+)?(\w+)(?:\(\))?(?:\s+As\s+[\w.]+)?(?:\s*=\s*(.+))?$/i.exec(x);
+      return { name: d?.[2] ?? x, optional: !!d?.[1], ...(d?.[3] !== undefined ? { default: d[3].trim() } : {}) };
+    });
+  return { name: m[2], kind: m[1].toLowerCase() === "sub" ? "sub" : "function", params, body: m[4] };
+}
+
+/**
+ * Exit Sub / Exit Function as macro steps. Inside a called procedure a StopMacro would end the
+ * whole macro, so `If x Then Exit Sub` becomes an If whose other branches hold the rest.
+ */
+export function liftExits(steps: MacroStep[]): MacroStep[] {
+  const isStop = (s: MacroStep | undefined) => s?.kind === "action" && s.action === "StopMacro";
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    if (isStop(s)) return steps.slice(0, i);
+    if (s.kind === "if" && s.branches.some((b) => isStop(b.steps[b.steps.length - 1]))) {
+      const rest = liftExits(steps.slice(i + 1));
+      const branches = s.branches.map((b) => (isStop(b.steps[b.steps.length - 1]) ? { ...b, steps: liftExits(b.steps.slice(0, -1)) } : { ...b, steps: [...b.steps, ...rest] }));
+      if (!branches.some((b) => b.condition === undefined) && rest.length) branches.push({ steps: rest });
+      return [...steps.slice(0, i), { kind: "if", branches }];
+    }
+  }
+  return steps;
 }
 
 type Tok = { k: "str" | "num" | "word" | "br" | "op" | "ws" | "date"; v: string };
@@ -273,9 +316,9 @@ export function vbaExpr(src: string, scope: Scope = { locals: new Set() }): stri
       while (parts.length > 2 && /^(value|text)$/i.test(parts[parts.length - 1])) parts.pop();
       const next = t[end]?.k === "ws" ? t[end + 1] : t[end];
       if (tok.k === "word" && head === "me" && parts.length > 2 && /^form$/i.test(parts[1])) parts.splice(1, 1); // Me.Form.X is Me.X
-      if (tok.k === "word" && head === "me" && parts.length === 2 && /^(newrecord|dirty)$/i.test(parts[1])) {
+      if (tok.k === "word" && head === "me" && parts.length === 2 && /^(newrecord|dirty|filteron|filter)$/i.test(parts[1])) {
         // Read from the form while the macro runs.
-        out += parts[1].toLowerCase() === "newrecord" ? "[NewRecord]" : "[Dirty]";
+        out += `[${{ newrecord: "NewRecord", dirty: "Dirty", filteron: "FilterOn", filter: "Filter" }[parts[1].toLowerCase()]}]`;
       } else if (tok.k === "word" && head === "me" && parts.length === 2 && /^name$/i.test(parts[1]) && scope.formName) {
         out += `"${scope.formName.replace(/"/g, '""')}"`;
       } else if (tok.k === "word" && parts.length === 2 && scope.constants?.has(`${head}.${parts[1].toLowerCase()}`)) {
@@ -283,7 +326,7 @@ export function vbaExpr(src: string, scope: Scope = { locals: new Set() }): stri
       } else if (tok.k === "word" && head === "me") {
         if (parts.length === 1) throw new VbaError("Me on its own can't be used in an expression.");
         if (parts.length > 2 && !/^(value|text)$/i.test(parts[2])) throw new VbaError(`Me.${parts.slice(1).join(".")} can't be read in a macro.`);
-        if (/^(newrecord|dirty|recordsetclone|recordset|openargs|filter|filteron|name)$/i.test(parts[1])) throw new VbaError(`Me.${parts[1]} isn't available in macros.`);
+        if (/^(recordsetclone|recordset|openargs|name)$/i.test(parts[1])) throw new VbaError(`Me.${parts[1]} isn't available in macros.`);
         out += q(parts[1]);
       } else if (tok.k === "word" && (head === "forms" || head === "reports") && parts.length >= 2) {
         out += [head === "forms" ? "[Forms]" : "[Reports]", ...parts.slice(1).filter((p, k) => !(k >= 2 && /^(value|text|form)$/i.test(p))).map(q)].join("!");
@@ -478,9 +521,66 @@ export interface VbaConversion {
 }
 
 /** Converts an event procedure's body to macro steps. */
+export interface VbaOptions {
+  /** The form's own module (its other procedures can be called). */
+  module?: string;
+  names?: ReadonlySet<string>;
+  constants?: ReadonlyMap<string, string>;
+  formName?: string;
+  /** Finds a procedure by name in the form's module or the database's standard modules. */
+  procedures?: (name: string) => VbaProcedure | null;
+  /** The procedure being converted: assigning to its name sets a Function's result (not needed here). */
+  procName?: string;
+}
+
+/** A call to another procedure: its parameters set from the arguments, then its steps. */
+function inlineCall(proc: VbaProcedure, argSrc: string, scope: Scope, opts: VbaOptions, depth: number, unconverted: string[]): MacroStep {
+  const { positional, named } = splitArgs(argSrc.trim());
+  let body = proc.body;
+  const setup: MacroStep[] = [];
+  const locals = new Set<string>();
+  proc.params.forEach((p, i) => {
+    const raw = (named.get(p.name.toLowerCase()) ?? positional[i] ?? "").trim();
+    if (/^Me$/i.test(raw)) {
+      // A form passed in (frm As Form): frm.X is the form's X.
+      body = body.replace(new RegExp(`\\b${p.name}\\b`, "gi"), "Me");
+      return;
+    }
+    const value = raw || p.default || "Null";
+    let expr: string;
+    try {
+      expr = vbaExpr(value, scope);
+    } catch (e) {
+      unconverted.push(`${proc.name} ${argSrc}`);
+      expr = "Null";
+    }
+    setup.push({ kind: "action", action: "SetLocalVar", args: { Name: p.name, Expression: expr } });
+    locals.add(p.name.toLowerCase());
+  });
+  // Parameters and the procedure's own Dim'd variables are local variables.
+  body = proc.params
+    .filter((p) => locals.has(p.name.toLowerCase()))
+    .map((p) => `Dim ${p.name}`)
+    .join("\n") + "\n" + body;
+  const inner = vbaToSteps(body, { ...opts, procName: proc.name }, depth + 1);
+  unconverted.push(...inner.unconverted);
+  return { kind: "group", name: `${proc.name} (from VBA)`, steps: [...setup, ...liftExits(inner.steps)] };
+}
+
+/** An event property that calls a function (=OpenOrders([ID])): that function's steps. */
+export function vbaEventCall(value: string, opts: VbaOptions): VbaConversion | null {
+  const m = /^=\s*(?:\w+\.)?([A-Za-z_]\w*)\s*\(([\s\S]*)\)\s*$/.exec(value.trim());
+  const proc = m && (opts.procedures?.(m[1]) ?? (opts.module ? findProcedure(opts.module, m[1]) : null));
+  if (!m || !proc) return null;
+  const unconverted: string[] = [];
+  const scope: Scope = { locals: new Set(), names: opts.names, constants: opts.constants, formName: opts.formName };
+  const group = inlineCall(proc, m[2], scope, opts, 0, unconverted) as Extract<MacroStep, { kind: "group" }>;
+  return { steps: group.steps, unconverted };
+}
+
 export function vbaToSteps(
   body: string,
-  opts: { module?: string; names?: ReadonlySet<string>; constants?: ReadonlyMap<string, string>; formName?: string } = {},
+  opts: VbaOptions = {},
   depth = 0,
 ): VbaConversion {
   const module = opts.module ?? "";
@@ -566,6 +666,16 @@ export function vbaToSteps(
       }
       // Debugging aids, and theme shading (ForeShade, BackTint…) that only fine-tunes a color: nothing to do here.
       if (/^Debug\.(Print|Assert)\b/i.test(line) || /^(?:Me[.!])?(?:\[[^\]]+\]|\w+)\.(Fore|Back|Border|Hover|Pressed|Gridline)(Shade|Tint|ThemeColorIndex)\s*=/i.test(line)) continue;
+      // Object housekeeping (Set x = Nothing, collections, closing recordsets) and requerying, which
+      // isn't needed here: forms always show the current data.
+      if (
+        /^Set\s+\w+\s*=\s*(Nothing|New\s+Collection|New\s+Scripting\.Dictionary)$/i.test(line) ||
+        /^g_\w+\.(Add|Remove)\b/i.test(line) ||
+        /^\w+\.Close$/i.test(line) && !/^(Me|DoCmd)\./i.test(line) ||
+        /^Forms![\w\[\]]+(?:\.Form)?(?:\.Recordset)?\.(Requery|Refresh|Recalc|Repaint)$/i.test(line) ||
+        /^Me(?:\.Form)?\.Recordset\.Requery$/i.test(line)
+      )
+        continue;
       // GoTo a label: in practice the exit / error handler, which ends the procedure.
       if (/^GoTo\s+\w+$/i.test(line)) {
         add(act("StopMacro"));
@@ -587,7 +697,7 @@ export function vbaToSteps(
       }
       // A label: the rest is the wizard's exit / error-handling code (Exit_X: Exit Sub, Err_X: MsgBox Err.Description).
       if (/^[A-Za-z_]\w*:$/.test(line)) break;
-      if (/^Exit\s+Sub$/i.test(line)) {
+      if (/^Exit\s+(Sub|Function)$/i.test(line)) {
         add(act("StopMacro"));
         continue;
       }
@@ -655,17 +765,20 @@ export function vbaToSteps(
         continue;
       }
       const stmt = line.replace(/^Call\s+/i, "");
-      // Another procedure of the form's module, without arguments: its steps, in place.
-      if ((m = /^([A-Za-z_]\w*)(?:\s*\(\s*\))?$/.exec(stmt)) && module && depth < 3 && !/^(beep|stop|end|exit|resume|return)$/i.test(m[1])) {
-        const sub = vbaProcedure(module, m[1]);
-        if (sub !== null) {
-          const inner = vbaToSteps(sub, opts, depth + 1);
-          unconverted.push(...inner.unconverted);
-          // Its Exit Sub ends only that procedure: drop a trailing StopMacro, keep it a group.
-          cur.push({ kind: "group", name: `${m[1]} (from VBA)`, steps: inner.steps });
+      // Another procedure (of the form's module, or a standard module): its steps, in place.
+      if ((m = /^(?:\w+\.)?([A-Za-z_]\w*)(?:\s*\(([\s\S]*)\)|\s+([\s\S]+))?$/.exec(stmt)) && depth < 4 && !/^\s*=/.test(m[3] ?? "") && m[1].toLowerCase() !== opts.procName?.toLowerCase() && !/^(beep|stop|end|exit|resume|return|debug|set|let|dim|redim|me|docmd)$/i.test(m[1])) {
+        const proc = opts.procedures?.(m[1]) ?? (module ? findProcedure(module, m[1]) : null);
+        if (proc) {
+          add(inlineCall(proc, m[2] ?? m[3] ?? "", scope, opts, depth, unconverted));
           continue;
         }
       }
+      // Set frm = New Form_Orders … frm.Visible = True: opens the form (Access's second-instance trick).
+      if ((m = /^Set\s+\w+\s*=\s*New\s+Form_(\w+)$/i.exec(stmt))) {
+        add(act("OpenForm", { FormName: m[1] }));
+        continue;
+      }
+      if (/^\w+\.Visible\s*=\s*True$/i.test(stmt) && !/^Me\./i.test(stmt) && !scope.names?.has(stmt.split(".")[0].toLowerCase())) continue;
       if ((m = /^DoCmd\.(\w+)\s*([\s\S]*)$/i.exec(stmt))) {
         add(docmdStep(m[1], m[2], scope));
         continue;
@@ -726,6 +839,8 @@ export function vbaToSteps(
       if ((m = /^(?:Let\s+)?((?:\[[^\]]+\]|[\w.!"() ])+?)\s*=\s*([\s\S]+)$/i.exec(stmt)) && !/^Set\s/i.test(stmt)) {
         const target = m[1].trim();
         const value = m[2];
+        // A Function's result: event code doesn't use it.
+        if (opts.procName && target.toLowerCase() === opts.procName.toLowerCase()) continue;
         let t: RegExpExecArray | null;
         if ((t = /^TempVars(?:!(\w+)|\("([^"]+)"\)|!\[([^\]]+)\]|\.Item\("([^"]+)"\))$/i.exec(target))) {
           add(act("SetTempVar", { Name: t[1] ?? t[2] ?? t[3] ?? t[4], Expression: vbaExpr(value, scope) }));

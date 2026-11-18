@@ -273,6 +273,16 @@ export function FormPropertySheet(props: {
     </div>
   );
 
+  /** Fields of what a subform shows: its table's, or (for a form on a table) that table's. */
+  const childFieldNames = (c: FormControl): string[] => {
+    const sub = c.sourceForm ? ws.doc.forms.find((f) => f.id === c.sourceForm) : undefined;
+    const tableId = sub ? (sub.source?.kind === "table" ? sub.source.id : undefined) : c.sourceObject;
+    const t = tableId ? ws.doc.tables.find((x) => x.id === tableId) : undefined;
+    if (t) return t.fields.map((f) => f.name);
+    // A form on a query: the fields its controls show.
+    return [...new Set((sub?.layout?.controls ?? []).flatMap((x) => (x.field && !x.field.startsWith("=") ? [x.field] : [])))];
+  };
+
   if (!selected.length) {
     const sources = [
       ...ws.doc.tables.map((t) => ({ value: `table:${t.id}`, label: `Table: ${t.name}` })),
@@ -295,6 +305,21 @@ export function FormPropertySheet(props: {
           <Row label="Caption">
             <TextProp label="Caption" value={form.title} onCommit={(v) => onForm((f) => (f.title = v.slice(0, 200)))} />
           </Row>
+          {!props.report && (
+            <Row label="Default View" hint="Single Form: one record at a time. Continuous Forms: the detail section once per record. Datasheet: rows and columns. Split Form: one record above a datasheet.">
+              <Select
+                label="Default View"
+                value={layout.defaultView ?? "single"}
+                options={[
+                  { value: "single", label: "Single Form" },
+                  { value: "continuous", label: "Continuous Forms" },
+                  { value: "datasheet", label: "Datasheet" },
+                  { value: "split", label: "Split Form" },
+                ]}
+                onChange={(v) => onForm((_, l) => (v === "single" ? delete l.defaultView : (l.defaultView = v as NonNullable<typeof l.defaultView>)))}
+              />
+            </Row>
+          )}
           <Row label="Theme">
             <Select label="Theme" value={layout.theme} options={FORM_THEMES.map((t) => ({ value: t, label: THEMES[t].label }))} onChange={(t) => onForm((_, l) => (l.theme = t))} />
           </Row>
@@ -392,16 +417,27 @@ export function FormPropertySheet(props: {
       )}
       {one?.type === "subform" && (
         <Group title="Data">
-          <Row label="Source Object" hint="The table whose records the subform shows">
+          <Row label="Source Object" hint="The form (shown in its own Default View) or table whose records the subform shows">
             <Select
               label="Source Object"
-              value={one.sourceObject ?? ""}
-              options={[{ value: "", label: "(choose a table)" }, ...ws.doc.tables.filter((t) => !(form.source?.kind === "table" && t.id === form.source.id)).map((t) => ({ value: t.id, label: `Table: ${t.name}` }))]}
+              value={one.sourceForm ? `form:${one.sourceForm}` : (one.sourceObject ?? "")}
+              options={[
+                { value: "", label: "(choose a form or table)" },
+                ...ws.doc.forms.filter((f) => f.id !== form.id).map((f) => ({ value: `form:${f.id}`, label: `Form: ${f.name}` })),
+                ...ws.doc.tables.filter((t) => !(form.source?.kind === "table" && t.id === form.source.id)).map((t) => ({ value: t.id, label: `Table: ${t.name}` })),
+              ]}
               onChange={(id) => {
+                if (id.startsWith("form:")) {
+                  const f = ws.doc.forms.find((x) => x.id === id.slice(5));
+                  // Link through the subform's table, when it reads one.
+                  const link = f?.source?.kind === "table" ? suggestLink(ws.doc, form, f.source.id) : null;
+                  onPatch({ sourceForm: f?.id, sourceObject: undefined, linkMaster: link?.master ?? one.linkMaster, linkChild: link?.child ?? one.linkChild });
+                  return;
+                }
                 const t = ws.doc.tables.find((x) => x.id === id);
                 const link = id ? suggestLink(ws.doc, form, id) : null;
                 const auto = !one.label || one.label === one.name || ws.doc.tables.some((x) => x.name === one.label);
-                onPatch({ sourceObject: id || undefined, linkMaster: link?.master, linkChild: link?.child, ...(auto && t ? { label: t.name } : {}) });
+                onPatch({ sourceObject: id || undefined, sourceForm: undefined, linkMaster: link?.master, linkChild: link?.child, ...(auto && t ? { label: t.name } : {}) });
               }}
             />
           </Row>
@@ -412,11 +448,15 @@ export function FormPropertySheet(props: {
             <Select
               label="Link Child Fields"
               value={one.linkChild ?? ""}
-              options={[{ value: "", label: "(none: show all records)" }, ...(ws.doc.tables.find((t) => t.id === one.sourceObject)?.fields ?? []).map((f) => ({ value: f.name, label: f.name }))]}
+              options={[
+                { value: "", label: "(none: show all records)" },
+                ...(one.linkChild && !childFieldNames(one).some((n) => n.toLowerCase() === one.linkChild!.toLowerCase()) ? [{ value: one.linkChild, label: one.linkChild }] : []),
+                ...childFieldNames(one).map((n) => ({ value: n, label: n })),
+              ]}
               onChange={(v) => onPatch({ linkChild: v || undefined })}
             />
           </Row>
-          {one.sourceObject && !(one.linkMaster && one.linkChild) && (
+          {(one.sourceObject || one.sourceForm) && !(one.linkMaster && one.linkChild) && (
             <p className="ps-note small">Without both link fields, the subform shows every record of its table. Relate the tables (Database Tools → Relationships) and pick the table again to fill them in.</p>
           )}
         </Group>

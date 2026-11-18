@@ -47,6 +47,8 @@ export interface DatasheetProps {
   /** Highlight cells that need attention (e.g. required but empty). */
   cellWarning?: (row: number, col: number) => boolean;
   emptyMessage?: string;
+  /** The record the selected cell is on (an index into the rows, or "new"), as it changes. */
+  onCurrentRow?: (row: number | "new") => void;
   /** Take the keyboard when it opens (not in a subform, where the form's first field should). */
   autoFocus?: boolean;
   onStatus?: (message: string, kind?: "info" | "error") => void;
@@ -158,6 +160,10 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
   }, [p.rowCount, p.getValue, p.columns, labelMaps, sort, filter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const count = order.length;
+  const currentRow = cell.r >= count ? "new" : order[cell.r];
+  useEffect(() => {
+    if (currentRow !== undefined) p.onCurrentRow?.(currentRow);
+  }, [currentRow]); // eslint-disable-line react-hooks/exhaustive-deps
   const allowNew = p.allowNew ?? p.editable;
   const totalRows = count + (allowNew ? 1 : 0);
   const isNewRow = (r: number) => allowNew && r === count;

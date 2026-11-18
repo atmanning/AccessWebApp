@@ -91,6 +91,9 @@ describe("query engine", () => {
   it("supports Access functions, queries-as-views and design SQL", async () => {
     const r = await runQuery(doc, `SELECT UCase(Left([FirstName], 3)) AS a, Year([CustomerSince]) AS y, Nz(NULL, "z") AS z FROM [Customers] WHERE [CustomerID] = 1`);
     expect(r.rows[0]).toEqual(["ADA", 2026, "z"]);
+    // The rest of Access's functions work in queries too, as in expressions.
+    const more = await runQuery(doc, `SELECT DateValue("2026-03-04 10:30:00") AS d, InStr("hello", "l") AS i, Round(2.345, 2) AS r, Format(1234.5, "#,##0.00") AS f FROM [Customers] WHERE [CustomerID] = 1`);
+    expect(more.rows[0]).toEqual(["2026-03-04", 3, 2.34, "1,234.50"]); // Round is Access's banker's rounding
     const v = await runQuery(doc, `SELECT COUNT(*) FROM [Order Details]`);
     expect(v.rows[0][0]).toBe(7);
     const sql = designToSql(doc, ["Customers", "Orders"], [

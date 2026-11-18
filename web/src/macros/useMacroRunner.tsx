@@ -36,10 +36,11 @@ export function useMacroRunner() {
   const live = useRef({ ws, dialogs, runAction });
   live.current = { ws, dialogs, runAction };
 
-  return async function run(steps: readonly MacroStep[], form?: FormHandle): Promise<MacroResult> {
+  return async function run(steps: readonly MacroStep[], form?: FormHandle, opts: { quiet?: boolean } = {}): Promise<MacroResult> {
     const L = () => live.current;
     const env: MacroEnv = {
       form,
+      quietErrors: opts.quiet,
       evaluate: (e: string): ExprValue => (form ? form.evaluate(e) : makeFormCalc(L().ws.getDoc(), { controls: [] }, []).evaluate(e, null, () => [])),
       doc: () => L().ws.getDoc(),
       open: (kind, id, view, opts) => {

@@ -348,3 +348,25 @@ textarea.ps-input { height: auto; padding: 4px 6px; resize: vertical; }
 .rp-add { display: flex; gap: 8px; padding: 2px 12px 6px; flex-wrap: wrap; }
 .rp-qr .od-panel { margin: 8px 10px; }
 .ps-note code { font-size: 11px; background: #f1f3f5; padding: 0 3px; border-radius: 3px; }
+
+/* Continuous forms: the detail section once per record, a record selector on the current one. */
+.fv-card.continuous { overflow: visible; }
+.fv-rec { border-bottom: 1px solid color-mix(in srgb, var(--f-input-border) 45%, transparent); }
+.fv-rec::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: transparent; }
+.fv-rec.current::before { background: var(--f-accent, #2b579a); }
+.fv-rec.current { background: color-mix(in srgb, var(--f-accent, #2b579a) 5%, transparent); }
+.fv-rec.new { opacity: 0.85; }
+.fv-rec.new::after { content: "*"; position: absolute; left: 6px; top: 2px; font-size: 12px; color: var(--f-muted, #777); }
+.fv-sticky { position: sticky; top: 0; z-index: 2; }
+.fv-more, .fv-empty { padding: 10px 14px; text-align: center; }
+.fv.compact .fv-rec { padding-left: 20px; }
+/* Datasheet and split forms. */
+.fv-sheet { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #fff; }
+.fv-sheet .datasheet-wrap { flex: 1; min-height: 0; }
+.fv-sheet.split { flex: 1 1 45%; border-top: 3px solid var(--border, #c6cbd3); }
+.fv-scroll.split-top { flex: 1 1 55%; }
+/* A form inside a subform control. */
+.sf-box.sf-form { position: relative; }
+.sf-form > .fv { height: 100%; }
+.sf-form .fv-scroll { padding: 0; }
+.sf-form .fv-card { margin: 0; border-radius: 0; box-shadow: none; }

@@ -144,6 +144,22 @@ export function SubformView(props: {
 /** A subform in Design View: its table's columns, like Access shows the subform's layout. */
 export function SubformDesign({ c }: { c: FormControl }) {
   const ws = useWorkspace();
+  if (c.sourceForm) {
+    const f = ws.doc.forms.find((x) => x.id === c.sourceForm);
+    const view = { single: "Single Form", continuous: "Continuous Forms", datasheet: "Datasheet", split: "Split Form" }[f?.layout?.defaultView ?? "single"];
+    return (
+      <div className="sf-box sf-design sf-message">
+        {f ? (
+          <>
+            <strong>Form: {f.name}</strong> ({view})
+            <div className="small">{c.linkMaster && c.linkChild ? `${c.linkChild} = [${c.linkMaster}]` : "all records (not linked)"}</div>
+          </>
+        ) : (
+          "The form this subform showed was deleted. Choose another in the Property Sheet."
+        )}
+      </div>
+    );
+  }
   const table = ws.doc.tables.find((t) => t.id === c.sourceObject);
   if (!table) return <div className="sf-box sf-message">Subform: choose its table (Source Object) in the Property Sheet.</div>;
   const cols = table.fields.filter((f) => !(c.linkChild && f.name.toLowerCase() === c.linkChild.toLowerCase()));

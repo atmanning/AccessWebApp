@@ -261,6 +261,8 @@ export const formControlSchema = z.object({
   field: z.string().max(4000).optional(),
   /** Subforms: the table whose records they show (Source Object), and the fields that link them to the form's record. */
   sourceObject: id.optional(),
+  /** Or a form whose records they show, in that form's own view (continuous, datasheet…), as in Access. */
+  sourceForm: id.optional(),
   linkMaster: z.string().max(64).optional(),
   linkChild: z.string().max(64).optional(),
   /** False: Tab and Enter skip this control (you can still click it). */
@@ -302,6 +304,9 @@ export const formControlSchema = z.object({
 });
 export type FormControl = z.infer<typeof formControlSchema>;
 
+export const FORM_VIEWS = ["single", "continuous", "datasheet", "split"] as const;
+export type FormViewMode = (typeof FORM_VIEWS)[number];
+
 export const formLayoutSchema = z.object({
   width: px(160, 4000),
   sections: z.object({ header: px(0, 2000), detail: px(16, 4000), footer: px(0, 2000) }),
@@ -311,6 +316,8 @@ export const formLayoutSchema = z.object({
   tabOrder: z.array(id).max(1000).optional(),
   /** Record navigation bar under the form (on unless false). */
   navigationButtons: z.boolean().optional(),
+  /** Default View: one record at a time, one under another (Continuous Forms), a datasheet, or a split form (one record above a datasheet). */
+  defaultView: z.enum(FORM_VIEWS).optional(),
   allowEdits: z.boolean().optional(),
   allowAdditions: z.boolean().optional(),
   allowDeletions: z.boolean().optional(),
