@@ -383,3 +383,8 @@ textarea.ps-input { height: auto; padding: 4px 6px; resize: vertical; }
 .fv.compact .fc-tab-page { display: none; }
 .fv.compact .fc-tab-strip { overflow-x: auto; }
 textarea.ps-input { height: auto; padding: 4px 6px; resize: vertical; }
+
+/* A transparent button (Access's Transparent): invisible over its picture, still clickable. */
+.fc-button.transparent { opacity: 0; }
+.fc-button.transparent:focus-visible { opacity: 1; background: transparent; outline: 2px solid var(--f-accent); }
+.fd-ctl .fc-button.transparent { opacity: 0.35; outline: 1px dashed currentColor; }

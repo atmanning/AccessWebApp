@@ -39,7 +39,7 @@ describe("importing Access forms", () => {
     expect(b.source).toBeUndefined();
     expect(b.layout!.navigationButtons).toBe(false);
     expect(b.layout!.controls.every((x) => x.type === "button" && x.action === "none")).toBe(true);
-    expect(out.warnings.join(" ")).toMatch(/F_Buttons' has code for events this app doesn't run yet \(On GotFocus/);
+    expect(out.warnings.join(" ")).toMatch(/F_Buttons' has code for events this app doesn't run yet \(On (LostFocus|Enter|Exit|KeyDown|MouseDown)/);
   });
 
   it("reads common button actions from VBA and macros", () => {

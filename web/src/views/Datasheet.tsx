@@ -31,6 +31,8 @@ export interface DatasheetProps {
   editable: boolean;
   /** Show the new-record row (defaults to `editable`; query results edit existing records only). */
   allowNew?: boolean;
+  /** The records are filtered by the form or a macro (shows "Filtered" in the record bar). */
+  filtered?: boolean;
   /** Returns an error message to keep the editor open, or null on success. `row` is "new" for the new-record row. */
   onCommit?: (row: number | "new", col: number, input: string | boolean) => string | null;
   onDeleteRows?: (rows: number[]) => void;
@@ -910,7 +912,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
         {allowNew && (
           <button onClick={() => navTo(count)} title="New (blank) record">▶*</button>
         )}
-        <span className={`rn-filter ${filter ? "on" : ""}`}>{filter ? "Filtered" : "No Filter"}</span>
+        <span className={`rn-filter ${filter || p.filtered ? "on" : ""}`}>{filter || p.filtered ? "Filtered" : "No Filter"}</span>
         <label className="rn-search">
           <FindIcon size={12} />
           <input

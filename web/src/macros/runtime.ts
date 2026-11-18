@@ -26,6 +26,8 @@ export interface FormHandle {
   findRecord(text: string, match: string): boolean;
   setValue(name: string, value: ExprValue): string | null;
   setProperty(name: string, property: string, value: ExprValue): string | null;
+  /** A control's property ([cmdSearchClear].[Visible]), or undefined when there's no such control. */
+  property(name: string, property: string): ExprValue | undefined;
   close(): void;
 }
 
@@ -122,6 +124,11 @@ setQualifiedResolver((path) => {
   if (sub) {
     const rest = path.slice(1).filter((x, i) => !(i === 0 && /^form$/i.test(x)));
     const v = rest.length === 1 ? sub.value(rest[0]) : undefined;
+    if (v !== undefined) return { value: v };
+  }
+  // [cmdSearchClear].[Visible]: a property of one of the form's controls.
+  if (f && path.length === 2 && root !== "form" && root !== "me") {
+    const v = f.property(path[0], path[1]);
     if (v !== undefined) return { value: v };
   }
   if ((root === "form" || root === "me") && path.length === 2 && f) {

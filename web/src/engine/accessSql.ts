@@ -43,7 +43,8 @@ export function tokenize(sql: string): Token[] {
     } else if (c === "[") {
       const end = sql.indexOf("]", i);
       if (end < 0) throw new SqlSyntaxError("A [name] is missing its closing bracket.");
-      tokens.push({ kind: "ident", text: sql.slice(i, end + 1), start: i });
+      // Access names can't start or end with spaces, so [Retired Date ] is [Retired Date].
+      tokens.push({ kind: "ident", text: `[${sql.slice(i + 1, end).trim()}]`, start: i });
       i = end + 1;
     } else if (c === "#") {
       const end = sql.indexOf("#", i + 1);

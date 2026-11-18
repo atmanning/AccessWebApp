@@ -67,6 +67,114 @@ export function jetStatementsToSteps(list: readonly JetStatement[] | undefined):
   return out;
 }
 
+interface XmlNode {
+  tag: string;
+  attrs: Record<string, string>;
+  children: XmlNode[];
+  text: string;
+}
+
+const decodeXml = (t: string) =>
+  t.replace(/&(lt|gt|amp|quot|apos|#\d+|#x[0-9a-f]+);/gi, (_, e: string) =>
+    e === "lt" ? "<" : e === "gt" ? ">" : e === "amp" ? "&" : e === "quot" ? '"' : e === "apos" ? "'" : String.fromCodePoint(e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : Number(e.slice(1))),
+  );
+
+/** A small XML reader for Access's macro XML (elements, attributes, text; no DTDs). */
+function parseXml(xml: string): XmlNode | null {
+  const root: XmlNode = { tag: "#root", attrs: {}, children: [], text: "" };
+  const stack = [root];
+  const re = /<!\[CDATA\[([\s\S]*?)\]\]>|<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<(\/?)([A-Za-z_][\w.:-]*)((?:\s+[\w.:-]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*(\/?)>|([^<]+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml))) {
+    const top = stack[stack.length - 1];
+    if (m[1] !== undefined) top.text += m[1];
+    else if (m[6] !== undefined) top.text += decodeXml(m[6]);
+    else if (m[3]) {
+      if (m[2]) {
+        if (stack.length < 2 || top.tag !== m[3]) return null;
+        stack.pop();
+      } else {
+        const attrs: Record<string, string> = {};
+        for (const a of (m[4] ?? "").matchAll(/([\w.:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) attrs[a[1]] = decodeXml(a[2] ?? a[3] ?? "");
+        const node: XmlNode = { tag: m[3], attrs, children: [], text: "" };
+        top.children.push(node);
+        if (!m[5]) stack.push(node);
+      }
+    }
+  }
+  return stack.length === 1 ? root : null;
+}
+
+const child = (n: XmlNode, tag: string) => n.children.find((c) => c.tag === tag);
+
+function xmlStatements(n: XmlNode | undefined): MacroStep[] {
+  const out: MacroStep[] = [];
+  for (const s of n?.children ?? []) {
+    switch (s.tag) {
+      case "Action": {
+        const name = s.attrs.Name;
+        if (!name) break;
+        const args: Record<string, string> = {};
+        for (const a of s.children) if (a.tag === "Argument" && a.attrs.Name && a.text !== "") args[a.attrs.Name.slice(0, 64)] = a.text.slice(0, 8000);
+        out.push({ kind: "action", action: canonicalAction(name).slice(0, 64), ...(Object.keys(args).length ? { args } : {}) });
+        break;
+      }
+      case "Comment":
+        out.push({ kind: "comment", text: s.text.slice(0, 4000) });
+        break;
+      case "ConditionalBlock":
+        out.push({
+          kind: "if",
+          branches: s.children
+            .filter((b) => b.tag === "If" || b.tag === "ElseIf" || b.tag === "Else")
+            .slice(0, 50)
+            .map((b) => {
+              const cond = child(b, "Condition")?.text;
+              return { ...(b.tag !== "Else" && cond !== undefined ? { condition: cond.slice(0, 4000) } : {}), steps: xmlStatements(child(b, "Statements")) };
+            }),
+        });
+        break;
+      case "Group":
+        out.push({ kind: "group", name: (s.attrs.Name || child(s, "Description")?.text || "Group").slice(0, 200), steps: xmlStatements(child(s, "Statements")) });
+        break;
+      case "Sub":
+        out.push({ kind: "submacro", name: (s.attrs.Name || "Submacro").slice(0, 64), steps: xmlStatements(child(s, "Statements")) });
+        break;
+      default:
+        out.push({ kind: "comment", text: `Not imported: a ${s.tag} element of the Access macro.` });
+    }
+  }
+  return out;
+}
+
+/**
+ * A macro's steps from Access's macro XML, with its submacros (the <Sub> elements after the main
+ * statements, which jetdb's parsed statements leave out); null when the XML can't be read.
+ */
+export function macroXmlToSteps(xml: string | undefined | null): MacroStep[] | null {
+  if (!xml) return null;
+  const doc = parseXml(xml);
+  const macro = doc?.children.find((c) => c.tag === "UserInterfaceMacro" || c.tag === "UserInterfaceMacros");
+  if (!macro) return null;
+  // A file with several macros (UserInterfaceMacros) keeps each in its own element.
+  const one = macro.tag === "UserInterfaceMacros" ? macro.children.find((c) => c.tag === "UserInterfaceMacro") : macro;
+  if (!one) return null;
+  const steps = xmlStatements(child(one, "Statements"));
+  for (const sub of one.children) if (sub.tag === "Sub") steps.push(...xmlStatements({ tag: "#", attrs: {}, text: "", children: [sub] }));
+  return steps;
+}
+
+/** A jetdb macro's steps: from its XML when that reads, else jetdb's parsed statements. */
+export function jetMacroSteps(m: { statements?: JetStatement[]; xml?: string | null }): MacroStep[] {
+  try {
+    const fromXml = macroXmlToSteps(m.xml);
+    if (fromXml) return fromXml;
+  } catch {
+    /* fall back */
+  }
+  return jetStatementsToSteps(m.statements);
+}
+
 // ---------------------------------------------------------------- VBA
 
 /** The body of `Sub <name>(…) … End Sub` in a module, or null. */

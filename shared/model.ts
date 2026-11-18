@@ -305,6 +305,8 @@ export const formControlSchema = z.object({
   target: id.optional(),
   /** Button look (primary/secondary/outline/danger), or "switch" for a check box drawn as a switch. */
   variant: z.enum(["primary", "secondary", "outline", "danger", "switch"]).optional(),
+  /** Buttons: invisible but clickable, over a picture (Access's Transparent property). */
+  transparent: z.boolean().optional(),
   /** Embedded macros run by the control's events (On Click takes the place of `action`). */
   events: controlEventsSchema.optional(),
 });

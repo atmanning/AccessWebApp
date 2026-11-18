@@ -121,7 +121,7 @@ export function FormControlView({ c, run, inputId, page, onPage }: { c: FormCont
       return (
         <button
           type="button"
-          className={`fc-button ${variant}`}
+          className={`fc-button ${variant} ${c.transparent ? "transparent" : ""}`}
           style={{ ...ts, ...bs }}
           tabIndex={design ? -1 : undefined}
           disabled={!design && run?.buttonDisabled}

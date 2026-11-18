@@ -13,7 +13,7 @@ import { LOOKUP_TYPES, MAX_IMAGE_BYTES, type FormControl, type FormControlType, 
 import { browserPicture } from "./pictures.js";
 import { cleanName, rid, unique } from "../../shared/exchange.js";
 import type { MacroDef, MacroStep } from "../../shared/macros.js";
-import { findProcedure, jetStatementsToSteps, vbaConstants, vbaEventCall, vbaProcedure, vbaToSteps, type JetStatement, type VbaProcedure } from "./accessMacros.js";
+import { findProcedure, jetMacroSteps, vbaConstants, vbaEventCall, vbaProcedure, vbaToSteps, type JetStatement, type VbaProcedure } from "./accessMacros.js";
 
 type JetValue = string | number | boolean | null | Record<string, unknown>;
 interface JetProp {
@@ -36,6 +36,7 @@ interface JetDesign {
 interface JetMacro {
   source?: { control?: string | null; event?: string };
   statements?: JetStatement[];
+  xml?: string | null;
 }
 export interface JetDatabase {
   forms(): { name: string; type: "Form" | "Report" }[];
@@ -368,7 +369,7 @@ function importMacros(db: JetDatabase, out: ImportedDesigns) {
   for (const name of db.macros()) {
     let steps: MacroStep[];
     try {
-      steps = jetStatementsToSteps(db.macro(name).statements);
+      steps = jetMacroSteps(db.macro(name));
     } catch {
       out.warnings.push(`Macro '${name}' couldn't be read, so it was skipped.`);
       continue;
@@ -382,6 +383,7 @@ const CONTROL_EVENT_PROPS = [
   { prop: "OnClick", jet: "OnClick", vba: "Click", ev: "onClick" },
   { prop: "OnDblClick", jet: "OnDblClick", vba: "DblClick", ev: "onDblClick" },
   { prop: "AfterUpdate", jet: "AfterUpdate", vba: "AfterUpdate", ev: "afterUpdate" },
+  { prop: "OnGotFocus", jet: "OnGotFocus", vba: "GotFocus", ev: "onGotFocus" },
 ] as const;
 const FORM_EVENT_PROPS = [
   { prop: "OnOpen", jet: "OnOpen", vba: "Open", ev: "onLoad" },
@@ -391,7 +393,7 @@ const FORM_EVENT_PROPS = [
   { prop: "OnClose", jet: "OnClose", vba: "Close", ev: "onClose" },
 ] as const;
 /** Events this app doesn't have, reported when they have code. */
-const OTHER_EVENTS = ["BeforeUpdate", "OnChange", "OnEnter", "OnExit", "OnGotFocus", "OnLostFocus", "OnKeyDown", "OnKeyPress", "OnMouseDown", "BeforeInsert", "AfterInsert", "OnDelete", "OnTimer", "OnError", "OnDirty"];
+const OTHER_EVENTS = ["BeforeUpdate", "OnChange", "OnEnter", "OnExit", "OnLostFocus", "OnKeyDown", "OnKeyPress", "OnMouseDown", "BeforeInsert", "AfterInsert", "OnDelete", "OnTimer", "OnError", "OnDirty"];
 
 type SourceFor = (raw: string | undefined, nameForSql: string) => (SourceRef & { name: string }) | null;
 type ColumnsOf = (ref: SourceRef & { name: string }) => string[];
@@ -627,7 +629,7 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns, src: So
           macros = [];
         }
         const mac = macros.find((x) => (x.source?.control ?? null)?.toLowerCase() === control?.toLowerCase() && x.source?.event?.toLowerCase() === jetEvent.toLowerCase());
-        return mac ? jetStatementsToSteps(mac.statements) : undefined;
+        return mac ? jetMacroSteps(mac) : undefined;
       }
       if (/^\[Event Procedure\]$/i.test(v)) {
         const body = vbaProcedure(vbaCode, procedure);
@@ -807,6 +809,8 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns, src: So
       if (kind === "button") {
         c.action = "none";
         c.variant = "secondary";
+        // A transparent button sits over a picture (a search icon) and takes its clicks.
+        if (p.flipped("Transparent")) c.transparent = true;
         const simple = c.events?.onClick ? simpleButtonAction(c.events.onClick) : null;
         if (simple) {
           // A plain Next / New / Open Form button: the built-in action (it greys out at the last record).

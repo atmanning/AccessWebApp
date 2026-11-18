@@ -405,6 +405,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
       name: form.name,
       tabKey,
       value: call("value"),
+      property: call("property"),
       evaluate: call("evaluate"),
       goToRecord: call("goToRecord"),
       goToControl: call("goToControl"),
@@ -515,6 +516,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
       if (/^filter$/i.test(name) && !c) return where ?? "";
       if (/^orderby$/i.test(name) && !c) return sort ? `[${sort.field}]${sort.dir === "DESC" ? " DESC" : ""}` : "";
       if (/^orderbyon$/i.test(name) && !c) return !!sort;
+      if (/^name$/i.test(name) && !c && colIdx(name) < 0) return form.name;
       if (c?.type === "tab") return tabPages[c.id] ?? 0;
       if (c && !c.field) return c.id in unbound ? (unbound[c.id] as ExprValue) : c.type === "checkbox" ? false : null;
       if (c?.field && isExpression(c.field)) return calc!.value(c, exprRow, foundRows, unboundVars).value;
@@ -611,6 +613,20 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
       if (i < 0) return `There's no control or field named '${name}' on ${form.name}.`;
       if (ws.readOnly || readOnlyMode) return "This form's records can't be changed.";
       return editor.readOnlyReason(i) ?? commitAt(cur, i, typeof v === "boolean" ? v : v === null ? "" : String(v));
+    },
+    property: (name, property) => {
+      const c = controlByName(name);
+      if (!c) return undefined;
+      const o = { ...c, ...overrides[c.id] };
+      switch (property.toLowerCase()) {
+        case "visible": return !o.hidden;
+        case "enabled": return !o.disabled;
+        case "locked": return !!o.locked;
+        case "caption": return o.caption ?? "";
+        case "name": return c.name;
+        case "value": return hostRef.current!.value(name) ?? null;
+      }
+      return undefined;
     },
     setProperty: (name, property, v) => {
       const c = controlByName(name);
@@ -771,7 +787,10 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
     const t = e.target as HTMLElement;
     if (e.key !== "Enter" || t.tagName === "TEXTAREA" || t.tagName === "BUTTON" || e.ctrlKey || e.altKey) return;
     const root = e.currentTarget as HTMLElement;
-    const items = [...root.querySelectorAll<HTMLElement>("input:not([disabled]), select:not([disabled]), textarea, [role=listbox][tabindex='0']")].filter((el) => el.tabIndex >= 0 || el === t);
+    // Buttons with On Got Focus too: a search box's Enter goes to its Go button, which runs the search.
+    const items = [...root.querySelectorAll<HTMLElement>("input:not([disabled]), select:not([disabled]), textarea, [role=listbox][tabindex='0'], [data-gotfocus] button:not([disabled])")].filter(
+      (el) => el === t || (el.tabIndex >= 0 && el.offsetParent !== null),
+    );
     const i = items.indexOf(t);
     if (i < 0) return;
     e.preventDefault();
@@ -859,7 +878,8 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
           data-ctl={c.id}
           onDoubleClick={c.events?.onDblClick?.length ? () => fireControl(c, "onDblClick") : undefined}
           onClick={c.type !== "button" && c.events?.onClick?.length && !finding ? () => fireControl(c, "onClick") : undefined}
-          style={{ left: c.x, top: c.y, width: c.w, height: c.h, ...(shown(c) ? {} : { display: "none" }) }}
+          data-gotfocus={c.events?.onGotFocus?.length ? "" : undefined} onFocus={c.events?.onGotFocus?.length ? (e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && fireControl(c, "onGotFocus") : undefined}
+          style={{ left: c.x, top: c.y, width: c.w, height: c.h, ...(c.transparent ? { zIndex: 1 } : {}), ...(shown(c) ? {} : { display: "none" }) }}
         >
           {renderControl(c, rec)}
         </div>
@@ -886,7 +906,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
       }
       flush();
       out.push(
-        <div key={valueKey(c, rec)} className={`fv-ctl flow t-${c.type} ${c.tabStop === false ? "no-tab" : ""}`} data-field={isExpression(c.field) ? undefined : c.field} data-ctl={c.id} onDoubleClick={c.events?.onDblClick?.length ? () => fireControl(c, "onDblClick") : undefined} onClick={c.events?.onClick?.length && !finding ? () => fireControl(c, "onClick") : undefined} style={!shown(c) ? { display: "none" } : c.multiline || c.type === "listbox" || c.type === "image" || c.type === "subform" ? { minHeight: c.h } : undefined}>
+        <div key={valueKey(c, rec)} className={`fv-ctl flow t-${c.type} ${c.tabStop === false ? "no-tab" : ""}`} data-field={isExpression(c.field) ? undefined : c.field} data-ctl={c.id} onDoubleClick={c.events?.onDblClick?.length ? () => fireControl(c, "onDblClick") : undefined} onClick={c.events?.onClick?.length && !finding ? () => fireControl(c, "onClick") : undefined} data-gotfocus={c.events?.onGotFocus?.length ? "" : undefined} onFocus={c.events?.onGotFocus?.length ? (e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && fireControl(c, "onGotFocus") : undefined} style={!shown(c) ? { display: "none" } : c.multiline || c.type === "listbox" || c.type === "image" || c.type === "subform" ? { minHeight: c.h } : undefined}>
           {renderControl(c, rec)}
         </div>,
       );
@@ -977,6 +997,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
             key={embedded ? String(embedded.value ?? "") : "sheet"}
             columns={sheetColumns}
             rowCount={order.length}
+            filtered={!!where || filterOn}
             getValue={sheetValue}
             rowKey={(r) => keyOf(order[r])}
             editable={!ws.readOnly && !readOnlyMode && !embedded?.readOnly && layout.allowEdits !== false}

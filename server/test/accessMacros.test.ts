@@ -272,3 +272,18 @@ End Function`;
     expect(macroSummary(ev.steps)[0]).toBe("SetLocalVar Name: lngID, Expression: [CompanyID]");
   });
 });
+
+describe("macro XML", () => {
+  it("keeps submacros (Filters.QuickSearch), Else branches and argument text", async () => {
+    const { macroXmlToSteps } = await import("../src/accessMacros.js");
+    const xml = `<?xml version="1.0" encoding="UTF-16" standalone="no"?>
+<UserInterfaceMacro xmlns="http://schemas.microsoft.com/office/accessservices/2009/11/application"><Statements><Action Name="Beep"/><Comment>Can't run from the navigation pane.</Comment></Statements><Sub Name="QuickSearch"><Statements><ConditionalBlock><If><Condition>[txtSearchBox]=""</Condition><Statements><Action Name="RunMacro"><Argument Name="MacroName">Filters.ClearFilter</Argument></Action></Statements></If><Else><Statements><Action Name="ApplyFilter"><Argument Name="WhereCondition">="[Item] Like ""*" &amp; [txtSearchBox] &amp; "*"""</Argument></Action></Statements></Else></ConditionalBlock></Statements></Sub><Sub Name="ClearFilter"><Statements><Action Name="ShowAllRecords"/></Statements></Sub></UserInterfaceMacro>`;
+    const steps = macroXmlToSteps(xml)!;
+    expect(steps.map((s) => s.kind)).toEqual(["action", "comment", "submacro", "submacro"]);
+    const qs = steps[2] as { name: string; steps: { kind: string; branches: { condition?: string; steps: { args?: Record<string, string> }[] }[] }[] };
+    expect(qs.name).toBe("QuickSearch");
+    expect(qs.steps[0].branches[0].condition).toBe('[txtSearchBox]=""');
+    expect(qs.steps[0].branches[1].condition).toBeUndefined();
+    expect(qs.steps[0].branches[1].steps[0].args!.WhereCondition).toBe('="[Item] Like ""*" & [txtSearchBox] & "*"""');
+  });
+});

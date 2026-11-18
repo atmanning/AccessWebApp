@@ -156,7 +156,8 @@ export function Select<T extends string>({ value, options, onChange, label }: { 
 /** The events a kind of control has. */
 function eventsFor(type: FormControlType): ControlEvent[] {
   if (type === "subform" || type === "rectangle" || type === "line") return [];
-  if (type === "button" || type === "label" || type === "image") return CONTROL_EVENTS.filter((e) => e !== "afterUpdate");
+  if (type === "label" || type === "image") return CONTROL_EVENTS.filter((e) => e !== "afterUpdate" && e !== "onGotFocus");
+  if (type === "button") return CONTROL_EVENTS.filter((e) => e !== "afterUpdate");
   return [...CONTROL_EVENTS];
 }
 
@@ -607,6 +608,7 @@ export function FormPropertySheet(props: {
             />
           </Row>
         )}
+        {one?.type === "button" && bool("transparent", "Transparent")}
         {one?.type === "checkbox" && (
           <Row label="Style">
             <Select

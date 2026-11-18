@@ -106,7 +106,8 @@ function tokenize(src: string): Tok[] {
     if (c === "[") {
       const end = src.indexOf("]", i);
       if (end < 0) throw new ExprSyntaxError("This name is missing its closing ].", at);
-      out.push({ k: "ref", v: src.slice(i + 1, end), at });
+      // Access names can't start or end with spaces, so [Retired Date ] is [Retired Date].
+      out.push({ k: "ref", v: src.slice(i + 1, end).trim(), at });
       i = end + 1;
       continue;
     }
@@ -881,6 +882,7 @@ const FN_LIST: Fn[] = [
   { name: "Choose", cat: "Program Flow", syntax: "Choose(«index», «choice1», «choice2»)", desc: "The choice in that position (1 is the first).", min: 2, max: 40 },
   // Inspection
   { name: "IsNull", cat: "Inspection", syntax: "IsNull(«expr»)", desc: "True when the value is blank.", min: 1, max: 1, run: ([v]) => v === null },
+  { name: "VarType", cat: "Inspection", syntax: "VarType(«expr»)", desc: "The kind of value: 1 Null, 3 whole number, 5 number with decimals, 7 date, 8 text, 11 Yes/No.", min: 1, max: 1, run: ([v]) => (v === null || v === undefined ? 1 : typeof v === "boolean" ? 11 : typeof v === "number" ? (Number.isInteger(v) ? 3 : 5) : 8) },
   { name: "IsNumeric", cat: "Inspection", syntax: "IsNumeric(«expr»)", desc: "True when the value is a number.", min: 1, max: 1, run: ([v]) => typeof v === "number" || (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v.replace(/[$,]/g, "")))) },
   { name: "IsDate", cat: "Inspection", syntax: "IsDate(«expr»)", desc: "True when the value is (or reads as) a date.", min: 1, max: 1, run: ([v]) => isDate(v) || (typeof v === "string" && !!parseAccessDate(v.trim())) },
   // SQL aggregates (over the form's records)

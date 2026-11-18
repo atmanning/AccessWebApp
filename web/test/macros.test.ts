@@ -53,6 +53,7 @@ function fakeForm(values: Record<string, unknown>): FormHandle & { log: string[]
     findRecord: () => true,
     setValue: (n, v) => (log.push(`set ${n}=${v}`), null),
     setProperty: (n, p, v) => (log.push(`prop ${n}.${p}=${v}`), null),
+    property: () => undefined,
     close: () => void log.push("close"),
   };
 }
