@@ -147,7 +147,9 @@ and later). **External Data → Access** inside a database adds another file's t
 anything whose name is already taken (Customers → Customers1). Imports can be undone with Ctrl+Z.
 
 Imported: tables, data, field types and sizes, descriptions, default values, Required, primary keys, single-field
-indexes, AutoNumber values, single-field relationships with referential integrity, and saved queries' SQL. Select
+indexes, AutoNumber values, single-field relationships with referential integrity, **lookup fields** (the Lookup
+tab: combo or list box, a value list or a table / query with its bound and displayed columns, Limit To List, so a
+contact ID shows the contact's name in datasheets), and saved queries' SQL. Select
 and union queries run as-is; action queries (append, update, delete, make-table) and crosstabs come across as SQL
 you can read but not run yet. A database exported from this app round-trips completely, including its queries.
 
@@ -165,7 +167,8 @@ Link Master/Child Fields), rectangles, lines and bound pictures are supported. A
 SQL statement becomes a saved query. **Unbound forms** (menus, switchboards, dialogs) come across without a
 record source. **Tab controls** keep their pages (each page's controls show when its tab is picked). **Pictures in
 the design** (logos, from the control itself or the database's shared images) come across, converted to PNG when
-Access stored them as a bitmap or metafile. Option group frames, charts and OLE/ActiveX controls are left out.
+Access stored them as a bitmap or metafile. On **reports**, a combo box bound to a lookup shows the name from its
+list (Checked Out To → Ann Lee), as in Access. Option group frames, charts and OLE/ActiveX controls are left out.
 
 **Attachment fields** come across as Image fields with each record's first picture (Access databases use them
 mostly for photos); other files in them are counted in the notes. **Multiple-value fields** come across as text,

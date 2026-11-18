@@ -3,7 +3,7 @@
  * controls filled in (fields, calculated values, totals over the group, page numbers). Printing
  * prints exactly these pages.
  */
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { CellValue, ProjectDoc, ReportControl, ReportDef, ReportLayout } from "../../../shared/model";
 import type { ResultSet } from "../engine/engine";
@@ -14,6 +14,7 @@ import { QrCode } from "./QrCode";
 import type { PageQr } from "./pageQr";
 import { ReportControlView, type ReportCellContent } from "./ReportControlView";
 import { pageSize } from "./reportLayout";
+import { lookupOptions } from "../views/lookups";
 import { paginate, type PlacedBand } from "./reportPages";
 
 const EMPTY_DOC = { version: 1, tables: [], queries: [], forms: [], reports: [], relationships: [] } as unknown as ProjectDoc;
@@ -46,6 +47,7 @@ export function DesignedReport(props: {
     }
     return m;
   }, [l.controls]);
+  const labels = useComboLabels(props.doc, l.controls);
   const total = result.pages.length;
   const src = report.source;
   const sourceName = (src?.kind === "table" ? props.doc?.tables.find((t) => t.id === src.id)?.name : src ? props.doc?.queries.find((q) => q.id === src.id)?.name : undefined) ?? "";
@@ -64,6 +66,8 @@ export function DesignedReport(props: {
     if (c.hideDuplicates && b.key === "detail" && b.prev && String(b.prev[i] ?? "") === String(v ?? "")) return { text: "" };
     if (c.type === "checkbox") return { checked: v === true || v === 1 || v === "Yes" };
     if (c.type === "image") return { imageSrc: v ? props.imageUrl(String(v)) : null };
+    const shown = v !== null && v !== undefined ? labels.get(c.id)?.get(String(v)) : undefined;
+    if (shown !== undefined) return { text: shown };
     return { text: c.format ? displayValue(toExpr(v), c.format) : formatValue(data.fields[i], v) };
   };
 
@@ -133,4 +137,32 @@ export function DesignedReport(props: {
       {createPortal(<div className="labels-print rd-print">{pages}</div>, document.body)}
     </div>
   );
+}
+
+/** What combo boxes show for their values (Checked Out To → the contact's name), by control id. */
+function useComboLabels(doc: ProjectDoc | undefined, controls: ReportControl[]): Map<string, Map<string, string>> {
+  const combos = controls.filter((c) => (c.rowSourceType === "table" || c.rowSourceType === "query") && c.rowSource && c.field && !isExpression(c.field));
+  const key = combos.map((c) => `${c.id}:${c.rowSource}:${c.boundColumn ?? ""}:${c.displayColumn ?? ""}`).join("|");
+  const [labels, setLabels] = useState(() => new Map<string, Map<string, string>>());
+  useEffect(() => {
+    if (!doc || !combos.length) return;
+    let live = true;
+    void (async () => {
+      const out = new Map<string, Map<string, string>>();
+      for (const c of combos) {
+        try {
+          const options = await lookupOptions(doc, { display: "combo", rowSourceType: c.rowSourceType as "table" | "query", rowSource: c.rowSource!, boundColumn: c.boundColumn, displayColumn: c.displayColumn });
+          out.set(c.id, new Map(options.map((o) => [o.value, o.label])));
+        } catch {
+          // The list's source is gone: show the stored values.
+        }
+      }
+      if (live) setLabels(out);
+    })();
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc, key]);
+  return labels;
 }

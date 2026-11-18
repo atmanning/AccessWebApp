@@ -79,3 +79,40 @@ describe("importing Access forms", () => {
     expect(readGroupLevels(Buffer.from([0x13, 0, 0]))).toEqual([]);
   });
 });
+
+describe("importing lookup fields", () => {
+  it("reads the Lookup tab: value lists, and SQL row sources showing a name for the stored ID", async () => {
+    const { importTableLookups, makeSources } = await import("../src/accessForms.js");
+    const doc = {
+      version: 1,
+      tables: [
+        { id: "t1", name: "Contacts", fields: [{ id: "a", name: "ID", type: "AutoNumber", primaryKey: true }, { id: "b", name: "Name", type: "ShortText" }], rows: [] },
+        { id: "t2", name: "Loans", fields: [{ id: "c", name: "Checked Out To", type: "Number" }, { id: "d", name: "Condition", type: "ShortText" }, { id: "e", name: "Notes", type: "ShortText" }], rows: [] },
+      ],
+      queries: [],
+      forms: [],
+      reports: [],
+      relationships: [],
+    } as unknown as ProjectDoc;
+    const P = (o: Record<string, unknown>) => Object.entries(o).map(([name, value]) => ({ name, value }));
+    const db = {
+      properties: (name: string) => ({
+        columns:
+          name === "Loans"
+            ? [
+                { name: "Checked Out To", properties: P({ DisplayControl: 111, RowSourceType: "Table/Query", RowSource: "SELECT ID, [Contacts].[Name] FROM Contacts;", BoundColumn: 1, ColumnCount: 2, ColumnWidths: "0;2880", LimitToList: true }) },
+                { name: "Condition", properties: P({ DisplayControl: 110, RowSourceType: "Value List", RowSource: '"Great";"Good";"Poor"', BoundColumn: 1, ColumnCount: 1 }) },
+                { name: "Notes", properties: P({ DisplayControl: 109 }) },
+              ]
+            : [],
+      }),
+    };
+    const out = { forms: [], reports: [], queries: [], macros: [], images: [], warnings: [] };
+    expect(importTableLookups(db as never, doc, out, makeSources(doc, out))).toBe(2);
+    const loans = doc.tables[1].fields;
+    expect(loans[0].lookup).toMatchObject({ display: "combo", rowSourceType: "query", boundColumn: "ID", displayColumn: "Name", limitToList: true });
+    expect(out.queries[0]).toMatchObject({ id: loans[0].lookup!.rowSource, name: "Loans Checked Out To list" });
+    expect(loans[1].lookup).toMatchObject({ display: "list", rowSourceType: "values", rowSource: "Great;Good;Poor", limitToList: false });
+    expect(loans[2].lookup).toBeUndefined();
+  });
+});

@@ -9,7 +9,7 @@
  */
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
-import { MAX_IMAGE_BYTES, type FormControl, type FormControlType, type FormDef, type FormLayout, type FormSection, type ProjectDoc, type QueryDef, type ReportControl, type ReportDef, type ReportLayout, type SourceRef } from "../../shared/model.js";
+import { LOOKUP_TYPES, MAX_IMAGE_BYTES, type FormControl, type FormControlType, type FormDef, type FormLayout, type FormSection, type ProjectDoc, type QueryDef, type ReportControl, type ReportDef, type ReportLayout, type SourceRef } from "../../shared/model.js";
 import { browserPicture } from "./pictures.js";
 import { cleanName, rid, unique } from "../../shared/exchange.js";
 import type { MacroDef, MacroStep } from "../../shared/macros.js";
@@ -37,7 +37,7 @@ interface JetMacro {
   source?: { control?: string | null; event?: string };
   statements?: JetStatement[];
 }
-interface JetDatabase {
+export interface JetDatabase {
   forms(): { name: string; type: "Form" | "Report" }[];
   formProperties(name: string, o: { type: string }): JetDesign;
   formStream(name: string, o: { type: string; stream: string }): Uint8Array;
@@ -47,6 +47,8 @@ interface JetDatabase {
   macros(o?: { system?: boolean }): string[];
   macro(name: string): JetMacro;
   rows(table: string): { rows: Record<string, unknown>[] };
+  /** A table's own and its columns' properties (Lookup tab settings among them). */
+  properties(name: string, o?: { type?: string }): { columns: { name: string; properties: JetProp[] }[] };
   free(): void;
 }
 
@@ -335,8 +337,14 @@ export function importFormsAndReports(file: Buffer, doc: ProjectDoc): ImportedDe
   } catch {
     return out;
   }
+  const src = makeSources(doc, out);
   try {
-    convert(db, doc, out);
+    importTableLookups(db, doc, out, src);
+  } catch (e) {
+    out.warnings.push(`Lookup settings of fields couldn't be read from this file (${(e as Error).message}).`);
+  }
+  try {
+    convert(db, doc, out, src);
   } catch (e) {
     out.warnings.push(`Forms and reports couldn't be read from this file (${(e as Error).message}).`);
   }
@@ -385,9 +393,16 @@ const FORM_EVENT_PROPS = [
 /** Events this app doesn't have, reported when they have code. */
 const OTHER_EVENTS = ["BeforeUpdate", "OnChange", "OnEnter", "OnExit", "OnGotFocus", "OnLostFocus", "OnKeyDown", "OnKeyPress", "OnMouseDown", "BeforeInsert", "AfterInsert", "OnDelete", "OnTimer", "OnError", "OnDirty"];
 
-function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
-  const list = db.forms();
-  if (!list.length) return;
+type SourceFor = (raw: string | undefined, nameForSql: string) => (SourceRef & { name: string }) | null;
+type ColumnsOf = (ref: SourceRef & { name: string }) => string[];
+export interface Sources {
+  sourceFor: SourceFor;
+  tableOf: (ref: SourceRef & { name: string }) => ProjectDoc["tables"][number] | undefined;
+  columnsOf: ColumnsOf;
+}
+
+/** Finds record and list sources by name; SQL becomes a saved query (made once per statement). */
+export function makeSources(doc: ProjectDoc, out: ImportedDesigns): Sources {
   const lookup: Lookup = { byName: new Map(), doc };
   for (const t of doc.tables) lookup.byName.set(t.name.toLowerCase(), { kind: "table", id: t.id, name: t.name });
   for (const q of doc.queries) lookup.byName.set(q.name.toLowerCase(), { kind: "query", id: q.id, name: q.name });
@@ -425,6 +440,49 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
     return q ? selectColumns(q.sql) : [];
   };
 
+  return { sourceFor, tableOf, columnsOf };
+}
+
+/**
+ * Table Design's Lookup tab: a field shown as a combo or list box picking from a value list or a
+ * table / query (a SQL row source becomes a saved query), like Owner showing the contact's name.
+ */
+export function importTableLookups(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns, src: Sources) {
+  let count = 0;
+  for (const t of doc.tables) {
+    let groups: { name: string; properties: JetProp[] }[];
+    try {
+      groups = db.properties(t.name, { type: "Table" }).columns;
+    } catch {
+      continue;
+    }
+    for (const g of groups) {
+      const field = t.fields.find((f) => f.name.toLowerCase() === g.name.toLowerCase());
+      if (!field || !LOOKUP_TYPES.includes(field.type) || field.lookup) continue;
+      const p = new Props(g.properties);
+      const dc = p.num("DisplayControl", 109); // 109 text box, 110 list box, 111 combo box
+      if (dc !== 110 && dc !== 111) continue;
+      const c = {} as FormControl;
+      listSource(c, p, `${t.name} ${field.name} list`, src.sourceFor, src.columnsOf);
+      if (!c.rowSource) continue;
+      field.lookup = {
+        display: dc === 110 ? "list" : "combo",
+        rowSourceType: c.rowSourceType as "table" | "query" | "values",
+        rowSource: c.rowSource,
+        ...(c.boundColumn ? { boundColumn: c.boundColumn } : {}),
+        ...(c.displayColumn ? { displayColumn: c.displayColumn } : {}),
+        limitToList: p.flipped("LimitToList"),
+      };
+      count++;
+    }
+  }
+  return count;
+}
+
+function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns, src: Sources) {
+  const list = db.forms();
+  if (!list.length) return;
+  const { sourceFor, tableOf, columnsOf } = src;
   const designs = new Map<string, JetDesign>();
   for (const item of list) {
     try {
@@ -509,7 +567,7 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
     const source = sourceFor(sourceText, `${display} source`);
 
     if (item.type === "Report") {
-      const report = convertReport(db, item.name, d, props, source, columnsOf, out);
+      const report = convertReport(db, item.name, d, props, source, columnsOf, out, sourceFor);
       if (report) {
         report.id = reportIdByAccessName.get(item.name.toLowerCase())!;
         report.name = unique(display, reportNames);
@@ -923,6 +981,7 @@ function convertReport(
   source: (SourceRef & { name: string }) | null,
   columnsOf: (ref: SourceRef & { name: string }) => string[],
   out: ImportedDesigns,
+  sourceFor: SourceFor,
 ): ReportDef | null {
   const sourceText = props.str("RecordSource");
   if (!source) {
@@ -1038,6 +1097,17 @@ function convertReport(
     if (fmt && kind === "textbox") c.format = fmt.slice(0, 100);
     if (p.flipped("Visible")) c.hidden = true;
     if (p.flipped("HideDuplicates")) c.hideDuplicates = true;
+    // A combo box shows the name its list has for the stored value (the contact, not its ID).
+    if ((code === AC.combobox || code === AC.listbox) && c.field && !c.field.startsWith("=") && p.str("RowSource")) {
+      const lc = {} as FormControl;
+      listSource(lc, p, `${cleanName(name, "Report")} ${c.name} list`, sourceFor, columnsOf);
+      if (lc.rowSource && lc.rowSourceType !== "values") {
+        c.rowSourceType = lc.rowSourceType;
+        c.rowSource = lc.rowSource;
+        if (lc.boundColumn) c.boundColumn = lc.boundColumn;
+        if (lc.displayColumn) c.displayColumn = lc.displayColumn;
+      }
+    }
     const fontSize = p.num("FontSize", 0);
     if (fontSize) c.fontSize = clamp(Math.round((fontSize * 96) / 72), 8, 72);
     if (p.num("FontWeight", 400) >= 600) c.bold = true;
