@@ -29,6 +29,9 @@ import {
   syncColumns,
   themeStyle,
   THEMES,
+  assignPages,
+  onShownPage,
+  paintOrder,
 } from "./formLayout";
 import { FormPropertySheet } from "./FormPropertySheet";
 
@@ -76,6 +79,8 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
   const fields = useMemo(() => (data ? data.columns.map((name, i) => ({ name, field: data.fields[i] })) : []), [data]);
   const layout = useMemo(() => layoutOf(form, fields), [form, fields]);
   const [sel, setSel] = useState<string[]>([]);
+  /** Each tab control's page shown while designing. */
+  const [designPages, setDesignPages] = useState<Record<string, number>>({});
   const [tool, setTool] = useState<FormControlType | null>(null);
   const [showFields, setShowFields] = useState(!compact);
   const [showProps, setShowProps] = useState(!compact);
@@ -164,6 +169,8 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
       const made = make(l);
       l.controls.push(...made);
       ids = made.map((c) => c.id);
+      // Dropped on a tab control: on the page it shows.
+      assignPages(l, ids, designPages);
       fitSections(l);
     });
     setSel(ids);
@@ -229,8 +236,11 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
       return;
     }
     const wasSelected = sel.includes(c.id);
-    const ids = wasSelected ? sel : [c.id];
-    if (!wasSelected) setSel(ids);
+    const picked = wasSelected ? sel : [c.id];
+    // A tab control moves with the controls on all its pages.
+    const carried = layout.controls.filter((x) => x.onPage && picked.includes(x.onPage.tab) && !picked.includes(x.id)).map((x) => x.id);
+    const ids = [...picked, ...carried];
+    if (!wasSelected) setSel(picked);
     if (readOnly) return;
     let moved = false;
     track(
@@ -260,6 +270,7 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
             ctl.y = Math.max(0, Math.min(4000 - ctl.h, Math.round(absY - tops[s])));
             ctl.x = Math.max(0, Math.min(4000 - ctl.w, ctl.x + ddx));
           }
+          assignPages(l, picked, designPages);
           fitSections(l);
         });
       },
@@ -634,7 +645,11 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
     </aside>
   );
 
-  const controlsIn = (s: FormSection) => layout.controls.filter((c) => c.section === s);
+  // Tab controls first (the controls on their pages draw on top); only the page shown of each.
+  const controlsIn = (s: FormSection) => {
+    const here = layout.controls.filter((c) => c.section === s && onShownPage(c, designPages, layout));
+    return paintOrder(here);
+  };
 
   return (
     <div className={`fd ${compact ? "compact" : ""}`}>
@@ -697,7 +712,7 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
                         data-name={c.name}
                       >
                         <div className="fd-ctl-body">
-                          <FormControlView c={c} />
+                          <FormControlView c={c} page={designPages[c.id] ?? 0} onPage={c.type === "tab" ? (i) => setDesignPages((p) => ({ ...p, [c.id]: i })) : undefined} />
                         </div>
                         {tabNumbers?.has(c.id) && <span className={`fd-tabnum ${tabNumbers.get(c.id) ? "" : "off"}`}>{tabNumbers.get(c.id) || "–"}</span>}
                         {editing === c.id && (

@@ -223,7 +223,7 @@ export const sourceSchema = z.object({ kind: z.enum(["table", "query"]), id });
 export type SourceRef = z.infer<typeof sourceSchema>;
 
 /** Controls a form can hold, as the designer's toolbox offers them. */
-export const FORM_CONTROL_TYPES = ["label", "textbox", "combobox", "listbox", "checkbox", "button", "image", "subform", "rectangle", "line"] as const;
+export const FORM_CONTROL_TYPES = ["label", "textbox", "combobox", "listbox", "checkbox", "button", "image", "subform", "rectangle", "line", "tab"] as const;
 export type FormControlType = (typeof FORM_CONTROL_TYPES)[number];
 export const FORM_SECTIONS = ["header", "detail", "footer"] as const;
 export type FormSection = (typeof FORM_SECTIONS)[number];
@@ -263,6 +263,12 @@ export const formControlSchema = z.object({
   sourceObject: id.optional(),
   /** Or a form whose records they show, in that form's own view (continuous, datasheet…), as in Access. */
   sourceForm: id.optional(),
+  /** Tab controls: their pages' captions. */
+  pages: z.array(z.string().max(200)).min(1).max(30).optional(),
+  /** A control on a page of a tab control: shown only while that page is selected. */
+  onPage: z.object({ tab: id, index: z.number().int().min(0).max(29) }).optional(),
+  /** An image control's own picture (a logo), when it doesn't show a field. */
+  picture: z.string().regex(IMAGE_ID).optional(),
   linkMaster: z.string().max(64).optional(),
   linkChild: z.string().max(64).optional(),
   /** False: Tab and Enter skip this control (you can still click it). */

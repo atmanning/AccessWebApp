@@ -12,6 +12,7 @@ import { pictureIn } from "../ui/images";
 import type { CellValue, Field, FormControl } from "../../../shared/model";
 import { editText, formatValue, isNumericType } from "../engine/values";
 import { acceptsDateText } from "../ui/dateKeys";
+import { useWorkspace } from "../workspace/context";
 
 export interface ChoiceOption {
   value: string;
@@ -61,12 +62,37 @@ function boxStyle(c: FormControl): CSSProperties {
   return s;
 }
 
-export function FormControlView({ c, run, inputId }: { c: FormControl; run?: RunProps; inputId?: string }) {
+export function FormControlView({ c, run, inputId, page, onPage }: { c: FormControl; run?: RunProps; inputId?: string; page?: number; onPage?: (i: number) => void }) {
   const design = !run;
   const ts = textStyle(c);
   const bs = boxStyle(c);
 
   switch (c.type) {
+    case "tab": {
+      const pages = c.pages?.length ? c.pages : ["Page 1"];
+      const at = Math.min(page ?? 0, pages.length - 1);
+      return (
+        <div className="fc-tab">
+          <div className="fc-tab-strip" role="tablist">
+            {pages.map((p, i) => (
+              <button
+                key={i}
+                type="button"
+                role="tab"
+                aria-selected={i === at}
+                className={i === at ? "on" : ""}
+                style={ts}
+                onPointerDown={(e) => onPage && e.stopPropagation()}
+                onClick={() => onPage?.(i)}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+          <div className="fc-tab-page" style={bs} />
+        </div>
+      );
+    }
     case "subform": {
       const pos = c.labelPos ?? "top";
       return (
@@ -150,8 +176,18 @@ function BoundControl({ c, run, ts, bs, inputId }: { c: FormControl; run?: RunPr
   );
 }
 
+function DesignPicture({ c, style }: { c: FormControl; style: CSSProperties }) {
+  const ws = useWorkspace();
+  return (
+    <div className="fc-input fc-image design" style={style}>
+      <img src={ws.imageUrl(c.picture!)} alt={c.name} />
+    </div>
+  );
+}
+
 function DesignInput({ c, ts, bs }: { c: FormControl; ts: CSSProperties; bs: CSSProperties }) {
   const src = c.field ? c.field : <em className="fc-muted">Unbound</em>;
+  if (c.type === "image" && !c.field && c.picture) return <DesignPicture c={c} style={{ ...ts, ...bs }} />;
   if (c.type === "image") {
     return (
       <div className="fc-input fc-image design" style={{ ...ts, ...bs }}>
@@ -309,6 +345,14 @@ function ImageInput({ c, run, style, id }: { c: FormControl; run: RunProps; styl
   const imageId = run.value ? String(run.value) : null;
   const url = imageId && run.imageUrl ? run.imageUrl(imageId) : null;
   const canEdit = !run.readOnly && !!run.uploadImage;
+  // A logo: just the picture.
+  if (!c.field && c.picture) {
+    return (
+      <div id={id} className="fc-image fc-logo" style={style}>
+        {url && <img src={url} alt="" />}
+      </div>
+    );
+  }
   const put = async (file: Blob) => run.onCommit(await run.uploadImage!(file));
   return (
     <>

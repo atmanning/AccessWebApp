@@ -206,7 +206,10 @@ public final class AccessImporter {
                         warnings.add("Skipped query '" + q.getName() + "' (its SQL couldn't be read).");
                         continue;
                     }
-                    if (q.getType() != Query.Type.SELECT && q.getType() != Query.Type.UNION) {
+                    // Select, union, crosstab and action queries (append, update, delete, make-table) run here.
+                    Query.Type qt = q.getType();
+                    if (qt != Query.Type.SELECT && qt != Query.Type.UNION && qt != Query.Type.CROSS_TAB && qt != Query.Type.APPEND
+                            && qt != Query.Type.UPDATE && qt != Query.Type.DELETE && qt != Query.Type.MAKE_TABLE) {
                         warnings.add("Imported query '" + q.getName() + "' as text only: " + q.getType().name().toLowerCase().replace('_', ' ')
                                 + " queries can't run here yet.");
                     }

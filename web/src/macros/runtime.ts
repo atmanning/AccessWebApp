@@ -40,6 +40,16 @@ export function registerForm(h: FormHandle): () => void {
   };
 }
 
+/** Forms shown in subform controls, by the subform control's name ([Tasks subform]![Total]). */
+const subforms = new Map<string, FormHandle>();
+export function registerSubform(controlName: string, h: FormHandle): () => void {
+  const key = controlName.toLowerCase();
+  subforms.set(key, h);
+  return () => {
+    if (subforms.get(key) === h) subforms.delete(key);
+  };
+}
+
 export function openForm(name: string): FormHandle | undefined {
   return openForms.get(name.replace(/^\[|\]$/g, "").toLowerCase());
 }
@@ -89,8 +99,35 @@ export function resetRuntime() {
 export const localVars = new Map<string, ExprValue>();
 export const macroError: { number: number; description: string; actionName: string } = { number: 0, description: "", actionName: "" };
 
+/** The form whose macro is running, and the control whose event started it ([Screen].[ActiveControl]). */
+export const macroContext: { form?: FormHandle; activeControl?: string } = {};
+
 setQualifiedResolver((path) => {
   const root = path[0].toLowerCase();
+  const p1 = path[1]?.toLowerCase();
+  const f = macroContext.form;
+  if (root === "screen" && path.length === 2) {
+    if (p1 === "activecontrol" && f && macroContext.activeControl) return { value: f.value(macroContext.activeControl) ?? null };
+    if ((p1 === "activeform" || p1 === "activedatasheet") && f) return { value: f.name };
+  }
+  // Templates check these before using features Access blocks in untrusted databases.
+  if (root === "currentproject" && path.length === 2 && p1 === "istrusted") return { value: true };
+  if (root === "application" && path.length === 2) {
+    if (p1 === "currentobjectname" && f) return { value: f.name };
+    if (p1 === "currentobjecttype") return { value: 2 }; // acForm
+  }
+  // [Form]![Control] or [Form].[FilterOn]: the form running the macro.
+  // [Tasks subform].[Form]![Total] or [Tasks subform]![Total]: a control of the form in a subform control.
+  const sub = path.length >= 2 ? subforms.get(root) : undefined;
+  if (sub) {
+    const rest = path.slice(1).filter((x, i) => !(i === 0 && /^form$/i.test(x)));
+    const v = rest.length === 1 ? sub.value(rest[0]) : undefined;
+    if (v !== undefined) return { value: v };
+  }
+  if ((root === "form" || root === "me") && path.length === 2 && f) {
+    const v = f.value(path[1]);
+    if (v !== undefined) return { value: v };
+  }
   if (root === "tempvars" && path.length === 2) return { value: tempVars.get(path[1].toLowerCase()) ?? null };
   if (root === "localvars" && path.length === 2) return { value: localVars.get(path[1].toLowerCase()) ?? null };
   if (root === "macroerror" && path.length === 2) {

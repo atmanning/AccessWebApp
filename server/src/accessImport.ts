@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { checkProjectIntegrity, formSchema, projectDocSchema, querySchema, reportSchema, type ProjectDoc } from "../../shared/model.js";
 import { importFormsAndReports } from "./accessForms.js";
+import { importComplexFields, type ImportedImage } from "./accessAttachments.js";
 import { macroSchema } from "../../shared/macros.js";
 import { fromExchangeDocument, type ExchangeDocument } from "../../shared/exchange.js";
 import { createLimiter, type ExporterConfig, type Limiter } from "./export.js";
@@ -22,7 +23,7 @@ export function createImporter(cfg: ExporterConfig, limit: Limiter = createLimit
   return (file: Buffer) => limit(() => importOnce(cfg, file));
 }
 
-async function importOnce(cfg: ExporterConfig, file: Buffer): Promise<{ doc: ProjectDoc; warnings: string[] }> {
+async function importOnce(cfg: ExporterConfig, file: Buffer): Promise<{ doc: ProjectDoc; warnings: string[]; images: ImportedImage[] }> {
   // Every Jet/ACE database has this text at byte 4 ("Standard Jet DB" or "Standard ACE DB").
   const sig = file.subarray(4, 19).toString("latin1");
   if (sig !== "Standard Jet DB" && sig !== "Standard ACE DB") {
@@ -68,6 +69,8 @@ async function importOnce(cfg: ExporterConfig, file: Buffer): Promise<{ doc: Pro
     });
 
     const { doc, warnings } = fromExchangeDocument(JSON.parse(json) as ExchangeDocument);
+    // Attachment and multiple-value fields (before forms, which may show them).
+    const images = importComplexFields(file, doc, warnings);
     // Forms and reports (the Java tool reads tables, relationships and queries).
     const designs = importFormsAndReports(file, doc);
     for (const q of designs.queries) if (querySchema.safeParse(q).success) doc.queries.push(q);
@@ -86,6 +89,7 @@ async function importOnce(cfg: ExporterConfig, file: Buffer): Promise<{ doc: Pro
       if (ok.success) doc.macros = [...(doc.macros ?? []), ok.data];
       else warnings.push(`Macro '${m.name}' couldn't be converted (${ok.error.issues[0]?.message}), so it was skipped.`);
     }
+    images.push(...designs.images);
     warnings.push(...designs.warnings);
     if (JSON.stringify(doc).length > MAX_DOC_BYTES) {
       throw new ImportError("This database is too large to store here (more than about 20 MB of data).");
@@ -96,7 +100,7 @@ async function importOnce(cfg: ExporterConfig, file: Buffer): Promise<{ doc: Pro
     }
     const problems = checkProjectIntegrity(parsed.data);
     if (problems.length) throw new ImportError(problems[0]);
-    return { doc: parsed.data, warnings };
+    return { doc: parsed.data, warnings, images };
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

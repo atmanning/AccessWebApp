@@ -50,6 +50,7 @@ export function DesignedReport(props: {
 
   const contentFor = (c: ReportControl, b: PlacedBand, pageNo: number): ReportCellContent | undefined => {
     if (c.type === "label" || c.type === "rectangle" || c.type === "line") return undefined;
+    if (c.type === "image" && !c.field) return { imageSrc: c.picture ? props.imageUrl(c.picture) : null };
     if (!c.field) return { text: "" };
     if (isExpression(c.field)) {
       const r = calc.value(c as never, b.row as CellValue[] | null, () => b.records as CellValue[][], { Page: pageNo, Pages: total });

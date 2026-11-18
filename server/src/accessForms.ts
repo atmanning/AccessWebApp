@@ -7,8 +7,10 @@
  *
  * Sizes in Access are twips (1440 per inch); here they're pixels (96 per inch): divide by 15.
  */
+import crypto from "node:crypto";
 import { createRequire } from "node:module";
-import type { FormControl, FormControlType, FormDef, FormLayout, FormSection, ProjectDoc, QueryDef, ReportControl, ReportDef, ReportLayout, SourceRef } from "../../shared/model.js";
+import { MAX_IMAGE_BYTES, type FormControl, type FormControlType, type FormDef, type FormLayout, type FormSection, type ProjectDoc, type QueryDef, type ReportControl, type ReportDef, type ReportLayout, type SourceRef } from "../../shared/model.js";
+import { browserPicture } from "./pictures.js";
 import { cleanName, rid, unique } from "../../shared/exchange.js";
 import type { MacroDef, MacroStep } from "../../shared/macros.js";
 import { findProcedure, jetStatementsToSteps, vbaConstants, vbaEventCall, vbaProcedure, vbaToSteps, type JetStatement, type VbaProcedure } from "./accessMacros.js";
@@ -44,6 +46,7 @@ interface JetDatabase {
   moduleSource(name: string): string;
   macros(o?: { system?: boolean }): string[];
   macro(name: string): JetMacro;
+  rows(table: string): { rows: Record<string, unknown>[] };
   free(): void;
 }
 
@@ -75,6 +78,7 @@ const AC = {
   toggle: 122,
   tab: 123,
   page: 124,
+  attachment: 126,
   emptyCell: 127,
   detail: 152,
   header: 153,
@@ -109,6 +113,47 @@ class Props {
   has(name: string) {
     return this.m.has(name);
   }
+  bytes(name: string): Uint8Array | undefined {
+    const v = this.m.get(name);
+    return v instanceof Uint8Array ? v : undefined;
+  }
+}
+
+/** Pictures placed in designs (logos): converted once each, shared by every control showing them. */
+const pictureState = new WeakMap<ImportedDesigns, { resources: Map<string, Buffer> | null; byHash: Map<string, string> }>();
+function designPicture(db: JetDatabase, out: ImportedDesigns, p: Props): string | undefined {
+  let st = pictureState.get(out);
+  if (!st) pictureState.set(out, (st = { resources: null, byHash: new Map() }));
+  let raw: Buffer | undefined;
+  const embedded = p.bytes("PictureData");
+  if (embedded?.length) raw = Buffer.from(embedded);
+  else {
+    // A shared image (Picture names a row of MSysResources).
+    const name = p.str("Picture")?.toLowerCase();
+    if (!name || name === "(none)") return undefined;
+    if (!st.resources) {
+      st.resources = new Map();
+      try {
+        for (const r of db.rows("MSysResources").rows) {
+          const files = r.Data as { data?: Uint8Array }[] | undefined;
+          if (typeof r.Name === "string" && Array.isArray(files) && files[0]?.data) st.resources.set(r.Name.toLowerCase(), Buffer.from(files[0].data));
+        }
+      } catch {
+        /* no shared images */
+      }
+    }
+    raw = st.resources.get(name) ?? st.resources.get(name.replace(/\.[a-z0-9]+$/, ""));
+  }
+  if (!raw) return undefined;
+  const pic = browserPicture(raw);
+  if (!pic || pic.data.length > MAX_IMAGE_BYTES) return undefined;
+  const hash = crypto.createHash("sha1").update(pic.data).digest("hex");
+  const known = st.byHash.get(hash);
+  if (known) return known;
+  const id = `img_${crypto.randomBytes(16).toString("hex")}`;
+  out.images.push({ id, mime: pic.mime, data: pic.data });
+  st.byHash.set(hash, id);
+  return id;
 }
 
 /** Access colors are 0x00BBGGRR; negative values are system colors (left to the theme). */
@@ -271,12 +316,14 @@ export interface ImportedDesigns {
   queries: QueryDef[];
   /** Named macros (Navigation Pane → Macros). */
   macros: MacroDef[];
+  /** Pictures shown by image controls (logos), to store with the database. */
+  images: { id: string; mime: string; data: Buffer }[];
   warnings: string[];
 }
 
 /** Reads the forms and reports of an Access file and converts them for `doc` (its tables and queries). */
 export function importFormsAndReports(file: Buffer, doc: ProjectDoc): ImportedDesigns {
-  const out: ImportedDesigns = { forms: [], reports: [], queries: [], macros: [], warnings: [] };
+  const out: ImportedDesigns = { forms: [], reports: [], queries: [], macros: [], images: [], warnings: [] };
   let db: JetDatabase;
   try {
     db = jetdb().Database.open(file);
@@ -538,6 +585,8 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
       return [{ kind: "action", action: "RunMacro", args: { MacroName: v } }];
     };
 
+    /** The tab control whose pages are being read, and the page (its area) controls go on. */
+    let tabState: { c: FormControl; section: FormSection; index: number; rect: { x: number; y: number; w: number; h: number } | null } | null = null;
     for (const jc of d.controls) {
       const code = (jc.typeCode ?? 0) & 0xff;
       const p = new Props(jc.properties);
@@ -568,7 +617,16 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
         continue;
       }
       if (!section) continue;
-      const kind = kindOf(code, p);
+      // A picture placed on the form (a logo): stored, and shown by an image control.
+      const picture = (code === AC.image || code === AC.boundObject) && !p.str("ControlSource") ? designPicture(db, out, p) : undefined;
+      const kind = picture ? "image" : kindOf(code, p);
+      if (code === AC.page && tabState) {
+        // A page of the tab control above: the controls listed after it (inside it) are on it.
+        tabState.c.pages!.push((p.str("Caption") ?? jc.name).replace(/&(?!&)/g, "").replace(/&&/g, "&").slice(0, 200));
+        tabState.index++;
+        tabState.rect = { x: px(p.num("Left", 0)), y: px(p.num("Top", 0)), w: px(p.num("Width", 0)), h: px(p.num("Height", 0)) };
+        continue;
+      }
       if (!kind) {
         const what =
           code === AC.tab || code === AC.page || code === AC.emptyCell || code === AC.pageBreak
@@ -591,9 +649,20 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
         w: clamp(px(p.num("Width", kind === "line" ? 0 : 1440)), 1, 4000),
         h: clamp(px(p.num("Height", kind === "line" ? 0 : 315)), 1, 4000),
       };
+      if (kind === "tab") {
+        c.pages = [];
+        tabState = { c, section, index: -1, rect: null };
+      } else if (tabState) {
+        const r = tabState.rect;
+        const cx = c.x + c.w / 2;
+        const cy = c.y + Math.min(c.h / 2, 10);
+        if (r && tabState.section === section && cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h) c.onPage = { tab: tabState.c.id, index: tabState.index };
+        else tabState = null; // past the tab control's pages
+      }
       const controlSource = p.str("ControlSource");
       const caption = p.str("Caption");
-      if (controlSource && kind !== "label" && kind !== "button") c.field = controlSource.slice(0, 4000);
+      if (controlSource && kind !== "label" && kind !== "button" && kind !== "tab") c.field = controlSource.slice(0, 4000);
+      if (picture) c.picture = picture;
       if (caption && (kind === "label" || kind === "button")) c.caption = caption.replace(/&(?!&)/g, "").replace(/&&/g, "&").slice(0, 500);
       // A picture button's text is often a leftover "Command85"; its tooltip says what it does.
       const tip = p.str("ControlTipText");
@@ -689,6 +758,7 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
         tabbed.push({ c, index: p.num("TabIndex", 0) });
       }
     }
+    for (const c of layout.controls) if (c.type === "tab" && !c.pages?.length) c.pages = ["Page 1"];
     // Boxes and lines go behind everything else (Access forms usually draw frames behind buttons and fields).
     const decor = (c: FormControl) => c.type === "rectangle" || c.type === "line";
     layout.controls = [...layout.controls.filter(decor), ...layout.controls.filter((c) => !decor(c))];
@@ -769,13 +839,16 @@ function kindOf(code: number, p: Props): FormControlType | null {
       return "button";
     case AC.subform:
       return "subform";
+    case AC.tab:
+      return "tab";
     case AC.rectangle:
       return "rectangle";
     case AC.line:
       return "line";
     case AC.image:
     case AC.boundObject:
-      // Pictures stored in a field come across; a picture pasted into the design doesn't.
+    case AC.attachment:
+      // Pictures stored in a field come across (an Attachment field becomes an Image field); a picture pasted into the design doesn't.
       return p.str("ControlSource") ? "image" : null;
     default:
       return null;
@@ -926,13 +999,15 @@ function convertReport(
       continue;
     }
     if (!key) continue;
+    let picture: string | undefined;
     const kind: ReportControl["type"] | null =
       code === AC.label ? "label"
       : code === AC.textbox || code === AC.combobox || code === AC.listbox ? "textbox"
       : code === AC.checkbox || code === AC.option || code === AC.toggle ? "checkbox"
       : code === AC.rectangle ? "rectangle"
       : code === AC.line ? "line"
-      : (code === AC.image || code === AC.boundObject) && p.str("ControlSource") ? "image"
+      : (code === AC.image || code === AC.boundObject || code === AC.attachment) && p.str("ControlSource") ? "image"
+      : (code === AC.image || code === AC.boundObject) && (picture = designPicture(db, out, p)) ? "image"
       : null;
     if (!kind) {
       if (code !== AC.emptyCell && code !== AC.pageBreak) skipped++;
@@ -948,6 +1023,7 @@ function convertReport(
       w: clamp(px(p.num("Width", kind === "line" ? 0 : 1440)), 1, 4000),
       h: clamp(px(p.num("Height", kind === "line" ? 0 : 315)), 1, 4000),
     };
+    if (picture) c.picture = picture;
     const cs = p.str("ControlSource");
     if (cs && kind !== "label") c.field = cs.startsWith("=") ? cs.slice(0, 4000) : (known.get(bareField(cs).toLowerCase()) ?? bareField(cs));
     const caption = p.str("Caption");

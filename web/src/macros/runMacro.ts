@@ -6,13 +6,15 @@
 import { canonicalAction, MACRO_ACTIONS, type MacroStep } from "../../../shared/macros";
 import type { ProjectDoc } from "../../../shared/model";
 import { truthy, type ExprValue } from "../engine/expr";
-import { localVars, macroError, openForm, tempVars, type FormHandle } from "./runtime";
+import { localVars, macroContext, macroError, openForm, tempVars, type FormHandle } from "./runtime";
 
 export type OpenKind = "form" | "report" | "table" | "query";
 
 export interface MacroEnv {
   /** Report a failed action in the status bar instead of a message box (events that run on their own, like On Load). */
   quietErrors?: boolean;
+  /** The control whose event runs the macro ([Screen].[ActiveControl]). */
+  activeControl?: string;
   /** The form whose event runs the macro (what actions without an Object Name act on). */
   form?: FormHandle;
   /** Works out an expression (with the form's record, when there is one). Throws when it can't. */
@@ -63,6 +65,9 @@ const bare = (name: string) => name.trim().replace(/^\[|\]$/g, "");
 export async function runMacro(steps: readonly MacroStep[], env: MacroEnv): Promise<MacroResult> {
   const state: RunState = { env, warnings: true, onError: { mode: "fail" }, cancelled: false, submacros: submacrosOf(steps), depth: 0 };
   localVars.clear();
+  const outer = { ...macroContext };
+  macroContext.form = env.form;
+  macroContext.activeControl = env.activeControl;
   try {
     await runSteps(steps, state);
     return { ok: true, cancelled: state.cancelled };
@@ -71,6 +76,8 @@ export async function runMacro(steps: readonly MacroStep[], env: MacroEnv): Prom
     return { ok: false, cancelled: state.cancelled, error: (e as Error).message };
   } finally {
     localVars.clear();
+    macroContext.form = outer.form;
+    macroContext.activeControl = outer.activeControl;
   }
 }
 
@@ -351,7 +358,8 @@ async function runAction(action: string, a: Record<string, string>, st: RunState
       const item = await argText(a.Item, st);
       const value = await evaluateAsync(a.Expression ?? "", st);
       const path = item.split(/\s*[!.]\s*/).map(bare).filter(Boolean);
-      const [form, name] = path.length >= 3 && /^forms$/i.test(path[0]) ? [targetForm(path[1], st), path[2]] : [targetForm(undefined, st), path[path.length - 1]];
+      const [form, name] =
+        path.length >= 3 && /^forms$/i.test(path[0]) ? [targetForm(path[1], st), path[2]] : [targetForm(undefined, st), path[path.length - 1]]; // [Form]![X], [Me]![X] and [X]: this form
       if (!name) throw new MacroActionError("Choose the Item to set.");
       const err = form.setValue(name, value);
       if (err) throw new MacroActionError(err);
@@ -402,7 +410,10 @@ async function runAction(action: string, a: Record<string, string>, st: RunState
       return;
     }
     case "RunMenuCommand": {
-      const cmd = (await argText(a.Command, st)).replace(/^acCmd/i, "").toLowerCase();
+      // Access's numbers for the commands (acCmd… constants), as older macros store them.
+      const NUMBERED: Record<string, string> = { "97": "saverecord", "223": "deleterecord", "28": "recordsgotonew", "292": "undo", "18": "refresh", "144": "removefiltersort", "644": "removeallfilters", "340": "printobject", "58": "close" };
+      const raw = (await argText(a.Command, st)).trim();
+      const cmd = NUMBERED[raw] ?? raw.replace(/^acCmd/i, "").toLowerCase();
       const f = () => targetForm(undefined, st);
       switch (cmd) {
         case "saverecord": return f().saveRecord();

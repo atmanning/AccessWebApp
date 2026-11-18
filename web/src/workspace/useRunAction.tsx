@@ -5,6 +5,8 @@ import { isActionType } from "../engine/statements";
 import { useDialogs } from "../ui/dialogs";
 import { useWorkspace } from "./context";
 import { typeOfQuery } from "./queryKinds";
+import { freezeReferences } from "../macros/runMacro";
+import { makeFormCalc } from "../forms/formCalc";
 
 /**
  * Runs an action query the way Access does: say what it will change, list any records it
@@ -33,6 +35,8 @@ export function useRunAction() {
     }
     // The latest document: an earlier action in the same macro may have just changed it.
     const doc = ws.getDoc();
+    // [Forms]![Project Details]![ID] in the SQL: the value on that open form now.
+    sql = freezeReferences(sql, (e) => makeFormCalc(doc, { controls: [] }, []).evaluate(e, null, () => []));
     ws.setStatus(`Running ${query.name}…`);
     let plan;
     try {

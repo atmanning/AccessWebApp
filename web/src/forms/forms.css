@@ -370,3 +370,16 @@ textarea.ps-input { height: auto; padding: 4px 6px; resize: vertical; }
 .sf-form > .fv { height: 100%; }
 .sf-form .fv-scroll { padding: 0; }
 .sf-form .fv-card { margin: 0; border-radius: 0; box-shadow: none; }
+.fc-image.fc-logo, .fc-image.design:has(> img:only-child) { min-height: 0; padding: 0; cursor: default; border: none !important; background: transparent !important; box-shadow: none !important; }
+
+/* Tab controls: a row of page tabs over a frame; the page's controls sit on top of it. */
+.fc-tab { position: absolute; inset: 0; display: flex; flex-direction: column; pointer-events: none; }
+.fc-tab-strip { display: flex; gap: 2px; height: 28px; flex: none; align-items: flex-end; pointer-events: auto; overflow: hidden; }
+.fc-tab-strip button { min-width: 0; height: 26px; padding: 0 14px; border: 1px solid color-mix(in srgb, var(--f-input-border, #b8bfc9) 80%, transparent); border-bottom: none; border-radius: 6px 6px 0 0; background: color-mix(in srgb, var(--f-canvas, #eef1f5) 70%, var(--f-surface, #fff)); color: var(--f-text, #222); font-size: 13px; white-space: nowrap; cursor: pointer; }
+.fc-tab-strip button.on { background: var(--f-surface, #fff); height: 28px; font-weight: 600; position: relative; top: 1px; }
+.fc-tab-page { flex: 1; border: 1px solid color-mix(in srgb, var(--f-input-border, #b8bfc9) 80%, transparent); background: var(--f-surface, #fff); border-radius: 0 6px 6px 6px; }
+.fv-ctl.t-tab { z-index: 0; }
+.fv.compact .fc-tab { position: static; }
+.fv.compact .fc-tab-page { display: none; }
+.fv.compact .fc-tab-strip { overflow-x: auto; }
+textarea.ps-input { height: auto; padding: 4px 6px; resize: vertical; }

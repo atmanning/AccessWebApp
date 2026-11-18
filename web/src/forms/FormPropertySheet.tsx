@@ -415,6 +415,23 @@ export function FormPropertySheet(props: {
           )}
         </Group>
       )}
+      {one?.type === "tab" && (
+        <Group title="Pages">
+          <Row label="Pages" hint="One page caption per line. Controls dropped on the tab control go on the page it shows.">
+            <textarea
+              key={(one.pages ?? []).join("\n")}
+              className="ps-input"
+              aria-label="Pages"
+              rows={Math.max(2, (one.pages ?? []).length + 1)}
+              defaultValue={(one.pages ?? []).join("\n")}
+              onBlur={(e) => {
+                const pages = e.currentTarget.value.split("\n").map((x) => x.trim().slice(0, 200)).filter(Boolean).slice(0, 30);
+                onPatch({ pages: pages.length ? pages : ["Page 1"] });
+              }}
+            />
+          </Row>
+        </Group>
+      )}
       {one?.type === "subform" && (
         <Group title="Data">
           <Row label="Source Object" hint="The form (shown in its own Default View) or table whose records the subform shows">

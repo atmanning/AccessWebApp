@@ -367,7 +367,7 @@ class Parser {
 }
 
 /** Names that start a reference to something outside the record: open forms, temporary variables… */
-const GLOBAL_ROOTS = new Set(["forms", "reports", "tempvars", "localvars", "macroerror"]);
+const GLOBAL_ROOTS = new Set(["forms", "reports", "tempvars", "localvars", "macroerror", "screen", "currentproject", "application"]);
 let qualifiedResolver: ((path: string[]) => { value: ExprValue } | undefined) | null = null;
 /**
  * Resolves references like [Forms]![Orders]![CustomerID] and [TempVars]![UserName] (set by the

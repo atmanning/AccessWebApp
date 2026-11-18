@@ -13,6 +13,12 @@ const svg = (children: ReactNode) =>
 
 const C = "#3b6ea5";
 export const CONTROL_ICONS: Record<FormControlType, (p: P) => ReactNode> = {
+  tab: svg(
+    <>
+      <path d="M1.5 5.5h13v8h-13z" fill="#fff" stroke={C} />
+      <path d="M1.5 5.5v-3h5v3M6.5 3.5h4.5v2" fill="#dbe7f5" stroke={C} />
+    </>,
+  ),
   label: svg(<text x="2" y="12.5" fontSize="11" fontWeight="700" fill={C} fontFamily="Segoe UI, Arial">Aa</text>),
   textbox: svg(
     <>

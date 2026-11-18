@@ -7,7 +7,7 @@ import { compileCriteria } from "../engine/findCriteria";
 import { isExpression, truthy, type ExprValue } from "../engine/expr";
 import type { ControlEvent, FormEvent } from "../../../shared/macros";
 import { useMacroRunner } from "../macros/useMacroRunner";
-import { formSession, registerForm, type FormHandle } from "../macros/runtime";
+import { formSession, registerForm, registerSubform, type FormHandle } from "../macros/runtime";
 import { makeFormCalc } from "./formCalc";
 import { SubformView } from "./subform";
 import { useLayout } from "../ui/layout";
@@ -16,7 +16,7 @@ import { useCommands, useWorkspace, type OpenArgs, type RecordTarget } from "../
 import { useFormEditor } from "./formEditor";
 import { Datasheet, type DatasheetColumn } from "../views/Datasheet";
 import { FormControlView, type ChoiceOption } from "./FormControls";
-import { isBound, layoutOf, parseValueList, readingOrder, tabSequence, themeStyle } from "./formLayout";
+import { isBound, layoutOf, onShownPage, paintOrder, parseValueList, readingOrder, tabSequence, themeStyle } from "./formLayout";
 
 /** Choices for combo and list boxes, by control id. Table and query row sources are read once per change. */
 export function useRowSources(doc: ProjectDoc, controls: FormControl[]) {
@@ -89,6 +89,10 @@ export interface EmbeddedLink {
   readOnly?: boolean;
   /** How many forms deep (a subform's subform…), to stop a form showing itself forever. */
   depth: number;
+  /** The subform control's name, so the main form can read its controls ([Tasks subform]![Total]). */
+  alias?: string;
+  /** Called when its records change, so the main form works out [Tasks subform]![Total] again. */
+  onData?: () => void;
 }
 
 /** One record as shown: the current one, or one row of a continuous form. */
@@ -110,6 +114,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
     where: string | null;
     overrides: Record<string, Override>;
     readOnlyMode: boolean;
+    tabPages: Record<string, number>;
   }>;
   const { compact } = useLayout();
   const { data, error, table } = useSource(form.source, { editable: true });
@@ -137,7 +142,9 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
   const [where, setWhere] = useState<string | null>("where" in saved ? saved.where! : (open?.where ?? null));
   const [overrides, setOverrides] = useState<Record<string, Override>>(saved.overrides ?? {});
   const [readOnlyMode, setReadOnlyMode] = useState(saved.readOnlyMode ?? /read\s*only/i.test(open?.dataMode ?? ""));
-  session.state = { pos, filter, filterOn, sort, unbound, where, overrides, readOnlyMode };
+  // Each tab control's selected page.
+  const [tabPages, setTabPages] = useState<Record<string, number>>(saved.tabPages ?? {});
+  session.state = { pos, filter, filterOn, sort, unbound, where, overrides, readOnlyMode, tabPages };
 
   const fieldList = useMemo(() => (data ? data.columns.map((name, i) => ({ name, field: data.fields[i] })) : []), [data]);
   const designed = useMemo(() => layoutOf(form, fieldList), [form, fieldList]);
@@ -398,7 +405,9 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
   // Registered until the tab closes (endFormSession), so [Forms]![Name]![Control] works from other tabs too.
   useEffect(() => {
     session.unregister?.();
-    session.unregister = registerForm(handle);
+    const off = registerForm(handle);
+    const offSub = embedded?.alias ? registerSubform(embedded.alias, handle) : undefined;
+    session.unregister = () => (off(), offSub?.());
   }, [handle]); // eslint-disable-line react-hooks/exhaustive-deps
   const formRef = useRef(form);
   formRef.current = form;
@@ -410,7 +419,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
   const fireControl = (c: FormControl, e: ControlEvent) => {
     const steps = c.events?.[e];
     if (!steps?.length) return false;
-    void runMacro(steps, handle, { quiet: e === "afterUpdate" });
+    void runMacro(steps, handle, { quiet: e === "afterUpdate", activeControl: c.name });
     return true;
   };
   const loaded = !!data && !!calc;
@@ -439,6 +448,11 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
     fireForm("onCurrent");
   }, [loaded, currentKey]); // eslint-disable-line react-hooks/exhaustive-deps
   session.onClose = () => fireForm("onClose");
+  // A subform tells the main form when its records change (totals the main form shows from it).
+  useEffect(() => {
+    if (loaded) embedded?.onData?.();
+  }, [loaded, order]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [, setSubformTick] = useState(0);
 
   if (error) return <div className="query-error"><strong>This form can't open.</strong><p>{error}</p></div>;
   if (!data) return <div className="empty-view">Loading…</div>;
@@ -481,6 +495,9 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
       if (/^dirty$/i.test(name) && !c) return false;
       if (/^filteron$/i.test(name) && !c) return !!where || filterOn;
       if (/^filter$/i.test(name) && !c) return where ?? "";
+      if (/^orderby$/i.test(name) && !c) return sort ? `[${sort.field}]${sort.dir === "DESC" ? " DESC" : ""}` : "";
+      if (/^orderbyon$/i.test(name) && !c) return !!sort;
+      if (c?.type === "tab") return tabPages[c.id] ?? 0;
       if (c && !c.field) return c.id in unbound ? (unbound[c.id] as ExprValue) : c.type === "checkbox" ? false : null;
       if (c?.field && isExpression(c.field)) return calc!.value(c, exprRow, foundRows, unboundVars).value;
       const i = colIdx(c?.field ?? name);
@@ -505,10 +522,16 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
     },
     goToControl: (name) => {
       const c = controlByName(name);
-      const box = c && rootRef.current?.querySelector<HTMLElement>(`[data-ctl="${c.id}"]`);
-      const el = box?.querySelector<HTMLElement>("input, select, textarea, button, [tabindex]");
-      // After a message box closes (it gives the focus back to the button first).
-      if (el) setTimeout(() => el.focus(), 30);
+      // A control on another page of a tab control: show that page first.
+      if (c?.onPage) {
+        const on = c.onPage;
+        setTabPages((t) => ({ ...t, [on.tab]: on.index }));
+      }
+      // After a message box closes (it gives the focus back to the button first), and the page shows.
+      setTimeout(() => {
+        const box = c && rootRef.current?.querySelector<HTMLElement>(`[data-ctl="${c.id}"]`);
+        box?.querySelector<HTMLElement>("input, select, textarea, button, [tabindex]")?.focus();
+      }, 30);
       if (c?.field) setFocusField(c.field);
       return !!c;
     },
@@ -543,6 +566,24 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
     },
     setValue: (name, v) => {
       const c = controlByName(name);
+      // The form's own Filter / Order By, as Access templates set them from macros.
+      if (!c && /^(filter|filteron|orderby|orderbyon)$/i.test(name)) {
+        const k = name.toLowerCase();
+        const text = v === null ? "" : String(v).trim();
+        if (k === "filter") setWhere(text || null);
+        else if (k === "filteron" && !truthy(v)) (setWhere(null), setFilterOn(false));
+        else if (k === "orderby") {
+          const m = /^\[?([^\],]+?)\]?(?:\s+(ASC|DESC))?(?:,|$)/i.exec(text.replace(/^\[[^\]]+\]\./, ""));
+          setSort(m ? { field: m[1], dir: m[2]?.toUpperCase() === "DESC" ? "DESC" : "ASC" } : null);
+        } else if (k === "orderbyon" && !truthy(v)) setSort(null);
+        setKept(new Set());
+        setPos(0);
+        return null;
+      }
+      if (c?.type === "tab") {
+        setTabPages((t) => ({ ...t, [c.id]: Math.max(0, Math.min((c.pages?.length ?? 1) - 1, Number(v) || 0)) }));
+        return null;
+      }
       if (c && !c.field) {
         setUnbound((u) => ({ ...u, [c.id]: v as CellValue }));
         return null;
@@ -612,6 +653,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
 
   const renderControl = (c: FormControl, rec: Rec = cur) => {
     if (c.hidden) return null;
+    if (c.type === "tab") return <FormControlView c={c} page={tabPages[c.id] ?? 0} onPage={(i) => setTabPages((t) => ({ ...t, [c.id]: i }))} />;
     const { row, isNew } = rec;
     const inputId = rec === cur ? `fv-${form.id}-${c.id}` : `fv-${form.id}-${c.id}-${rec.isNew ? "new" : rec.p}`;
     if (c.type === "subform") {
@@ -633,7 +675,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
             <FormRunView
               form={sub}
               tabKey={`${tabKey}|sf:${c.id}`}
-              embedded={{ master: c.linkMaster, child: c.linkChild, value: master ?? undefined, parentNew: isNew, readOnly: layout.allowEdits === false || readOnlyMode, depth: (embedded?.depth ?? 0) + 1 }}
+              embedded={{ master: c.linkMaster, child: c.linkChild, value: master ?? undefined, parentNew: isNew, readOnly: layout.allowEdits === false || readOnlyMode, depth: (embedded?.depth ?? 0) + 1, alias: c.name, onData: () => setSubformTick((n) => n + 1) }}
             />
           </div>
         )
@@ -673,7 +715,8 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
     }
     const i = c.field ? colIdx(c.field) : -1;
     const field = i >= 0 ? data.fields[i] : undefined;
-    const value: CellValue = row && i >= 0 ? row[i] : null;
+    // An image control with its own picture (a logo) shows that.
+    const value: CellValue = c.type === "image" && !c.field ? (c.picture ?? null) : row && i >= 0 ? row[i] : null;
     const readOnly =
       ws.readOnly ||
       readOnlyMode ||
@@ -785,9 +828,12 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
   const ordered = compact ? readingOrder(layout.controls) : tabSequence(layout);
 
   const sectionBody = (s: "header" | "detail" | "footer", rec: Rec = cur) => {
-    const list = ordered.filter((c) => c.section === s && !c.hidden);
+    // Subforms on other pages of a tab control stay (hidden), so totals read from them still work.
+    const shown = (c: FormControl) => onShownPage(c, tabPages, layout);
+    const list = ordered.filter((c) => c.section === s && !c.hidden && (shown(c) || c.type === "subform"));
     if (!compact) {
-      return list.map((c) => (
+      // Tab controls first, so the controls on their pages draw on top.
+      return paintOrder(list).map((c) => (
         <div
           key={valueKey(c, rec)}
           className={`fv-ctl t-${c.type} ${c.tabStop === false ? "no-tab" : ""}`}
@@ -795,7 +841,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
           data-ctl={c.id}
           onDoubleClick={c.events?.onDblClick?.length ? () => fireControl(c, "onDblClick") : undefined}
           onClick={c.type !== "button" && c.events?.onClick?.length && !finding ? () => fireControl(c, "onClick") : undefined}
-          style={{ left: c.x, top: c.y, width: c.w, height: c.h }}
+          style={{ left: c.x, top: c.y, width: c.w, height: c.h, ...(shown(c) ? {} : { display: "none" }) }}
         >
           {renderControl(c, rec)}
         </div>
@@ -822,7 +868,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
       }
       flush();
       out.push(
-        <div key={valueKey(c, rec)} className={`fv-ctl flow t-${c.type} ${c.tabStop === false ? "no-tab" : ""}`} data-field={isExpression(c.field) ? undefined : c.field} data-ctl={c.id} onDoubleClick={c.events?.onDblClick?.length ? () => fireControl(c, "onDblClick") : undefined} onClick={c.events?.onClick?.length && !finding ? () => fireControl(c, "onClick") : undefined} style={c.multiline || c.type === "listbox" || c.type === "image" || c.type === "subform" ? { minHeight: c.h } : undefined}>
+        <div key={valueKey(c, rec)} className={`fv-ctl flow t-${c.type} ${c.tabStop === false ? "no-tab" : ""}`} data-field={isExpression(c.field) ? undefined : c.field} data-ctl={c.id} onDoubleClick={c.events?.onDblClick?.length ? () => fireControl(c, "onDblClick") : undefined} onClick={c.events?.onClick?.length && !finding ? () => fireControl(c, "onClick") : undefined} style={!shown(c) ? { display: "none" } : c.multiline || c.type === "listbox" || c.type === "image" || c.type === "subform" ? { minHeight: c.h } : undefined}>
           {renderControl(c, rec)}
         </div>,
       );

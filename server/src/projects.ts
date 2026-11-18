@@ -80,7 +80,10 @@ export function safeFileName(name: string) {
   return name.replace(/[^\w\- ]+/g, "_").trim() || "Database";
 }
 
-export type ImportAccess = (file: Buffer) => Promise<{ doc: ProjectDoc; warnings: string[] }>;
+export type ImportAccess = (file: Buffer) => Promise<{ doc: ProjectDoc; warnings: string[]; images?: { id: string; mime: string; data: Buffer }[] }>;
+
+/** Pictures from the Access file (Attachment fields), stored with the new database, up to its picture allowance. */
+const MAX_IMPORTED_PICTURE_BYTES = 200 * 1024 * 1024;
 
 /** Uploaded Access files arrive as raw bytes (application/octet-stream). */
 const accessUpload = express.raw({ type: () => true, limit: "100mb" });
@@ -180,15 +183,35 @@ export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise
   router.post("/import-access", accessUpload, async (req, res) => {
     const name = nameSchema.parse(String(req.query.name ?? ""));
     ensureRoom(req.user!.id);
-    const { doc, warnings } = await importAccess(uploadedFile(req.body));
+    const { doc, warnings, images = [] } = await importAccess(uploadedFile(req.body));
+    let total = 0;
+    const kept = images.filter((im) => (total += im.data.length) <= MAX_IMPORTED_PICTURE_BYTES);
+    if (kept.length < images.length) {
+      const dropped = new Set(images.slice(kept.length).map((im) => im.id));
+      for (const t of doc.tables) for (const f of t.fields) if (f.type === "Image") for (const r of t.rows) if (dropped.has(String(r[f.id]))) r[f.id] = null;
+      warnings.push(`${images.length - kept.length} picture(s) weren't imported: they'd take more than ${MAX_IMPORTED_PICTURE_BYTES / 1048576} MB.`);
+    }
     const project = insertProject(req.user!.id, name, doc);
+    const insert = db.prepare("INSERT INTO images (project_id, id, mime, size, data, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    const now = new Date().toISOString();
+    db.transaction(() => {
+      for (const im of kept) insert.run(project.id, im.id, im.mime, im.data.length, im.data, req.user!.id, now);
+    })();
     res.locals.createdProject = { id: project.id, name: project.name };
     res.status(201).json({ project, warnings });
   });
 
   /** Reads an uploaded .accdb/.mdb and returns its objects without saving, for importing into an open database. */
   router.post("/convert-access", accessUpload, async (req, res) => {
-    res.json(await importAccess(uploadedFile(req.body)));
+    const { doc, warnings, images = [] } = await importAccess(uploadedFile(req.body));
+    if (images.length) {
+      // Their pictures would need storing in the database they're added to; they come with a new database only.
+      const ids = new Set(images.map((im) => im.id));
+      for (const t of doc.tables) for (const f of t.fields) if (f.type === "Image") for (const r of t.rows) if (ids.has(String(r[f.id]))) r[f.id] = null;
+      for (const o of [...doc.forms, ...doc.reports]) for (const c of o.layout?.controls ?? []) if (c.picture && ids.has(c.picture)) delete c.picture;
+      warnings.push(`The ${images.length} picture(s) (logos, and photos in Attachment fields) come across only when an Access file is imported as a new database.`);
+    }
+    res.json({ doc, warnings });
   });
 
   // ---- One database --------------------------------------------------------------------

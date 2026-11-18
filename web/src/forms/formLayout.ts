@@ -76,6 +76,7 @@ export const CONTROL_LABELS: Record<FormControlType, string> = {
   subform: "Subform",
   rectangle: "Rectangle",
   line: "Line",
+  tab: "Tab Control",
 };
 
 export const ACTION_LABELS: Record<ButtonAction, string> = {
@@ -127,6 +128,8 @@ export function defaultSize(type: FormControlType, opts: { labelPos?: "top" | "l
       return { w: 240, h: 120 };
     case "line":
       return { w: 240, h: 2 };
+    case "tab":
+      return { w: 480, h: 280 };
   }
 }
 
@@ -150,6 +153,7 @@ const BASE_NAMES: Record<FormControlType, string> = {
   subform: "Child",
   rectangle: "Box",
   line: "Line",
+  tab: "TabCtl",
 };
 
 /** Name for a control bound to a field: the field name, made unique and valid. */
@@ -207,6 +211,7 @@ export function makeControl(
     if (lk?.boundColumn) c.boundColumn = lk.boundColumn;
     if (lk?.displayColumn) c.displayColumn = lk.displayColumn;
   }
+  if (type === "tab") c.pages = ["Page 1", "Page 2"];
   if (type === "rectangle") {
     c.borderWidth = 1;
     c.radius = THEMES[layout.theme]?.radius ?? 0;
@@ -333,7 +338,39 @@ export function readingOrder(controls: FormControl[]) {
 }
 
 /** Controls you can Tab to (labels, lines and rectangles can't take the focus). */
-export const takesFocus = (t: FormControlType) => t !== "label" && t !== "line" && t !== "rectangle";
+export const takesFocus = (t: FormControlType) => t !== "label" && t !== "line" && t !== "rectangle" && t !== "tab";
+
+/** Height of a tab control's row of page tabs. */
+export const TAB_STRIP_H = 28;
+
+/** The tab control (and page) a control sits on: one in its section whose page area holds its middle. */
+export function pageAt(layout: FormLayout, c: FormControl, pages: Record<string, number>): FormControl["onPage"] {
+  if (c.type === "tab") return undefined;
+  const cx = c.x + c.w / 2;
+  const cy = c.y + Math.min(c.h / 2, 12);
+  const tab = layout.controls.find((t) => t.type === "tab" && t.section === c.section && cx >= t.x && cx <= t.x + t.w && cy >= t.y + TAB_STRIP_H && cy <= t.y + t.h);
+  return tab ? { tab: tab.id, index: Math.min(pages[tab.id] ?? 0, (tab.pages?.length ?? 1) - 1) } : undefined;
+}
+
+/** Puts controls that were moved or added on the page shown of the tab control under them (or off any). */
+export function assignPages(layout: FormLayout, ids: string[], pages: Record<string, number>) {
+  for (const c of layout.controls) {
+    if (!ids.includes(c.id)) continue;
+    const on = pageAt(layout, c, pages);
+    if (on) c.onPage = on;
+    else delete c.onPage;
+  }
+}
+
+/** Drawing order: boxes and lines off any page, then tab controls, then the rest (on top of their pages). */
+export function paintOrder(list: FormControl[]): FormControl[] {
+  const back = (c: FormControl) => (c.type === "rectangle" || c.type === "line") && !c.onPage;
+  return [...list.filter(back), ...list.filter((c) => c.type === "tab"), ...list.filter((c) => !back(c) && c.type !== "tab")];
+}
+
+/** Whether a control shows, given each tab control's selected page. */
+export const onShownPage = (c: FormControl, pages: Record<string, number>, layout: FormLayout) =>
+  !c.onPage || (pages[c.onPage.tab] ?? 0) === c.onPage.index || !layout.controls.some((t) => t.id === c.onPage!.tab && t.type === "tab");
 
 /** One section's controls in tab order: the custom order first, then any others top to bottom, left to right. */
 export function sectionTabOrder(layout: FormLayout, section: FormSection): FormControl[] {
