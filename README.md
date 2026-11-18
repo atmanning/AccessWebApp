@@ -34,7 +34,12 @@ downloaded as a real Microsoft Access **.accdb** file.
 
 Queries accept Access SQL: `[Bracketed names]`, `"text"`, `#12/31/2026#` dates, `&` concatenation,
 `Like "A*"` wildcards, `Yes`/`No`, and functions such as `IIf`, `Nz`, `Left`, `Right`, `Mid`, `Len`,
-`UCase`, `LCase`, `Year`, `Month`, `Day`, `Now`, `Date`, `CStr`, `CInt`, `CDbl`, `Val`.
+`UCase`, `LCase`, `Year`, `Month`, `Day`, `Now`, `Date`, `CStr`, `CInt`, `CDbl`, `Val`, `IsNull` (and the rest of
+the expression functions), `SELECT DISTINCTROW`, `Table!Field`, and references Access fills in before running the
+query: `[Forms]![Orders]![ID]`, `Form![ID]` and `[Application].[CurrentObjectName]` in a combo box's row source,
+`[TempVars]![x]` (Null when the form isn't open). `MSysObjects` lists the database's tables, queries, forms
+(Type -32768), reports (-32764) and macros, for "choose a report" lists. In calculated controls, `DLookup`,
+`DCount` and the other domain functions work over saved queries as well as tables.
 
 ## Why this stack
 

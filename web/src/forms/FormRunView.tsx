@@ -19,10 +19,20 @@ import { FormControlView, type ChoiceOption } from "./FormControls";
 import { isBound, layoutOf, onShownPage, paintOrder, parseValueList, readingOrder, tabSequence, themeStyle } from "./formLayout";
 
 /** Choices for combo and list boxes, by control id. Table and query row sources are read once per change. */
-export function useRowSources(doc: ProjectDoc, controls: FormControl[]) {
+export function useRowSources(doc: ProjectDoc, controls: FormControl[], form?: { name: string; value: (name: string) => ExprValue | undefined }) {
   const lists = controls.filter((c) => c.type === "combobox" || c.type === "listbox");
   const lookups = lists.filter((c) => (c.rowSourceType === "table" || c.rowSourceType === "query") && c.rowSource);
-  const key = lookups.map((c) => `${c.id}:${c.rowSourceType}:${c.rowSource}:${c.boundColumn ?? ""}:${c.displayColumn ?? ""}`).join("|");
+  // Row sources can use the form's values (Form![ID], [Application].[CurrentObjectName]): read them again when those change.
+  const formRefs = new Set<string>();
+  for (const c of lookups) {
+    const sql = c.rowSourceType === "query" ? (doc.queries.find((q) => q.id === c.rowSource)?.sql ?? "") : "";
+    for (const m of sql.matchAll(/\[?\b(?:Form|Me)\]?!\[?([^\]\s,()]+)\]?/gi)) formRefs.add(m[1]);
+  }
+  const formValues = form ? [...formRefs].map((n) => `${n}=${String(form.value(n) ?? "")}`).join(",") : "";
+  const key =
+    lookups.map((c) => `${c.id}:${c.rowSourceType}:${c.rowSource}:${c.boundColumn ?? ""}:${c.displayColumn ?? ""}`).join("|") + `|${form?.name ?? ""}|${formValues}`;
+  const formRef = useRef(form);
+  formRef.current = form;
   const [loaded, setLoaded] = useState<Record<string, ChoiceOption[]>>({});
   const sourceDeps = lookups.map((c) => (c.rowSourceType === "table" ? doc.tables.find((t) => t.id === c.rowSource) : doc.queries.find((q) => q.id === c.rowSource)));
 
@@ -32,7 +42,9 @@ export function useRowSources(doc: ProjectDoc, controls: FormControl[]) {
       const out: Record<string, ChoiceOption[]> = {};
       for (const c of lookups) {
         try {
-          const data = await readSource(doc, { kind: c.rowSourceType as "table" | "query", id: c.rowSource! });
+          const f = formRef.current;
+          const refs = f ? { formName: f.name, form: (n: string) => formRef.current?.value(n) } : undefined;
+          const data = await readSource(doc, { kind: c.rowSourceType as "table" | "query", id: c.rowSource! }, refs ? { refs } : {});
           const find = (n?: string) => (n ? data.columns.findIndex((x) => x.toLowerCase() === n.toLowerCase()) : -1);
           const bi = Math.max(0, find(c.boundColumn));
           let di = find(c.displayColumn);
@@ -156,7 +168,9 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
         : designed,
     [designed, overrides],
   );
-  const options = useRowSources(ws.doc, layout.controls);
+  // The form's own handle (set below), which macros and row sources read values through.
+  const hostRef = useRef<Host | null>(null);
+  const options = useRowSources(ws.doc, layout.controls, { name: form.name, value: (n) => hostRef.current?.value(n) });
   // A subform adds records for the main form's record, so not before that one is saved.
   const linkBlocked = !!embedded?.child && (embedded.parentNew || embedded.value === undefined || embedded.value === null || embedded.value === "");
   const canAdd = editor.canAdd && !ws.readOnly && !readOnlyMode && !embedded?.readOnly && !linkBlocked && layout.allowAdditions !== false;
@@ -168,8 +182,13 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
       if (c.field || !(c.type === "textbox" || c.type === "combobox" || c.type === "listbox" || c.type === "checkbox")) continue;
       out[c.name] = c.id in unbound ? (unbound[c.id] as ExprValue) : c.type === "checkbox" ? false : null;
     }
+    // The form's properties expressions read: [RecordSource], [Form].[FilterOn]…
+    const src = form.source;
+    out.RecordSource ??= (src?.kind === "table" ? ws.doc.tables.find((t) => t.id === src.id)?.name : src ? ws.doc.queries.find((q) => q.id === src.id)?.name : undefined) ?? "";
+    out.FilterOn ??= !!where || filterOn;
+    out.Filter ??= where ?? "";
     return out;
-  }, [designed.controls, unbound]);
+  }, [designed.controls, unbound, form.source, ws.doc.tables, ws.doc.queries, where, filterOn]);
   const calc = useMemo(() => (data ? makeFormCalc(ws.doc, layout, data.columns) : null), [ws.doc, layout, data]);
 
   const colOf = (name: string) => (data ? data.columns.findIndex((c) => c.toLowerCase() === name.toLowerCase()) : -1);
@@ -373,7 +392,6 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
 
   // ---- Macros: what they can do to this form, and the form's events ----
   type Host = Omit<FormHandle, "formId" | "name" | "tabKey">;
-  const hostRef = useRef<Host | null>(null);
   const handle = useMemo<FormHandle>(() => {
     const call =
       <K extends keyof Host>(k: K) =>

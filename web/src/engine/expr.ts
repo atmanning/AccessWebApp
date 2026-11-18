@@ -11,7 +11,7 @@
  * ("2026-11-12" or "2026-11-12T14:04:00"), like everywhere else in the app.
  */
 import { formatDate } from "./values";
-import { parseAccessDate } from "./accessSql";
+import { parseAccessDate } from "../../../shared/dates.js";
 
 export type ExprValue = number | string | boolean | null;
 
@@ -375,6 +375,15 @@ let qualifiedResolver: ((path: string[]) => { value: ExprValue } | undefined) | 
  */
 export function setQualifiedResolver(fn: ((path: string[]) => { value: ExprValue } | undefined) | null) {
   qualifiedResolver = fn;
+}
+
+/** A reference's value from the macro runtime (open forms, TempVars…); undefined when unknown. */
+export function resolveQualified(path: string[]): ExprValue | undefined {
+  try {
+    return qualifiedResolver?.(path)?.value;
+  } catch {
+    return undefined;
+  }
 }
 
 export type Compiled = { ok: true; node: Node } | { ok: false; error: string; at: number };
@@ -867,7 +876,7 @@ const FN_LIST: Fn[] = [
   { name: "Val", cat: "Conversion", syntax: "Val(«string»)", desc: "The number at the start of a piece of text (Val(\"12 Main St\") is 12).", min: 1, max: 1, run: ([v]) => { const m = /^\s*[-+]?\d*\.?\d+/.exec(text(v)); return m ? Number(m[0]) : 0; } },
   { name: "Str", cat: "Conversion", syntax: "Str(«number»)", desc: "A number as text.", min: 1, max: 1, run: ([v]) => nullOr(v, (v) => (num(v) >= 0 ? " " : "") + numberText(num(v))) },
   // Program flow
-  { name: "IIf", cat: "Program Flow", syntax: "IIf(«expr», «truepart», «falsepart»)", desc: "«truepart» when «expr» is true, otherwise «falsepart».", min: 3, max: 3 },
+  { name: "IIf", cat: "Program Flow", syntax: "IIf(«expr», «truepart», «falsepart»)", desc: "«truepart» when «expr» is true, otherwise «falsepart» (Null when left out).", min: 2, max: 3 },
   { name: "Switch", cat: "Program Flow", syntax: "Switch(«expr1», «value1», «expr2», «value2»)", desc: "The value after the first expression that's true (Null if none is).", min: 2, max: 40 },
   { name: "Choose", cat: "Program Flow", syntax: "Choose(«index», «choice1», «choice2»)", desc: "The choice in that position (1 is the first).", min: 2, max: 40 },
   // Inspection
@@ -888,6 +897,7 @@ const FN_LIST: Fn[] = [
   { name: "DMin", cat: "Domain Aggregate", syntax: 'DMin("«expr»", "«domain»", "«criteria»")', desc: "The smallest value in a table's matching records.", min: 2, max: 3 },
   { name: "DMax", cat: "Domain Aggregate", syntax: 'DMax("«expr»", "«domain»", "«criteria»")', desc: "The largest value in a table's matching records.", min: 2, max: 3 },
   { name: "DFirst", cat: "Domain Aggregate", syntax: 'DFirst("«expr»", "«domain»", "«criteria»")', desc: "The value in the first matching record.", min: 2, max: 3 },
+  { name: "ColumnHistory", cat: "Domain Aggregate", syntax: 'ColumnHistory("«source»", "«field»", "«criteria»")', desc: "The text of an Append Only memo field (its current text; earlier versions aren't kept).", min: 3, max: 3 },
   { name: "DLast", cat: "Domain Aggregate", syntax: 'DLast("«expr»", "«domain»", "«criteria»")', desc: "The value in the last matching record.", min: 2, max: 3 },
 ];
 
@@ -1037,7 +1047,8 @@ function call(node: Extract<Node, { k: "call" }>, ctx: ExprContext, depth: numbe
   const { name, args } = node;
   if (name === "iif") {
     const c = ev(args[0]);
-    return ev(c !== null && truthy(c) ? args[1] : args[2]);
+    const pick = c !== null && truthy(c) ? args[1] : args[2];
+    return pick ? ev(pick) : null;
   }
   if (name === "switch") {
     for (let i = 0; i + 1 < args.length; i += 2) {
@@ -1059,6 +1070,11 @@ function call(node: Extract<Node, { k: "call" }>, ctx: ExprContext, depth: numbe
     return aggregate(name, all ? records.map(() => 1) : records.map((r) => ev(args[0], r)), all);
   }
   if (DOMAIN.has(name)) return domainCall(name, args.map((a) => (a.k === "star" ? "*" : ev(a))), ctx);
+  // Access keeps every version of an Append Only memo; here a field has its current text.
+  if (name === "columnhistory") {
+    const [src, col, crit] = args.map((a) => ev(a));
+    return domainCall("dlookup", [`[${text(col)}]`, src, crit ?? null], ctx);
+  }
   const fn = FUNCTIONS[name];
   return fn.run!(args.map((a) => ev(a)));
 }

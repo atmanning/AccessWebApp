@@ -4,6 +4,7 @@
  * database's tables (DLookup, DCount…).
  */
 import type { CellValue, FormControl, FormLayout, ProjectDoc } from "../../../shared/model";
+import { queryRowsSync } from "../engine/engine";
 import { compileExpression, displayValue, evaluate, ExprError, isExpression, rowContext, toExpr, type ExprContext, type ExprValue } from "../engine/expr";
 
 export interface CalcResult {
@@ -29,7 +30,14 @@ export function makeFormCalc(doc: ProjectDoc, layout: Pick<FormLayout, "controls
     const hit = tableRows.get(key);
     if (hit) return hit;
     const t = doc.tables.find((x) => x.name.toLowerCase() === key);
-    if (!t) return undefined;
+    if (!t) {
+      // A query: its rows, from SQLite.
+      const q = queryRowsSync(doc, name);
+      if (!q) return undefined;
+      const rows = q.rows.map((r) => rowContext(q.columns, r));
+      tableRows.set(key, rows);
+      return rows;
+    }
     const names = t.fields.map((f) => f.name);
     const rows = t.rows.map((r) => rowContext(names, t.fields.map((f) => r[f.id] ?? null)));
     tableRows.set(key, rows);

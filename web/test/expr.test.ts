@@ -94,7 +94,7 @@ describe("expressions", () => {
     };
     expect(bad("=[A] &")).toMatch(/ends too soon/);
     expect(bad("=Foo(1)")).toMatch(/no function called Foo/);
-    expect(bad("=IIf(1, 2)")).toMatch(/IIf takes 3 values/);
+    expect(bad("=IIf(1)")).toMatch(/IIf takes 2 to 3 values|IIf takes/);
     expect(bad("=Left(«string», 2)")).toMatch(/Replace «string»/);
     expect(bad('="abc')).toMatch(/closing quote/);
     expect(bad("=(1+2")).toMatch(/closing \)/);

@@ -55,7 +55,7 @@ import { LabelsView } from "../reports/LabelsView";
 import { LabelSetup } from "../reports/LabelSetup";
 import { NewLabelsDialog } from "../reports/NewLabelsDialog";
 import { defaultLabels } from "../reports/labels";
-import { readSource } from "../engine/engine";
+import { preloadSql, readSource } from "../engine/engine";
 import { Ribbon } from "./Ribbon";
 import { MacroDesignView } from "../macros/MacroBuilder";
 import { useMacroRunner } from "../macros/useMacroRunner";
@@ -1007,6 +1007,8 @@ function AutoExec() {
   const run = useMacroRunner();
   useEffect(() => {
     resetRuntime();
+    // Load SQLite now: DLookup, DCount… over queries need it to be ready.
+    void preloadSql();
     const m = ws.doc.macros?.find((x) => x.name.toLowerCase() === "autoexec");
     if (m?.steps.length) void run(m.steps);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

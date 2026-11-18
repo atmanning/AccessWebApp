@@ -47,13 +47,15 @@ export function DesignedReport(props: {
     return m;
   }, [l.controls]);
   const total = result.pages.length;
+  const src = report.source;
+  const sourceName = (src?.kind === "table" ? props.doc?.tables.find((t) => t.id === src.id)?.name : src ? props.doc?.queries.find((q) => q.id === src.id)?.name : undefined) ?? "";
 
   const contentFor = (c: ReportControl, b: PlacedBand, pageNo: number): ReportCellContent | undefined => {
     if (c.type === "label" || c.type === "rectangle" || c.type === "line") return undefined;
     if (c.type === "image" && !c.field) return { imageSrc: c.picture ? props.imageUrl(c.picture) : null };
     if (!c.field) return { text: "" };
     if (isExpression(c.field)) {
-      const r = calc.value(c as never, b.row as CellValue[] | null, () => b.records as CellValue[][], { Page: pageNo, Pages: total });
+      const r = calc.value(c as never, b.row as CellValue[] | null, () => b.records as CellValue[][], { Page: pageNo, Pages: total, Filter: "", FilterOn: false, RecordSource: sourceName });
       return c.type === "checkbox" ? { checked: !!r.value } : { text: r.text, error: r.error };
     }
     const i = colIdx.get(c.field.toLowerCase());

@@ -1,7 +1,7 @@
 import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
 import wasmUrl from "sql.js/dist/sql-wasm.wasm?url";
 import type { CellValue, Field, ProjectDoc, SourceRef, TableDef } from "../../../shared/model";
-import { isSelect, SqlSyntaxError, tokenize, translateAccessSql } from "./accessSql";
+import { isSelect, SqlSyntaxError, tokenize, translateAccessSql, type SqlRefs } from "./accessSql";
 import { parseStatement, type Statement } from "./statements";
 import { analyzeUpdatable } from "./updatable";
 import { FUNCTION_LIST, toExpr } from "./expr";
@@ -28,7 +28,15 @@ export type QueryEditInfo =
     };
 
 let sqlPromise: Promise<SqlJsStatic> | null = null;
-const loadSql = () => (sqlPromise ??= initSqlJs({ locateFile: () => wasmUrl }));
+/** SQLite, once loaded (domain functions on queries run synchronously with it). */
+let sqlLoaded: SqlJsStatic | null = null;
+const loadSql = () =>
+  (sqlPromise ??= initSqlJs({ locateFile: () => wasmUrl }).then((m) => {
+    sqlLoaded = m;
+    return m;
+  }));
+/** Starts loading SQLite, so queryRowsSync can work. */
+export const preloadSql = () => loadSql().then(() => undefined);
 
 const ident = (s: string) => `"${s.replace(/"/g, '""')}"`;
 
@@ -112,6 +120,29 @@ function registerAccessFunctions(db: Database) {
       db.create_function(name, wrapper as (...a: unknown[]) => never);
     }
   }
+  // IsNull is a keyword in SQLite; translateAccessSql calls it acc_isnull.
+  db.create_function("acc_isnull", ((v: unknown) => (v === null || v === undefined ? 1 : 0)) as (...a: unknown[]) => never);
+}
+
+/**
+ * MSysObjects, Access's list of the database's objects, which templates read to fill
+ * "choose a report" lists (Type -32768 forms, -32764 reports, 1 tables, 5 queries, -32766 macros).
+ */
+function loadSystemObjects(db: Database, doc: ProjectDoc) {
+  if (doc.tables.some((t) => t.name.toLowerCase() === "msysobjects")) return;
+  db.run("CREATE TABLE MSysObjects (Id INTEGER, Name TEXT, Type INTEGER, Flags INTEGER)");
+  const stmt = db.prepare("INSERT INTO MSysObjects VALUES (?, ?, ?, 0)");
+  let n = 0;
+  const add = (name: string, type: number) => stmt.run([++n, name, type]);
+  try {
+    for (const t of doc.tables) add(t.name, 1);
+    for (const q of doc.queries) add(q.name, 5);
+    for (const f of doc.forms) add(f.name, -32768);
+    for (const r of doc.reports) add(r.name, -32764);
+    for (const m of doc.macros ?? []) add(m.name, -32766);
+  } finally {
+    stmt.free();
+  }
 }
 
 function loadTables(db: Database, tables: TableDef[]) {
@@ -159,22 +190,38 @@ function registerAccessAggregates(db: Database) {
  */
 export async function openEngine(
   doc: ProjectDoc,
-  opts: { excludeQueryId?: string; /** Rows fetched from linked MySQL tables. */ extraTables?: TableDef[] } = {},
+  opts: {
+    excludeQueryId?: string;
+    /** Rows fetched from linked MySQL tables. */
+    extraTables?: TableDef[];
+    /** Values for form references in the SQL (Form![ID]…). */
+    refs?: SqlRefs;
+  } = {},
 ): Promise<Database> {
-  const SQL = await loadSql();
+  return buildEngine(await loadSql(), doc, opts);
+}
+
+/** The references' values, with the names of the database's tables and queries. */
+function refsFor(doc: ProjectDoc, refs: SqlRefs | undefined, extra: TableDef[] = []): SqlRefs {
+  return { ...refs, sources: new Set([...doc.tables, ...extra, ...doc.queries].map((x) => x.name.toLowerCase())) };
+}
+
+function buildEngine(SQL: SqlJsStatic, doc: ProjectDoc, opts: { excludeQueryId?: string; extraTables?: TableDef[]; refs?: SqlRefs }): Database {
+  opts = { ...opts, refs: refsFor(doc, opts.refs, opts.extraTables) };
   const db = new SQL.Database();
   try {
     registerAccessFunctions(db);
     registerAccessAggregates(db);
     db.run("BEGIN");
     loadTables(db, [...doc.tables, ...(opts.extraTables ?? [])]);
+    loadSystemObjects(db, doc);
     // Queries can depend on each other, so keep retrying until no more succeed; ones that
     // never work are skipped (they report their own error when opened).
     let pending = doc.queries.filter((q) => q.id !== opts.excludeQueryId && q.sql.trim() && isSelectSafe(q.sql));
     while (pending.length) {
       const failed = pending.filter((q) => {
         try {
-          db.run(`CREATE VIEW ${ident(q.name)} AS ${translateAccessSql(q.sql).replace(/;\s*$/, "")}`);
+          db.run(`CREATE VIEW ${ident(q.name)} AS ${translateAccessSql(q.sql, opts.refs).replace(/;\s*$/, "")}`);
           return false;
         } catch {
           return true;
@@ -191,11 +238,33 @@ export async function openEngine(
   }
 }
 
+/**
+ * A saved select query's rows, worked out right away (DLookup, DCount… over a query), or
+ * undefined when SQLite hasn't loaded yet or the query can't run.
+ */
+export function queryRowsSync(doc: ProjectDoc, queryName: string): { columns: string[]; rows: CellValue[][] } | undefined {
+  if (!sqlLoaded) {
+    void loadSql();
+    return undefined;
+  }
+  const q = doc.queries.find((x) => x.name.toLowerCase() === queryName.toLowerCase());
+  if (!q || !isSelectSafe(q.sql)) return undefined;
+  let db: Database | undefined;
+  try {
+    db = buildEngine(sqlLoaded, doc, { excludeQueryId: q.id });
+    return selectRows(db, q.sql, undefined, refsFor(doc, undefined));
+  } catch {
+    return undefined;
+  } finally {
+    db?.close();
+  }
+}
+
 /** Runs one Access-SQL SELECT on an open engine database. */
-export function selectRows(db: Database, accessSql: string, max = 50_000): { columns: string[]; rows: CellValue[][] } {
+export function selectRows(db: Database, accessSql: string, max = 50_000, refs?: SqlRefs): { columns: string[]; rows: CellValue[][] } {
   let stmt;
   try {
-    stmt = db.prepare(translateAccessSql(accessSql).replace(/;\s*$/, ""));
+    stmt = db.prepare(translateAccessSql(accessSql, refs).replace(/;\s*$/, ""));
   } catch (e) {
     throw new SqlSyntaxError(friendlySqlError((e as Error).message));
   }
@@ -228,6 +297,8 @@ export async function runQuery(
     editable?: boolean;
     /** Rows fetched from linked MySQL tables the query uses (see linked.ts). */
     extraTables?: TableDef[];
+    /** Values for form references in the SQL (Form![ID]…). */
+    refs?: SqlRefs;
   } = {},
 ): Promise<ResultSet> {
   if (!accessSql.trim()) throw new SqlSyntaxError("The query is empty. Add fields in Design View or type SQL.");
@@ -239,7 +310,7 @@ export async function runQuery(
   try {
     if (statement.kind === "crosstab") return runCrosstab(doc, db, statement);
     const updatable = opts.editable ? analyzeUpdatable(doc, accessSql) : null;
-    const { columns, rows } = selectRows(db, updatable?.ok ? updatable.sql : accessSql, opts.maxRows);
+    const { columns, rows } = selectRows(db, updatable?.ok ? updatable.sql : accessSql, opts.maxRows, refsFor(doc, opts.refs, opts.extraTables));
     if (!updatable) return { columns, fields: columns.map((c) => guessField(doc, c)), rows };
     if (!updatable.ok) return { columns, fields: columns.map((c) => guessField(doc, c)), rows, edit: updatable };
 
@@ -355,7 +426,7 @@ function friendlySqlError(msg: string) {
 }
 
 /** Rows of a table or query as name-keyed records, for forms and reports. */
-export async function readSource(doc: ProjectDoc, source: SourceRef, opts: { editable?: boolean } = {}): Promise<ResultSet & { table?: TableDef }> {
+export async function readSource(doc: ProjectDoc, source: SourceRef, opts: { editable?: boolean; refs?: SqlRefs } = {}): Promise<ResultSet & { table?: TableDef }> {
   if (source.kind === "table") {
     const t = doc.tables.find((x) => x.id === source.id);
     if (!t) throw new Error("The table this object is based on was deleted.");
@@ -368,5 +439,5 @@ export async function readSource(doc: ProjectDoc, source: SourceRef, opts: { edi
   }
   const q = doc.queries.find((x) => x.id === source.id);
   if (!q) throw new Error("The query this object is based on was deleted.");
-  return runQuery(doc, q.sql, { excludeQueryId: q.id, ...(opts.editable ? { editable: true } : {}) });
+  return runQuery(doc, q.sql, { excludeQueryId: q.id, ...(opts.editable ? { editable: true } : {}), ...(opts.refs ? { refs: opts.refs } : {}) });
 }

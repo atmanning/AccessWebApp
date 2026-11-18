@@ -3,6 +3,17 @@
 /** Accepts yyyy-mm-dd[ hh:mm[:ss]] and m/d/yyyy[ h:mm[:ss] [AM|PM]]. */
 export function parseAccessDate(text: string): string | null {
   const s = text.trim();
+  // A time on its own (Time(), #10:30 AM#) is a time on Access's day zero, 12/30/1899.
+  const t = /^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i.exec(s);
+  if (t) {
+    let h = Number(t[1]);
+    const [mi, sec] = [Number(t[2]), Number(t[3] ?? 0)];
+    if (t[4]?.toUpperCase() === "PM" && h < 12) h += 12;
+    if (t[4]?.toUpperCase() === "AM" && h === 12) h = 0;
+    if (h > 23 || mi > 59 || sec > 59) return null;
+    const p2 = (n: number) => String(n).padStart(2, "0");
+    return `1899-12-30T${p2(h)}:${p2(mi)}${t[3] ? `:${p2(sec)}` : ""}`;
+  }
   let m = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/.exec(s);
   let y: number, mo: number, d: number, h = 0, mi = 0, sec = 0, hasTime = false;
   if (m) {
