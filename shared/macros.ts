@@ -200,7 +200,7 @@ export const MACRO_ACTIONS: Record<string, MacroActionDef> = {
     help: "Changes a control's property while the form is open: Visible, Enabled, Locked, Caption, colors or Value.",
     args: [
       { name: "ControlName", label: "Control Name", kind: "control", required: true },
-      { name: "Property", label: "Property", kind: "choice", choices: ["Enabled", "Visible", "Locked", "Value", "Caption", "ForeColor", "BackColor"], default: "Enabled" },
+      { name: "Property", label: "Property", kind: "choice", choices: ["Enabled", "Visible", "Locked", "Value", "Caption", "ForeColor", "BackColor", "FontBold"], default: "Enabled" },
       { name: "Value", label: "Value", kind: "text", hint: "True / False, text, or =expression" },
     ],
   },

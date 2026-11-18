@@ -66,7 +66,7 @@ export function useRowSources(doc: ProjectDoc, controls: FormControl[]) {
 type FindRequest = Record<string, string>;
 
 /** What macros change on a control while the form is open (SetProperty). */
-type Override = { hidden?: boolean; locked?: boolean; disabled?: boolean; caption?: string; color?: string; backColor?: string };
+type Override = { hidden?: boolean; locked?: boolean; disabled?: boolean; caption?: string; color?: string; backColor?: string; bold?: boolean };
 
 /** A color from SetProperty: "#rrggbb", or Access's number (blue·65536 + green·256 + red). */
 function colorOf(v: ExprValue): string | undefined {
@@ -443,13 +443,16 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
   hostRef.current = {
     value: (name) => {
       const c = controlByName(name);
+      if (/^newrecord$/i.test(name) && !c) return isNew;
+      if (/^dirty$/i.test(name) && !c) return false;
       if (c && !c.field) return c.id in unbound ? (unbound[c.id] as ExprValue) : c.type === "checkbox" ? false : null;
       if (c?.field && isExpression(c.field)) return calc!.value(c, exprRow, foundRows, unboundVars).value;
       const i = colIdx(c?.field ?? name);
       if (i < 0) return undefined;
       return exprRow ? (exprRow[i] as ExprValue) : null;
     },
-    evaluate: (e) => makeFormCalc(ws.getDoc(), layout, data.columns).evaluate(e, exprRow, foundRows, unboundVars),
+    // [NewRecord] and [Dirty] stand for Me.NewRecord / Me.Dirty in macros translated from VBA.
+    evaluate: (e) => makeFormCalc(ws.getDoc(), layout, data.columns).evaluate(e, exprRow, foundRows, { NewRecord: isNew, Dirty: false, ...unboundVars }),
     goToRecord: (record, offset) => {
       const r = record.toLowerCase().replace(/\s+/g, "");
       const to = (n: number) => {
@@ -527,9 +530,10 @@ export function FormRunView({ form, tabKey, goto, open }: { form: FormDef; tabKe
         case "caption": return set({ caption: v === null ? "" : String(v) }), null;
         case "forecolor": return set({ color: colorOf(v) }), null;
         case "backcolor": return set({ backColor: colorOf(v) }), null;
+        case "fontbold": return set({ bold: yes }), null;
         case "value": return hostRef.current!.setValue(name, v);
       }
-      return `The property '${property}' can't be set here (Visible, Enabled, Locked, Caption, ForeColor, BackColor or Value).`;
+      return `The property '${property}' can't be set here (Visible, Enabled, Locked, Caption, ForeColor, BackColor, FontBold or Value).`;
     },
     close: () => ws.closeTab(tabKey),
   };

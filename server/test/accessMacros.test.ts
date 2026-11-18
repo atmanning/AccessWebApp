@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { macroStepsSchema, macroSummary } from "../../shared/macros.js";
 import { importFormsAndReports, simpleButtonAction } from "../src/accessForms.js";
-import { jetStatementsToSteps, vbaExpr, vbaProcedure, vbaToSteps } from "../src/accessMacros.js";
+import { jetStatementsToSteps, vbaConstants, vbaExpr, vbaProcedure, vbaToSteps } from "../src/accessMacros.js";
 
 const summary = (body: string, names?: string[]) => {
   const r = vbaToSteps(body, { names: names ? new Set(names.map((n) => n.toLowerCase())) : undefined });
@@ -87,7 +87,7 @@ End Sub
       'SetLocalVar Name: stLinkCriteria, Expression: "[CustomerID]=" & [CustomerID]',
       "OpenForm FormName: Orders, WhereCondition: =[LocalVars]![stLinkCriteria], DataMode: Edit",
       'OpenReport ReportName: Invoice, View: Print Preview, WhereCondition: ="[OrderID]=" & [OrderID]',
-      "/* VBA not converted (Me.Name isn't available in macros.): DoCmd.Close acForm, Me.Name */",
+      "CloseWindow",
       "CloseWindow",
       "SetWarnings WarningsOn: No",
       'RunSQL SQLStatement: ="UPDATE Orders SET Shipped = True WHERE OrderID = " & [OrderID]',
@@ -96,7 +96,7 @@ End Sub
       "GoToRecord Record: New",
       "OpenQuery QueryName: Monthly Totals",
     ]);
-    expect(r.unconverted).toHaveLength(1);
+    expect(r.unconverted).toHaveLength(0);
   });
 
   it("converts If blocks, MsgBox, control properties, values, TempVars and domain functions", () => {
@@ -181,5 +181,59 @@ End Sub
     expect(simpleButtonAction([{ kind: "action", action: "OpenForm", args: { FormName: "Orders" } }])).toEqual({ action: "openForm", target: { kind: "form", name: "Orders" } });
     expect(simpleButtonAction([{ kind: "action", action: "OpenForm", args: { FormName: "Orders", WhereCondition: "[ID]=1" } }])).toBeNull();
     expect(simpleButtonAction([{ kind: "action", action: "Beep" }, { kind: "action", action: "CloseWindow" }])).toBeNull();
+  });
+
+  it("handles Northwind-style code: line numbers, enums, With, Select Case, Execute, Me.NewRecord", () => {
+    const constants = vbaConstants([
+      "Public Enum enumOrderStatus\n  osNew = 1\n  osInvoiced\n  osShipped = 3\nEnd Enum\nPublic Const MAX_ID As Long = 9000\nPrivate Const COLOR_OK = &HFF",
+    ]);
+    expect(constants.get("enumorderstatus.osinvoiced")).toBe("2");
+    expect(constants.get("max_id")).toBe("9000");
+    expect(constants.get("color_ok")).toBe("255");
+    const r = vbaToSteps(
+      `10        On Error GoTo Err_Handler
+20        If Me.NewRecord Then
+30            Me.lblStatus.Caption = "New"
+40        End If
+50        Select Case Me.OrderStatusID
+              Case enumOrderStatus.osNew, enumOrderStatus.osInvoiced
+60                Me.cmdShip.Enabled = True
+              Case Is >= enumOrderStatus.osShipped
+70                Me.cmdShip.Enabled = False
+              Case Else
+                  Beep
+          End Select
+80        With Me
+90            .cmdShip.ForeShade = 50
+100           .txtNote.FontBold = True
+          End With
+110       CurrentDb.Execute "DELETE FROM Orders WHERE ID > " & MAX_ID, dbFailOnError
+120       Debug.Print "done"
+130       DoCmd.Close acForm, Me.Name
+Exit_Handler:
+          Exit Sub
+Err_Handler:
+          MsgBox Err.Description
+          Resume Exit_Handler`,
+      { constants, formName: "frmOrder" },
+    );
+    expect(r.unconverted).toEqual([]);
+    expect(macroSummary(r.steps)).toEqual([
+      "If [NewRecord] Then",
+      "  SetProperty ControlName: lblStatus, Property: Caption, Value: New",
+      "End If",
+      "If ([OrderStatusID]) = 1 Or ([OrderStatusID]) = 2 Then",
+      "  SetProperty ControlName: cmdShip, Property: Enabled, Value: =True",
+      "Else If ([OrderStatusID]) >= 3 Then",
+      "  SetProperty ControlName: cmdShip, Property: Enabled, Value: =False",
+      "Else",
+      "  Beep",
+      "End If",
+      "SetProperty ControlName: txtNote, Property: FontBold, Value: =True",
+      "SetWarnings WarningsOn: No",
+      'RunSQL SQLStatement: ="DELETE FROM Orders WHERE ID > " & 9000',
+      "SetWarnings WarningsOn: Yes",
+      "CloseWindow",
+    ]);
   });
 });

@@ -167,6 +167,14 @@ const VB_CONSTANTS: Record<string, string> = {
   vbabort: "3",
   vbretry: "4",
   vbignore: "5",
+  vbblack: "0",
+  vbred: "255",
+  vbgreen: "65280",
+  vbyellow: "65535",
+  vbblue: "16711680",
+  vbmagenta: "16711935",
+  vbcyan: "16776960",
+  vbwhite: "16777215",
   vbuppercase: "1",
   vblowercase: "2",
   vbpropercase: "3",
@@ -208,6 +216,45 @@ export interface Scope {
   locals: Set<string>;
   /** The form's controls and fields, when known: other bare names are variables kept in [TempVars]. */
   names?: ReadonlySet<string>;
+  /** Const and Enum values from the database's modules (lower-case name, or enum.member). */
+  constants?: ReadonlyMap<string, string>;
+  /** The form's Access name, for Me.Name. */
+  formName?: string;
+}
+
+/** Const declarations and Enum members in VBA modules, as expression literals. */
+export function vbaConstants(sources: readonly string[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const lit = (v: string) => {
+    const t = v.trim().replace(/\s+As\s+\w+$/i, "");
+    if (/^"(?:[^"]|"")*"$/.test(t) || /^-?\d+(\.\d+)?$/.test(t) || /^#[^#]+#$/.test(t) || /^(True|False)$/i.test(t)) return t;
+    if (/^&H[0-9A-F]+&?$/i.test(t)) return String(parseInt(t.replace(/^&H|&$/gi, ""), 16));
+    return out.get(t.toLowerCase()) ?? null;
+  };
+  for (const src of sources) {
+    const lines = src.replace(/[ \t]_[ \t]*\r?\n/g, " ").split(/\r?\n/).map((l) => l.replace(/^\s*\d+\s+/, "").replace(/'.*$/, "").trim());
+    let en: { name: string; next: number } | null = null;
+    for (const l of lines) {
+      let m: RegExpExecArray | null;
+      if ((m = /^(?:(?:Public|Private|Global)\s+)?Enum\s+(\w+)/i.exec(l))) en = { name: m[1].toLowerCase(), next: 0 };
+      else if (en && /^End\s+Enum/i.test(l)) en = null;
+      else if (en && (m = /^(\w+)(?:\s*=\s*(.+))?$/.exec(l))) {
+        const v = m[2] !== undefined ? Number(lit(m[2])) : en.next;
+        if (Number.isFinite(v)) {
+          out.set(`${en.name}.${m[1].toLowerCase()}`, String(v));
+          if (!out.has(m[1].toLowerCase())) out.set(m[1].toLowerCase(), String(v));
+          en.next = v + 1;
+        }
+      } else if ((m = /^(?:(?:Public|Private|Global)\s+)?Const\s+(.+)$/i.exec(l))) {
+        for (const part of m[1].split(/,(?=\s*\w+(?:\s+As\s+\w+)?\s*=)/)) {
+          const d = /^\s*(\w+)(?:\s+As\s+\w+)?\s*=\s*(.+)$/i.exec(part);
+          const v = d && lit(d[2]);
+          if (d && v !== null) out.set(d[1].toLowerCase(), v);
+        }
+      }
+    }
+  }
+  return out;
 }
 
 export function vbaExpr(src: string, scope: Scope = { locals: new Set() }): string {
@@ -225,7 +272,15 @@ export function vbaExpr(src: string, scope: Scope = { locals: new Set() }): stri
       // Drop .Value / .Text / .Column-less defaults: [X].[Value] is [X].
       while (parts.length > 2 && /^(value|text)$/i.test(parts[parts.length - 1])) parts.pop();
       const next = t[end]?.k === "ws" ? t[end + 1] : t[end];
-      if (tok.k === "word" && head === "me") {
+      if (tok.k === "word" && head === "me" && parts.length > 2 && /^form$/i.test(parts[1])) parts.splice(1, 1); // Me.Form.X is Me.X
+      if (tok.k === "word" && head === "me" && parts.length === 2 && /^(newrecord|dirty)$/i.test(parts[1])) {
+        // Read from the form while the macro runs.
+        out += parts[1].toLowerCase() === "newrecord" ? "[NewRecord]" : "[Dirty]";
+      } else if (tok.k === "word" && head === "me" && parts.length === 2 && /^name$/i.test(parts[1]) && scope.formName) {
+        out += `"${scope.formName.replace(/"/g, '""')}"`;
+      } else if (tok.k === "word" && parts.length === 2 && scope.constants?.has(`${head}.${parts[1].toLowerCase()}`)) {
+        out += scope.constants.get(`${head}.${parts[1].toLowerCase()}`);
+      } else if (tok.k === "word" && head === "me") {
         if (parts.length === 1) throw new VbaError("Me on its own can't be used in an expression.");
         if (parts.length > 2 && !/^(value|text)$/i.test(parts[2])) throw new VbaError(`Me.${parts.slice(1).join(".")} can't be read in a macro.`);
         if (/^(newrecord|dirty|recordsetclone|recordset|openargs|filter|filteron|name)$/i.test(parts[1])) throw new VbaError(`Me.${parts[1]} isn't available in macros.`);
@@ -238,6 +293,7 @@ export function vbaExpr(src: string, scope: Scope = { locals: new Set() }): stri
         const w = tok.v.toLowerCase();
         if (scope.locals.has(w)) out += `[LocalVars]![${tok.v}]`;
         else if (w in VB_CONSTANTS) out += VB_CONSTANTS[w];
+        else if (scope.constants?.has(w) && !(next?.k === "op" && next.v === "(")) out += scope.constants.get(w);
         else if (KEYWORDS.has(w)) out += tok.v;
         else if (next?.k === "op" && next.v === "(") out += tok.v; // a function call
         else if (NO_ARG_FUNCTIONS.has(w)) out += `${tok.v}()`;
@@ -349,6 +405,8 @@ function docmdStep(method: string, argSrc: string, scope: Scope): MacroStep | nu
   const def = DOCMD[m];
   if (!def) throw new VbaError(`DoCmd.${method} isn't supported here.`);
   const { positional, named } = splitArgs(argSrc.trim().replace(/^\(([\s\S]*)\)$/, "$1"));
+  // DoCmd.Close acForm, Me.Name closes this form: the same as Close with no arguments.
+  if (m === "close" && /^Me\.Name$/i.test((named.get("objectname") ?? positional[1] ?? "").trim())) return { kind: "action", action: "CloseWindow" };
   const args: Record<string, string> = {};
   def.params.forEach((p, i) => {
     const raw = named.get(p.toLowerCase()) ?? positional[i];
@@ -387,7 +445,9 @@ function msgBoxStep(argSrc: string, scope: Scope): MacroStep {
 function logicalLines(body: string): string[] {
   const joined = body.replace(/[ \t]_[ \t]*\r?\n/g, " ");
   const out: string[] = [];
-  for (const raw of joined.split(/\r?\n/)) {
+  for (const physical of joined.split(/\r?\n/)) {
+    // VBA line numbers (10 On Error GoTo …, used for Erl) aren't part of the statement.
+    const raw = physical.replace(/^\s*\d+(?=\s|$)/, "");
     let line = "";
     let inStr = false;
     const parts: string[] = [];
@@ -418,11 +478,19 @@ export interface VbaConversion {
 }
 
 /** Converts an event procedure's body to macro steps. */
-export function vbaToSteps(body: string, opts: { module?: string; names?: ReadonlySet<string> } = {}, depth = 0): VbaConversion {
+export function vbaToSteps(
+  body: string,
+  opts: { module?: string; names?: ReadonlySet<string>; constants?: ReadonlyMap<string, string>; formName?: string } = {},
+  depth = 0,
+): VbaConversion {
   const module = opts.module ?? "";
   const lines = logicalLines(body);
   const unconverted: string[] = [];
-  const scope: Scope = { locals: new Set(), names: opts.names };
+  const scope: Scope = { locals: new Set(), names: opts.names, constants: opts.constants, formName: opts.formName };
+  // With Me / With Me.ctl: lines inside use .X for Me.X.
+  const withs: string[] = [];
+  // Select Case: its expression, while its Cases become If / Else If branches.
+  const selects: { expr: string; ifIndex: number }[] = [];
   // Stack of step lists: the procedure, then each open If branch.
   const root: MacroStep[] = [];
   const ifs: { step: Extract<MacroStep, { kind: "if" }>; outer: MacroStep[] }[] = [];
@@ -446,13 +514,77 @@ export function vbaToSteps(body: string, opts: { module?: string; names?: Readon
       return `NotConvertedFromVBA(${JSON.stringify(src.replace(/"/g, "'").slice(0, 300))})`;
     }
   };
-  const BLOCK = /^(Select\s+Case|For\b|Do\b|While\b|With\b)/i;
+  const BLOCK = /^(For\b|Do\b|While\b|With\b|Select\s+Case\b)/i;
   const BLOCK_END = /^(End\s+Select|Next\b|Loop\b|Wend\b|End\s+With)/i;
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const original = lines[i];
+    const target = withs[withs.length - 1];
+    const line = target ? original.replace(/(^|[\s(,=&+\-*\/<>])\.(?=[A-Za-z_\[])/g, `$1${target}.`) : original;
     let m: RegExpExecArray | null;
     try {
+      if ((m = /^With\s+(Me(?:[.!](?:\[[^\]]+\]|\w+))?)$/i.exec(line))) {
+        withs.push(m[1]);
+        continue;
+      }
+      if (/^End\s+With$/i.test(line) && withs.length) {
+        withs.pop();
+        continue;
+      }
+      if ((m = /^Select\s+Case\s+(.+)$/i.exec(line))) {
+        const step: Extract<MacroStep, { kind: "if" }> = { kind: "if", branches: [] };
+        cur.push(step);
+        ifs.push({ step, outer: cur });
+        selects.push({ expr: m[1], ifIndex: ifs.length - 1 });
+        cur = [];
+        continue;
+      }
+      if ((m = /^Case\s+(.+)$/i.exec(line)) && selects.length && selects[selects.length - 1].ifIndex === ifs.length - 1) {
+        const sel = selects[selects.length - 1];
+        const top = ifs[ifs.length - 1].step;
+        if (/^Else$/i.test(m[1].trim())) top.branches.push({ steps: [] });
+        else {
+          const e = `(${sel.expr})`;
+          const tests = splitArgs(m[1]).positional.map((v) => {
+            const to = /^(.+?)\s+To\s+(.+)$/i.exec(v);
+            if (to) return `(${e} >= ${to[1]} And ${e} <= ${to[2]})`;
+            const is = /^Is\s*(<>|<=|>=|=|<|>)\s*(.+)$/i.exec(v);
+            if (is) return `${e} ${is[1]} ${is[2]}`;
+            return `${e} = ${v}`;
+          });
+          top.branches.push({ condition: condition(tests.join(" Or "), line), steps: [] });
+        }
+        cur = top.branches[top.branches.length - 1].steps;
+        continue;
+      }
+      if (/^End\s+Select$/i.test(line) && selects.length && selects[selects.length - 1].ifIndex === ifs.length - 1) {
+        selects.pop();
+        const { step, outer } = ifs.pop()!;
+        if (!step.branches.length) outer.splice(outer.indexOf(step), 1);
+        cur = outer;
+        continue;
+      }
+      // Debugging aids, and theme shading (ForeShade, BackTint…) that only fine-tunes a color: nothing to do here.
+      if (/^Debug\.(Print|Assert)\b/i.test(line) || /^(?:Me[.!])?(?:\[[^\]]+\]|\w+)\.(Fore|Back|Border|Hover|Pressed|Gridline)(Shade|Tint|ThemeColorIndex)\s*=/i.test(line)) continue;
+      // GoTo a label: in practice the exit / error handler, which ends the procedure.
+      if (/^GoTo\s+\w+$/i.test(line)) {
+        add(act("StopMacro"));
+        continue;
+      }
+      // db.Execute "UPDATE …", dbFailOnError runs the SQL without asking, like RunSQL after SetWarnings No.
+      if ((m = /^(?:CurrentDb(?:\(\))?|DBEngine\(0\)\(0\)|\w+\(\)|\w+)\.Execute\s*\(?([\s\S]+?)\)?$/i.exec(line))) {
+        const sql = splitArgs(m[1]).positional[0];
+        if (sql) {
+          add(act("SetWarnings", { WarningsOn: "No" }));
+          add(act("RunSQL", { SQLStatement: textArg(sql, scope) }));
+          add(act("SetWarnings", { WarningsOn: "Yes" }));
+          continue;
+        }
+      }
+      if ((m = /^RunCommand\s+([\s\S]+)$/i.exec(line))) {
+        add(docmdStep("RunCommand", m[1], scope));
+        continue;
+      }
       // A label: the rest is the wizard's exit / error-handling code (Exit_X: Exit Sub, Err_X: MsgBox Err.Description).
       if (/^[A-Za-z_]\w*:$/.test(line)) break;
       if (/^Exit\s+Sub$/i.test(line)) {
@@ -464,7 +596,13 @@ export function vbaToSteps(body: string, opts: { module?: string; names?: Readon
           const n = /^\s*([A-Za-z_]\w*)/.exec(d)?.[1];
           if (n) scope.locals.add(n.toLowerCase());
         }
-        if (/^Const\s/i.test(line)) keep(line, "constants");
+        if (/^Const\s/i.test(line)) {
+          // A procedure's own constants: their values, from here on.
+          const own = new Map(scope.constants ?? []);
+          for (const [k, v] of vbaConstants([line])) own.set(k, v);
+          for (const n of own.keys()) scope.locals.delete(n);
+          scope.constants = own;
+        }
         continue;
       }
       if ((m = /^On\s+Error\s+(Resume\s+Next|GoTo\s+0|GoTo\s+\w+)$/i.exec(line))) {
@@ -597,10 +735,10 @@ export function vbaToSteps(body: string, opts: { module?: string; names?: Readon
           add(act("SetLocalVar", { Name: target, Expression: vbaExpr(value, scope) }));
           continue;
         }
-        if ((t = /^(?:Me[.!])?(\[[^\]]+\]|\w+)\.(Visible|Enabled|Locked|Caption|ForeColor|BackColor|Value)$/i.exec(target)) && !/^me$/i.test(t[1])) {
+        if ((t = /^(?:Me[.!])?(\[[^\]]+\]|\w+)\.(Visible|Enabled|Locked|Caption|ForeColor|BackColor|FontBold|Value)$/i.exec(target)) && !/^me$/i.test(t[1])) {
           const name = t[1].replace(/^\[|\]$/g, "");
           const prop = t[2][0].toUpperCase() + t[2].slice(1).toLowerCase();
-          add(act("SetProperty", { ControlName: name, Property: prop === "Forecolor" ? "ForeColor" : prop === "Backcolor" ? "BackColor" : prop, Value: textArg(value, scope) }));
+          add(act("SetProperty", { ControlName: name, Property: { forecolor: "ForeColor", backcolor: "BackColor", fontbold: "FontBold" }[prop.toLowerCase()] ?? prop, Value: textArg(value, scope) }));
           continue;
         }
         if ((t = /^Me[.!](\[[^\]]+\]|\w+)$/i.exec(target)) || (t = /^(\[[^\]]+\]|[A-Za-z_]\w*)$/.exec(target))) {

@@ -167,7 +167,8 @@ into macro steps: `DoCmd.OpenForm`, `OpenReport` (with their Where Conditions), 
 `RunSQL`, `SetWarnings`, `RunCommand`, `ApplyFilter`, `Requery`, `OpenQuery`; `MsgBox` (also `If MsgBox(…) = vbYes`);
 `Me.Requery`, `Me.Dirty = False`, `Me.Filter` / `Me.FilterOn`; setting a control's value or its Visible, Enabled,
 Locked or Caption; `TempVars`; `Dim`'d variables (local variables) and module variables (temporary variables); `If /
-ElseIf / Else` blocks; calls to other procedures of the form's module; and expressions with `Me.X` → `[X]`,
+ElseIf / Else` and `Select Case` blocks; `With Me`; `CurrentDb.Execute` (as RunSQL without asking); `Me.NewRecord`;
+`Const` and `Enum` values from any module; numbered lines; calls to other procedures of the form's module; and expressions with `Me.X` → `[X]`,
 `Forms!F!C` → `[Forms]![F]![C]`, VBA constants, and the domain functions. Plain buttons (next record, new, save,
 open a form…) get the built-in button action instead. What can't be translated (recordsets, loops, file commands,
 functions from standard modules…) is kept as a comment in the macro and counted in the import notes; an `If` whose

@@ -11,7 +11,7 @@ import { createRequire } from "node:module";
 import type { FormControl, FormControlType, FormDef, FormLayout, FormSection, ProjectDoc, QueryDef, ReportControl, ReportDef, ReportLayout, SourceRef } from "../../shared/model.js";
 import { cleanName, rid, unique } from "../../shared/exchange.js";
 import type { MacroDef, MacroStep } from "../../shared/macros.js";
-import { jetStatementsToSteps, vbaProcedure, vbaToSteps, type JetStatement } from "./accessMacros.js";
+import { jetStatementsToSteps, vbaConstants, vbaProcedure, vbaToSteps, type JetStatement } from "./accessMacros.js";
 
 type JetValue = string | number | boolean | null | Record<string, unknown>;
 interface JetProp {
@@ -382,6 +382,24 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
     }
   }
   let vba: Map<string, string> | null = null;
+  /** Const and Enum values from every module (status codes and the like that event code compares with). */
+  let constants: Map<string, string> | null = null;
+  const vbaConstantsAll = () => {
+    if (constants) return constants;
+    const sources: string[] = [];
+    try {
+      for (const m of db.modules()) {
+        try {
+          sources.push(db.moduleSource(m.name) || "");
+        } catch {
+          /* unreadable module */
+        }
+      }
+    } catch {
+      /* no VBA project */
+    }
+    return (constants = vbaConstants(sources));
+  };
   const moduleFor = (formName: string) => {
     if (!vba) {
       vba = new Map();
@@ -480,7 +498,7 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns) {
       if (/^\[Event Procedure\]$/i.test(v)) {
         const body = vbaProcedure(vbaCode, procedure);
         if (body === null) return undefined;
-        const r = vbaToSteps(body, { module: vbaCode, names: knownNames() });
+        const r = vbaToSteps(body, { module: vbaCode, names: knownNames(), constants: vbaConstantsAll(), formName: item.name });
         unconverted += r.unconverted.length;
         return r.steps;
       }
