@@ -261,6 +261,7 @@ function LiveInput({ c, run, ts, bs, id }: { c: FormControl; run: RunProps; ts: 
         </div>
       );
     }
+    if (c.limitToList === false && !run.readOnly) return <FreeCombo id={id} style={style} current={current} options={all} onCommit={run.onCommit} />;
     return (
       <select id={id} className="fc-input combo" value={current} disabled={run.readOnly} style={style} onChange={(e) => run.onCommit(e.target.value)}>
         <option value="">{c.placeholder ?? ""}</option>
@@ -309,6 +310,108 @@ function LiveInput({ c, run, ts, bs, id }: { c: FormControl; run: RunProps; ts: 
       style={style}
       onBlur={(e) => e.target.value !== initial && run.onCommit(e.target.value)}
     />
+  );
+}
+
+/**
+ * A combo box that also takes a value that isn't in its list (Limit To List: No): type a new company, and
+ * the list has it next time. The ▾ shows the whole list; typing narrows it.
+ */
+function FreeCombo({ id, style, current, options, onCommit }: { id?: string; style: CSSProperties; current: string; options: ChoiceOption[]; onCommit: (input: string) => void }) {
+  const box = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState<null | { top: number; left: number; width: number; narrow: boolean }>(null);
+  const [text, setText] = useState(() => options.find((o) => o.value === current)?.label ?? current);
+  const [hi, setHi] = useState(-1);
+  const q = text.trim().toLowerCase();
+  const shown = open?.narrow && q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
+  const show = (narrow: boolean) => {
+    const r = box.current?.getBoundingClientRect();
+    if (r) setOpen({ top: r.bottom + 2, left: r.left, width: Math.max(r.width, 160), narrow });
+    setHi(-1);
+  };
+  const commit = (t: string) => {
+    const typed = t.trim();
+    const match = options.find((o) => o.label.toLowerCase() === typed.toLowerCase() || o.value.toLowerCase() === typed.toLowerCase());
+    const v = match ? match.value : typed;
+    if (match) setText(match.label);
+    if (v !== current) onCommit(v);
+  };
+  const pick = (o: ChoiceOption) => {
+    setText(o.label);
+    setOpen(null);
+    if (o.value !== current) onCommit(o.value);
+  };
+  return (
+    <div className="fc-free-combo">
+      <input
+        ref={box}
+        id={id}
+        className="fc-input combo"
+        role="combobox"
+        aria-expanded={!!open}
+        aria-autocomplete="list"
+        value={text}
+        style={style}
+        autoComplete="off"
+        enterKeyHint="next"
+        onChange={(e) => {
+          setText(e.target.value);
+          show(true);
+        }}
+        onBlur={() => {
+          setOpen(null);
+          commit(text);
+        }}
+        onKeyDown={(e) => {
+          if ((e.key === "ArrowDown" && e.altKey) || e.key === "F4") {
+            e.preventDefault();
+            if (open) setOpen(null);
+            else show(false);
+          } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault();
+            if (!open) show(false);
+            setHi((h) => Math.max(0, Math.min(shown.length - 1, h + (e.key === "ArrowDown" ? 1 : -1))));
+          } else if (e.key === "Enter" && open && shown[hi]) {
+            e.preventDefault();
+            pick(shown[hi]);
+          } else if (e.key === "Escape" && open) {
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen(null);
+          }
+        }}
+      />
+      <button
+        type="button"
+        className="fc-free-caret"
+        tabIndex={-1}
+        aria-label="Show the list"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          box.current?.focus();
+          if (open) setOpen(null);
+          else show(false);
+        }}
+      />
+      {open && shown.length > 0 && (
+        <div className="fc-free-list" role="listbox" style={{ top: open.top, left: open.left, width: open.width }}>
+          {shown.map((o, i) => (
+            <div
+              key={o.value}
+              role="option"
+              aria-selected={o.value === current}
+              className={`fc-list-item ${i === hi ? "hi" : ""} ${o.value === current ? "selected" : ""}`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                pick(o);
+              }}
+            >
+              {o.label || "\u00a0"}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

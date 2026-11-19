@@ -458,3 +458,17 @@ textarea.ps-input { height: auto; padding: 4px 6px; resize: vertical; }
 /* Back Style: Transparent: just its words (a link) or a click area over a picture. */
 .fc-button.see-through { background: transparent; border-color: transparent; box-shadow: none; }
 .fc-button.see-through:hover:not(:disabled) { background: color-mix(in srgb, currentColor 8%, transparent); }
+.fv-scroll.split-top.header-only { flex: none; }
+/* A combo box you can also type a new value into. */
+.fc-free-combo { position: relative; flex: 1; min-width: 0; display: flex; align-self: stretch; }
+.fc-free-combo > .fc-input { flex: 1; min-width: 0; width: 100%; padding-right: 30px; }
+.fc-free-caret {
+  position: absolute; right: 1px; top: 1px; bottom: 1px; width: 28px; border: 0; background: transparent; cursor: pointer; padding: 0;
+  background-image: linear-gradient(45deg, transparent 50%, var(--f-muted) 50%), linear-gradient(135deg, var(--f-muted) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 52%, calc(100% - 10px) 52%; background-size: 5px 5px; background-repeat: no-repeat;
+}
+.fc-free-list {
+  position: fixed; z-index: 60; max-height: 240px; overflow: auto; padding: 4px; display: flex; flex-direction: column; gap: 1px;
+  background: var(--f-input, #fff); border: 1px solid var(--f-border, #c6cbd3); border-radius: 6px; box-shadow: 0 6px 20px rgb(0 0 0 / 0.16);
+}
+.fc-free-list .fc-list-item.hi { background: color-mix(in srgb, var(--f-accent) 14%, transparent); }

@@ -651,7 +651,13 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns, src: So
     const view = props.num("DefaultView", 1);
     if (view === 1 && source) layout.defaultView = "continuous";
     else if (view === 2) layout.defaultView = "datasheet";
-    else if (view === 5) layout.defaultView = "split";
+    else if (view === 5) {
+      layout.defaultView = "split";
+      // Split Form Size (twips), stored after Split Form Splitter Bar; its id is one higher in some Access versions.
+      const later = !props.has("0x01D6") && props.has("0x01D7");
+      const size = props.num(later ? "0x01D9" : "0x01D8", -1);
+      if (size > 0) layout.splitFormSize = Math.min(4000, px(size));
+    }
     else if (view === 3 || view === 4) {
       // PivotChart (4) and PivotTable (3) views: a chart of the records, from the form's chart XML.
       const chart = source ? pivotChart(props.str("0x0196"), props.str("0x0197"), columnsOf(source)) : null;
@@ -845,6 +851,8 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns, src: So
       else if (border && kind !== "label" && kind !== "button") c.borderColor = border;
 
       if (kind === "combobox" || kind === "listbox") listSource(c, p, `${display} ${c.name} list`, sourceFor, columnsOf);
+      // Limit To List: No (Access's default) when the saved column is the one shown: a new company can be typed in.
+      if (kind === "combobox" && !p.flipped("LimitToList") && !c.displayColumn && c.field) c.limitToList = false;
       if (kind === "subform") {
         const so = p.str("SourceObject") ?? "";
         const m = /^(Form|Report|Table|Query)\.(.+)$/i.exec(so);

@@ -300,6 +300,8 @@ export const formControlSchema = z.object({
   /** Column whose value is saved, and the column people see (table / query row sources). */
   boundColumn: z.string().max(64).optional(),
   displayColumn: z.string().max(64).optional(),
+  /** Combo boxes: false lets people type a value that isn't in the list yet (Access's Limit To List: No). */
+  limitToList: z.boolean().optional(),
   /** Buttons: what they do, and which form or report they open. */
   action: z.enum(BUTTON_ACTIONS).optional(),
   target: id.optional(),
@@ -364,6 +366,8 @@ export const formLayoutSchema = z.object({
   allowEdits: z.boolean().optional(),
   allowAdditions: z.boolean().optional(),
   allowDeletions: z.boolean().optional(),
+  /** Split forms: how tall the form part above the datasheet is (Access's Split Form Size); just the header hides the record part. */
+  splitFormSize: px(0, 4000).optional(),
   /** On phones: rearranged into one column (automatic, the default), or the designed layout shrunk to fit. */
   phoneLayout: z.enum(["auto", "original"]).optional(),
   /** Shown as a chart of its records instead (Access's PivotChart view). */

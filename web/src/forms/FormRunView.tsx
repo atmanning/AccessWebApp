@@ -958,6 +958,8 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
   const phoneList = phone && !embedded && designMode !== "single";
   const mode: FormViewMode = phoneList ? "single" : designMode;
   const showCards = phoneList && phoneView === "list" && !finding;
+  // A split form sized to just its header (the templates' lists): the header's buttons over the datasheet, as in Access.
+  const splitHeaderOnly = mode === "split" && layout.splitFormSize !== undefined && layout.splitFormSize <= layout.sections.header + 12;
   const continuousRecs: Rec[] =
     mode === "continuous"
       ? [...order.slice(0, limit).map((ri, p) => ({ row: data.rows[ri], rowIndex: ri, isNew: false, p })), ...(canAdd ? [{ row: null, rowIndex: undefined, isNew: true, p: -1 }] : [])]
@@ -998,7 +1000,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
       field,
       readOnly: !!reason,
       readOnlyReason: reason ?? undefined,
-      lookup: opts?.length && (c.type === "combobox" || c.type === "listbox") ? { options: opts, limit: true } : undefined,
+      lookup: opts?.length && (c.type === "combobox" || c.type === "listbox") ? { options: opts, limit: c.limitToList !== false } : undefined,
     };
   });
   const sheetValue = (r: number, col: number): CellValue => {
@@ -1135,7 +1137,11 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
           }}
         />
       )}
-      {mode !== "datasheet" && <div ref={setScrollEl} className={`fv-scroll ${mode === "split" ? "split-top" : ""}`}>
+      {mode !== "datasheet" && <div
+        ref={setScrollEl}
+        className={`fv-scroll ${mode === "split" ? "split-top" : ""} ${splitHeaderOnly ? "header-only" : ""}`}
+        style={mode === "split" && layout.splitFormSize && !splitHeaderOnly ? { flex: `0 1 ${layout.splitFormSize + 24}px` } : undefined}
+      >
         <div
           className={`fv-card ${mode === "continuous" ? "continuous" : ""}`}
           style={phone ? undefined : { width: layout.width, ...(fit < 1 ? { zoom: fit } : {}) }}
@@ -1189,7 +1195,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
             </>
           ) : (
             (["header", "detail", "footer"] as const).map((s) =>
-              sectionHeight(s) > 0 && !(showCards && s !== "header") ? (
+              sectionHeight(s) > 0 && !(showCards && s !== "header") && !(splitHeaderOnly && s !== "header") ? (
                 <Fragment key={s}>
                   <div className={`fv-section fv-${s}`} style={phone ? undefined : { height: sectionHeight(s) }}>
                     {sectionBody(s)}

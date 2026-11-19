@@ -191,6 +191,10 @@ functions from standard modules…) is kept as a comment in the macro and counte
 condition can't be translated stops the macro when reached rather than running its steps unchecked. Events this app
 doesn't run yet (Before Update, On Key Down, On Timer…) are listed in the notes.
 
+Combo boxes keep Access's **Limit To List**: when it's No, a new value can be typed (a new company), and the list
+offers it next time. **Split forms** keep their Split Form Size, so a list sized to its header (the templates' Contact
+List and Asset List) shows the header's buttons over the datasheet, as in Access.
+
 Forms opened as **dialogs** (`OpenForm` with Window Mode Dialog) make the macro wait until they're closed, as in the
 templates' New Contact button, and **OpenArgs** reaches the opened form. A form opened with a Where Condition that
 matches nothing (`1=0`) starts on a new record. Other actions: `SearchForRecord`, `FollowHyperlink` (web pages, maps,
