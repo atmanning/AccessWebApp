@@ -718,6 +718,13 @@ export function Workspace(props: {
     return () => window.removeEventListener("keydown", onKey);
   }, [save, undo, redo, activeKey, closeTab]);
 
+  // Back to the start page, after saving (asks first if something couldn't be saved).
+  const closeDatabase = async () => {
+    await save();
+    if (docRef.current !== savedDoc.current && !(await dialogs.confirm("Close", "Some changes haven't been saved yet. Close anyway?", { okLabel: "Close" }))) return;
+    setFullScreen(false);
+    props.onClose();
+  };
   const saveLabel = { saved: "All changes saved", pending: "Unsaved changes", saving: "Saving…", error: "Not saved — will retry", conflict: "Changed elsewhere" }[saveState];
   // Ribbon buttons call the view's latest handler, so they always see current state.
   const live = liveCommands(commands.current, activeKey);
@@ -739,6 +746,7 @@ export function Workspace(props: {
             activeFormId={activeTab.kind === "form" ? activeTab.id : undefined}
             onOpenForm={(id) => openObject("form", id, "form")}
             onExit={() => setFullScreen(false)}
+            onCloseDatabase={props.project && !guest ? closeDatabase : undefined}
             link={fullLink}
             onCopied={(ok) => setStatus(ok ? "Copied. Open the link on a phone (and add it to the home screen) to use this form like an app." : `Couldn't copy. The link is ${fullLink}`, ok ? "info" : "error")}
           />
@@ -922,11 +930,7 @@ export function Workspace(props: {
             }
             onExport={publicView ? undefined : exportAccess}
             onExportSchema={publicView || !doc.tables.length ? undefined : () => (setBackstage(false), setSchemaExport(true))}
-            onClose={async () => {
-              await save();
-              if (docRef.current !== savedDoc.current && !(await dialogs.confirm("Close", "Some changes haven't been saved yet. Close anyway?", { okLabel: "Close" }))) return;
-              props.onClose();
-            }}
+            onClose={closeDatabase}
             onSignOut={async () => {
               await save();
               props.onSignOut();

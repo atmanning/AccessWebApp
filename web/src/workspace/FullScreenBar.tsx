@@ -15,6 +15,8 @@ export interface FullScreenBarProps {
   activeFormId?: string;
   onOpenForm: (id: string) => void;
   onExit: () => void;
+  /** Back to the start page (the list of databases). */
+  onCloseDatabase?: () => void;
   /** A link that opens this form full screen (to put on a phone's home screen or send to staff). */
   link?: string;
   onCopied: (ok: boolean) => void;
@@ -96,6 +98,17 @@ export function FullScreenBar(p: FullScreenBarProps) {
             >
               Exit full screen
             </button>
+            {p.onCloseDatabase && (
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setMenu(false);
+                  p.onCloseDatabase!();
+                }}
+              >
+                Close database
+              </button>
+            )}
           </div>
         )}
       </div>
