@@ -80,7 +80,7 @@ export function useRowSources(doc: ProjectDoc, controls: FormControl[], form?: {
 type FindRequest = Record<string, string>;
 
 /** What macros change on a control while the form is open (SetProperty). */
-type Override = { hidden?: boolean; locked?: boolean; disabled?: boolean; caption?: string; color?: string; backColor?: string; bold?: boolean };
+type Override = { hidden?: boolean; locked?: boolean; disabled?: boolean; caption?: string; color?: string; backColor?: string; borderColor?: string; borderWidth?: number; bold?: boolean; italic?: boolean };
 
 /** A color from SetProperty: "#rrggbb", or Access's number (blue·65536 + green·256 + red). */
 function colorOf(v: ExprValue): string | undefined {
@@ -662,10 +662,13 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
         case "caption": return set({ caption: v === null ? "" : String(v) }), null;
         case "forecolor": return set({ color: colorOf(v) }), null;
         case "backcolor": return set({ backColor: colorOf(v) }), null;
+        // A border in that color (one appears if the control had none, as Access's buttons do).
+        case "bordercolor": return set({ borderColor: colorOf(v), borderWidth: c.borderWidth || 2 }), null;
         case "fontbold": return set({ bold: yes }), null;
+        case "fontitalic": return set({ italic: yes }), null;
         case "value": return hostRef.current!.setValue(name, v);
       }
-      return `The property '${property}' can't be set here (Visible, Enabled, Locked, Caption, ForeColor, BackColor, FontBold or Value).`;
+      return `The property '${property}' can't be set here (Visible, Enabled, Locked, Caption, ForeColor, BackColor, BorderColor, FontBold, FontItalic or Value).`;
     },
     close: () => ws.closeTab(tabKey),
   };

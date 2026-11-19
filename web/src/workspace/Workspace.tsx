@@ -47,6 +47,7 @@ import { LinkedTableView, SqlConsoleView } from "../views/RemoteViews";
 import { cleanName } from "../../../shared/exchange";
 import { QUERY_TYPE_ICONS, typeOfQuery } from "./queryKinds";
 import { FullScreenBar } from "./FullScreenBar";
+import { NEW_LABELS_EVENT } from "../macros/runMacro";
 import { NavPane, type Selection } from "./NavPane";
 import { setPublicViewing } from "../engine/linked";
 import { VersionStamp } from "../ui/VersionStamp";
@@ -546,9 +547,23 @@ export function Workspace(props: {
   const [schemaExport, setSchemaExport] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [newLabels, setNewLabels] = useState(false);
+  const [labelsFrom, setLabelsFrom] = useState<{ kind: "table" | "query"; id: string } | null>(null);
+  // A macro's RunMenuCommand NewLabels (Access's Label Wizard, as the templates' "Mailing labels" buttons run it).
+  useEffect(() => {
+    const show = (e: Event) => {
+      const name = String((e as CustomEvent).detail ?? "").toLowerCase();
+      const t = docRef.current.tables.find((x) => x.name.toLowerCase() === name);
+      const q = t ? undefined : docRef.current.queries.find((x) => x.name.toLowerCase() === name);
+      setLabelsFrom(t ? { kind: "table", id: t.id } : q ? { kind: "query", id: q.id } : null);
+      setNewLabels(true);
+    };
+    window.addEventListener(NEW_LABELS_EVENT, show);
+    return () => window.removeEventListener(NEW_LABELS_EVENT, show);
+  }, []);
   /** Create → Labels: a labels report with a starting layout from the source's fields. */
   const createLabels = async (source: { kind: "table" | "query"; id: string }, preset: string, qr: boolean) => {
     setNewLabels(false);
+    setLabelsFrom(null);
     const src = findObject(docRef.current, source.kind, source.id);
     if (!src) return;
     const columns = await readSource(docRef.current, source).then((r) => r.columns, () => [] as string[]);
@@ -983,8 +998,8 @@ export function Workspace(props: {
         {newLabels && (
           <NewLabelsDialog
             doc={doc}
-            initial={selection && (selection.kind === "table" || selection.kind === "query") ? (selection as { kind: "table" | "query"; id: string }) : null}
-            onClose={() => setNewLabels(false)}
+            initial={labelsFrom ?? (selection && (selection.kind === "table" || selection.kind === "query") ? (selection as { kind: "table" | "query"; id: string }) : null)}
+            onClose={() => (setNewLabels(false), setLabelsFrom(null))}
             onCreate={(s, p, q) => void createLabels(s, p, q)}
           />
         )}

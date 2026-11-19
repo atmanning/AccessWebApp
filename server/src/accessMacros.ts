@@ -887,6 +887,11 @@ export function vbaToSteps(
         continue;
       }
       if (/^\w+\.Visible\s*=\s*True$/i.test(stmt) && !/^Me\./i.test(stmt) && !scope.names?.has(stmt.split(".")[0].toLowerCase())) continue;
+      // Access's Label Wizard (the templates' "Mailing labels" button): this app's New Labels dialog.
+      if ((m = /^(?:Call\s+)?Application\.Run\s*\(?\s*"acwzmain\.mlbl_Entry"\s*(?:,\s*"([^"]*)")?/i.exec(stmt))) {
+        add(act("RunMenuCommand", { Command: m[1] ? `NewLabels:${m[1]}` : "NewLabels" }));
+        continue;
+      }
       if ((m = /^DoCmd\.(\w+)\s*([\s\S]*)$/i.exec(stmt))) {
         add(docmdStep(m[1], m[2], scope));
         continue;
@@ -958,10 +963,10 @@ export function vbaToSteps(
           add(act("SetLocalVar", { Name: target, Expression: vbaExpr(value, scope) }));
           continue;
         }
-        if ((t = /^(?:Me[.!])?(\[[^\]]+\]|\w+)\.(Visible|Enabled|Locked|Caption|ForeColor|BackColor|FontBold|Value)$/i.exec(target)) && !/^me$/i.test(t[1])) {
+        if ((t = /^(?:Me[.!])?(\[[^\]]+\]|\w+)\.(Visible|Enabled|Locked|Caption|ForeColor|BackColor|BorderColor|FontBold|FontItalic|Value)$/i.exec(target)) && !/^me$/i.test(t[1])) {
           const name = t[1].replace(/^\[|\]$/g, "");
           const prop = t[2][0].toUpperCase() + t[2].slice(1).toLowerCase();
-          add(act("SetProperty", { ControlName: name, Property: { forecolor: "ForeColor", backcolor: "BackColor", fontbold: "FontBold" }[prop.toLowerCase()] ?? prop, Value: textArg(value, scope) }));
+          add(act("SetProperty", { ControlName: name, Property: { forecolor: "ForeColor", backcolor: "BackColor", bordercolor: "BorderColor", fontbold: "FontBold", fontitalic: "FontItalic" }[prop.toLowerCase()] ?? prop, Value: textArg(value, scope) }));
           continue;
         }
         if ((t = /^Me[.!](\[[^\]]+\]|\w+)$/i.exec(target)) || (t = /^(\[[^\]]+\]|[A-Za-z_]\w*)$/.exec(target))) {

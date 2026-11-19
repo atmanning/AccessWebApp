@@ -287,3 +287,14 @@ describe("macro XML", () => {
     expect(qs.steps[0].branches[1].steps[0].args!.WhereCondition).toBe('="[Item] Like ""*" & [txtSearchBox] & "*"""');
   });
 });
+
+describe("VBA from the Contacts template", () => {
+  it("sets a button's border color, and runs the Label Wizard as New Labels", () => {
+    const r = vbaToSteps('cmdMap.BorderColor = RGB(0, 0, 255)\nApplication.Run "acwzmain.mlbl_Entry", "Contacts"', { names: new Set(["cmdmap"]) });
+    expect(r.unconverted).toEqual([]);
+    expect(r.steps).toEqual([
+      { kind: "action", action: "SetProperty", args: { ControlName: "cmdMap", Property: "BorderColor", Value: "=RGB(0, 0, 255)" } },
+      { kind: "action", action: "RunMenuCommand", args: { Command: "NewLabels:Contacts" } },
+    ]);
+  });
+});

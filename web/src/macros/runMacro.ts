@@ -8,6 +8,9 @@ import type { ProjectDoc } from "../../../shared/model";
 import { truthy, type ExprValue } from "../engine/expr";
 import { localVars, macroContext, macroError, openForm, tempVars, type FormHandle } from "./runtime";
 
+/** Asks the workspace to show New Labels (detail: a table or query name, or ""). */
+export const NEW_LABELS_EVENT = "accessweb:new-labels";
+
 export type OpenKind = "form" | "report" | "table" | "query";
 
 export interface MacroEnv {
@@ -425,6 +428,11 @@ async function runAction(action: string, a: Record<string, string>, st: RunState
         case "printobject": case "print": return env.print();
         case "close": case "closewindow": return f().close();
         case "find": return env.status("Use 🔍 Find under the form to look for records.");
+      }
+      // New Labels (Access's Label Wizard): "NewLabels" or "NewLabels:Contacts" to start from that table or query.
+      if (cmd === "newlabels" || cmd.startsWith("newlabels:")) {
+        window.dispatchEvent(new CustomEvent(NEW_LABELS_EVENT, { detail: raw.includes(":") ? raw.slice(raw.indexOf(":") + 1).trim() : "" }));
+        return;
       }
       throw new MacroActionError(`The command '${await argText(a.Command, st)}' isn't supported here.`);
     }

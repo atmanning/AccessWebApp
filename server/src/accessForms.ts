@@ -1038,6 +1038,7 @@ function convertReport(
   const names = new Set<string>();
   let key: string | null = null;
   let skipped = 0;
+  const buttons: string[] = [];
   for (const jc of d.controls) {
     const code = (jc.typeCode ?? 0) & 0xff;
     const p = new Props(jc.properties);
@@ -1079,7 +1080,9 @@ function convertReport(
       : (code === AC.image || code === AC.boundObject) && (picture = designPicture(db, out, p)) ? "image"
       : null;
     if (!kind) {
-      if (code !== AC.emptyCell && code !== AC.pageBreak) skipped++;
+      // Buttons on a report only work in Access's Report View, on screen; printed reports don't show them.
+      if (code === AC.button) buttons.push(p.str("Caption") || cleanName(p.str("Name") ?? "", "Button"));
+      else if (code !== AC.emptyCell && code !== AC.pageBreak) skipped++;
       continue;
     }
     const c: ReportControl = {
@@ -1162,6 +1165,10 @@ function convertReport(
   }
   if (Object.keys(sectionProps).length) layout.sectionProps = sectionProps;
   if (skipped) out.warnings.push(`Report '${name}': ${skipped} control(s) (charts, subreports, OLE objects or pictures in the design) weren't imported.`);
+  if (buttons.length)
+    out.warnings.push(
+      `Report '${name}': its button${buttons.length === 1 ? "" : "s"} (${buttons.map((b) => b.replace(/&(?!&)/g, "")).join(", ")}) ${buttons.length === 1 ? "was" : "were"} left out. Buttons on a report only work in Access's Report View on screen; printed reports don't show them.`,
+    );
 
   const detail = layout.controls.filter((c) => c.section === "detail" && c.field && !c.field.startsWith("=") && known.has(c.field.toLowerCase())).sort((a, b) => a.y - b.y || a.x - b.x);
   const report: ReportDef = {
