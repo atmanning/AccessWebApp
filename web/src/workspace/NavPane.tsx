@@ -82,6 +82,10 @@ export function NavPane(props: {
   onToggle: () => void;
   onCopy: (kind: ObjectKind, id: string) => void;
   onPaste: () => void;
+  /** Phones: the drawer's own way back to the list of databases, and out. */
+  onCloseDatabase?: () => void;
+  onSignOut?: () => void;
+  signOutLabel?: string;
 }) {
   const ws = useWorkspace();
   const dialogs = useDialogs();
@@ -325,6 +329,14 @@ export function NavPane(props: {
           );
         })}
       </div>
+      {compact && (props.onCloseDatabase || props.onSignOut) && (
+        <div className="nav-foot">
+          {props.onCloseDatabase && (
+            <button onClick={props.onCloseDatabase}>Close database</button>
+          )}
+          {props.onSignOut && <button onClick={props.onSignOut}>{props.signOutLabel ?? "Sign out"}</button>}
+        </div>
+      )}
       {menu && (
         <div
           className={`context-menu ${compact ? "sheet" : ""}`}

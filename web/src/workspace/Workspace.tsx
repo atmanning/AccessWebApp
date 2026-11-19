@@ -718,6 +718,10 @@ export function Workspace(props: {
     return () => window.removeEventListener("keydown", onKey);
   }, [save, undo, redo, activeKey, closeTab]);
 
+  const signOut = async () => {
+    await save();
+    props.onSignOut();
+  };
   // Back to the start page, after saving (asks first if something couldn't be saved).
   const closeDatabase = async () => {
     await save();
@@ -855,6 +859,9 @@ export function Workspace(props: {
             onToggle={() => setNavCollapsed((c) => !c)}
             onCopy={copySelected}
             onPaste={paste}
+            onCloseDatabase={guest ? undefined : closeDatabase}
+            onSignOut={signOut}
+            signOutLabel={guest ? "Sign in" : "Sign out"}
           />
           <section className="document-area">
             {tabs.length > 0 && (
@@ -931,10 +938,7 @@ export function Workspace(props: {
             onExport={publicView ? undefined : exportAccess}
             onExportSchema={publicView || !doc.tables.length ? undefined : () => (setBackstage(false), setSchemaExport(true))}
             onClose={closeDatabase}
-            onSignOut={async () => {
-              await save();
-              props.onSignOut();
-            }}
+            onSignOut={signOut}
           />
         )}
         {importing && <ImportCsvDialog onClose={() => setImporting(false)} />}
