@@ -108,7 +108,16 @@ export function FormControlView({ c, run, inputId, page, onPage }: { c: FormCont
     }
     case "label":
       return (
-        <div className="fc-label" style={{ ...ts, ...bs, justifyContent: c.align === "center" ? "center" : c.align === "right" ? "flex-end" : undefined }}>
+        <div
+          className="fc-label"
+          style={{
+            ...ts,
+            ...bs,
+            justifyContent: c.align === "center" ? "center" : c.align === "right" ? "flex-end" : undefined,
+            // A one-line label (a title) stays on one line: Access's fonts are narrower than the web's.
+            ...(c.h < (c.fontSize ?? 13) * 2.2 && !design ? { whiteSpace: "nowrap", overflow: "visible" } : {}),
+          }}
+        >
           {c.caption || (design ? <em className="fc-muted">(empty label)</em> : "")}
         </div>
       );
@@ -126,8 +135,11 @@ export function FormControlView({ c, run, inputId, page, onPage }: { c: FormCont
           tabIndex={design ? -1 : undefined}
           disabled={!design && run?.buttonDisabled}
           onClick={design ? undefined : run!.onAction}
+          aria-label={c.picture && !c.caption ? c.name : undefined}
+          title={c.picture && !c.caption ? c.name : undefined}
         >
-          {c.caption || "Button"}
+          {c.picture && run?.imageUrl && <img className="fc-btn-pic" src={run.imageUrl(c.picture)} alt="" />}
+          {c.caption || (c.picture ? null : "Button")}
         </button>
       );
     }

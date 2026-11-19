@@ -305,6 +305,8 @@ export const formControlSchema = z.object({
   target: id.optional(),
   /** Button look (primary/secondary/outline/danger), or "switch" for a check box drawn as a switch. */
   variant: z.enum(["primary", "secondary", "outline", "danger", "switch"]).optional(),
+  /** Left out of the one-column layout phones get (it still shows on bigger screens). */
+  phoneHidden: z.boolean().optional(),
   /** Buttons: invisible but clickable, over a picture (Access's Transparent property). */
   transparent: z.boolean().optional(),
   /** Embedded macros run by the control's events (On Click takes the place of `action`). */
@@ -329,6 +331,8 @@ export const formLayoutSchema = z.object({
   allowEdits: z.boolean().optional(),
   allowAdditions: z.boolean().optional(),
   allowDeletions: z.boolean().optional(),
+  /** On phones: rearranged into one column (automatic, the default), or the designed layout shrunk to fit. */
+  phoneLayout: z.enum(["auto", "original"]).optional(),
 });
 export type FormLayout = z.infer<typeof formLayoutSchema>;
 

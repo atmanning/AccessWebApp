@@ -331,6 +331,19 @@ export function FormPropertySheet(props: {
           {sec("detail", "Detail Height")}
           {sec("footer", "Footer Height")}
           {flag("navigationButtons", "Navigation Buttons")}
+          {!props.report && (
+            <Row label="Phone Layout" hint="On phones: one column (labels above boxes, buttons side by side; list forms become cards), or this design shrunk to the screen's width.">
+              <Select
+                label="Phone Layout"
+                value={layout.phoneLayout ?? "auto"}
+                options={[
+                  { value: "auto", label: "One column (automatic)" },
+                  { value: "original", label: "This design, shrunk to fit" },
+                ]}
+                onChange={(v) => onForm((_, l) => (v === "auto" ? delete l.phoneLayout : (l.phoneLayout = "original")))}
+              />
+            </Row>
+          )}
         </Group>
         <Group title="Data">
           <Row label="Record Source">
@@ -392,6 +405,11 @@ export function FormPropertySheet(props: {
           <Row label="Name">
             <TextProp label="Name" value={one.name} validate={nameError} onCommit={(v) => onPatch({ name: v.trim() })} />
           </Row>
+          {!props.report && (
+            <Row label="Show on Phones" hint="Whether the one-column phone layout shows this control (bigger screens always do)">
+              <BoolProp label="Show on Phones" value={!one.phoneHidden} onChange={(b) => onPatch({ phoneHidden: b ? undefined : true })} />
+            </Row>
+          )}
           {takesFocus(one.type) && !props.report && (
             <>
               <Row label="Tab Stop" hint="Whether Tab and Enter stop at this control">

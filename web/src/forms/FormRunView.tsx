@@ -16,6 +16,7 @@ import { useCommands, useWorkspace, type OpenArgs, type RecordTarget } from "../
 import { useFormEditor } from "./formEditor";
 import { Datasheet, type DatasheetColumn } from "../views/Datasheet";
 import { FormControlView, type ChoiceOption } from "./FormControls";
+import { phoneRows } from "./phoneLayout";
 import { isBound, layoutOf, onShownPage, paintOrder, parseValueList, readingOrder, tabSequence, themeStyle } from "./formLayout";
 
 /** Choices for combo and list boxes, by control id. Table and query row sources are read once per change. */
@@ -128,7 +129,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
     readOnlyMode: boolean;
     tabPages: Record<string, number>;
   }>;
-  const { compact } = useLayout();
+  const { compact, touch } = useLayout();
   const { data, error, table } = useSource(form.source, { editable: true });
   const editor = useFormEditor(data, table);
   /** Position in the found (filtered and sorted) records. */
@@ -168,6 +169,27 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
         : designed,
     [designed, overrides],
   );
+  // Phones get the form in one column, unless it's set to keep its designed layout.
+  const phone = compact && layout.phoneLayout !== "original";
+  // Tablets (and phones keeping the layout): a form wider than the screen shrinks to fit it.
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+  const [fit, setFit] = useState(1);
+  const [phoneView, setPhoneView] = useState<"list" | "record">("list");
+  useEffect(() => {
+    if (!scrollEl || phone || embedded || !(touch || compact)) {
+      setFit(1);
+      return;
+    }
+    const measure = () => {
+      const pad = parseFloat(getComputedStyle(scrollEl).paddingLeft) + parseFloat(getComputedStyle(scrollEl).paddingRight);
+      const avail = scrollEl.clientWidth - pad - 2;
+      setFit(avail > 0 && avail < layout.width ? Math.max(0.45, Math.floor((avail / layout.width) * 1000) / 1000) : 1);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(scrollEl);
+    return () => ro.disconnect();
+  }, [scrollEl, phone, embedded, touch, compact, layout.width]);
   // The form's own handle (set below), which macros and row sources read values through.
   const hostRef = useRef<Host | null>(null);
   const options = useRowSources(ws.doc, layout.controls, { name: form.name, value: (n) => hostRef.current?.value(n) });
@@ -724,7 +746,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
       return <FormControlView c={c} inputId={inputId} run={{ value: null, readOnly: true, isNew, display: { text: r.text, error: "error" in r ? r.error : undefined, numeric: typeof r.value === "number" }, onCommit: () => {}, onAction: () => {} }} />;
     }
     if (finding && isBound(c.type)) return <FindField c={c} inputId={inputId} field={c.field ? data.fields[colIdx(c.field)] : undefined} finding={finding} setFinding={setFinding} options={options[c.id]} onEnter={runFind} />;
-    if (!isBound(c.type)) return <FormControlView c={c} inputId={inputId} run={{ value: null, readOnly: true, isNew, onCommit: () => {}, onAction: () => act(c), buttonDisabled: !!finding || buttonDisabled(c) }} />;
+    if (!isBound(c.type)) return <FormControlView c={c} inputId={inputId} run={{ value: null, readOnly: true, isNew, onCommit: () => {}, onAction: () => act(c), buttonDisabled: !!finding || buttonDisabled(c), imageUrl: (imageId: string) => ws.imageUrl(imageId) }} />;
     if (!c.field && (c.type === "textbox" || c.type === "combobox" || c.type === "listbox" || c.type === "checkbox")) {
       const kind = c.type === "checkbox" ? "YesNo" : "ShortText";
       return (
@@ -808,7 +830,11 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
   };
   const recordKey = isNew ? "new" : `${pos}`;
   // Default View: Find always uses one record (the form's own fields hold the criteria).
-  const mode: FormViewMode = finding ? "single" : (layout.defaultView ?? "single");
+  const designMode: FormViewMode = finding ? "single" : (layout.defaultView ?? "single");
+  // Phones: a list form (continuous, datasheet, split) is a list of cards; tapping one shows its record.
+  const phoneList = phone && !embedded && designMode !== "single";
+  const mode: FormViewMode = phoneList ? "single" : designMode;
+  const showCards = phoneList && phoneView === "list" && !finding;
   const continuousRecs: Rec[] =
     mode === "continuous"
       ? [...order.slice(0, limit).map((ri, p) => ({ row: data.rows[ri], rowIndex: ri, isNew: false, p })), ...(canAdd ? [{ row: null, rowIndex: undefined, isNew: true, p: -1 }] : [])]
@@ -862,13 +888,24 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
   };
   const sectionHeight = (s: "header" | "detail" | "footer") => layout.sections[s];
   // Desktop: the controls go into the page in tab order, so Tab follows it; phones stack them top to bottom.
-  const ordered = compact ? readingOrder(layout.controls) : tabSequence(layout);
+  const ordered = phone ? readingOrder(layout.controls) : tabSequence(layout);
 
   const sectionBody = (s: "header" | "detail" | "footer", rec: Rec = cur) => {
     // Subforms on other pages of a tab control stay (hidden), so totals read from them still work.
     const shown = (c: FormControl) => onShownPage(c, tabPages, layout);
     const list = ordered.filter((c) => c.section === s && !c.hidden && (shown(c) || c.type === "subform"));
-    if (!compact) {
+    if (!phone) {
+      // A picture placed on a button's left (Access templates do this): its caption starts after the picture.
+      const pad = new Map<string, number>();
+      for (const img of list) {
+        if (img.type !== "image" || img.field || !img.picture || img.w > 64) continue;
+        for (const b of list) {
+          if (b.type !== "button" || b.transparent || !b.caption) continue;
+          const ix = Math.max(0, Math.min(img.x + img.w, b.x + b.w) - Math.max(img.x, b.x));
+          const iy = Math.max(0, Math.min(img.y + img.h, b.y + b.h) - Math.max(img.y, b.y));
+          if (ix * iy >= img.w * img.h * 0.4 && img.x < b.x + b.w / 2) pad.set(b.id, Math.max(pad.get(b.id) ?? 0, img.x + img.w - b.x + 4));
+        }
+      }
       // Tab controls first, so the controls on their pages draw on top.
       return paintOrder(list).map((c) => (
         <div
@@ -879,44 +916,83 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
           onDoubleClick={c.events?.onDblClick?.length ? () => fireControl(c, "onDblClick") : undefined}
           onClick={c.type !== "button" && c.events?.onClick?.length && !finding ? () => fireControl(c, "onClick") : undefined}
           data-gotfocus={c.events?.onGotFocus?.length ? "" : undefined} onFocus={c.events?.onGotFocus?.length ? (e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && fireControl(c, "onGotFocus") : undefined}
-          style={{ left: c.x, top: c.y, width: c.w, height: c.h, ...(c.transparent ? { zIndex: 1 } : {}), ...(shown(c) ? {} : { display: "none" }) }}
+          style={{ left: c.x, top: c.y, width: c.w, height: c.h, ...(c.transparent ? { zIndex: 1 } : {}), ...(pad.has(c.id) ? ({ "--btn-pad": `${pad.get(c.id)}px` } as object) : {}), ...(shown(c) ? {} : { display: "none" }) }}
         >
           {renderControl(c, rec)}
         </div>
       ));
     }
-    // Phone: the controls in reading order, full width; buttons side by side.
-    const out: ReactNode[] = [];
-    let buttons: FormControl[] = [];
-    const flush = () => {
-      if (buttons.length) {
-        out.push(
-          <div key={`b-${buttons[0].id}`} className="fv-btn-row">
-            {buttons.map((b) => <Fragment key={b.id}>{renderControl(b, rec)}</Fragment>)}
-          </div>,
-        );
-      }
-      buttons = [];
-    };
-    for (const c of list) {
-      if (c.type === "rectangle" || c.type === "line") continue;
-      if (c.type === "button") {
-        buttons.push(c);
-        continue;
-      }
-      flush();
-      out.push(
-        <div key={valueKey(c, rec)} className={`fv-ctl flow t-${c.type} ${c.tabStop === false ? "no-tab" : ""}`} data-field={isExpression(c.field) ? undefined : c.field} data-ctl={c.id} onDoubleClick={c.events?.onDblClick?.length ? () => fireControl(c, "onDblClick") : undefined} onClick={c.events?.onClick?.length && !finding ? () => fireControl(c, "onClick") : undefined} data-gotfocus={c.events?.onGotFocus?.length ? "" : undefined} onFocus={c.events?.onGotFocus?.length ? (e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && fireControl(c, "onGotFocus") : undefined} style={!shown(c) ? { display: "none" } : c.multiline || c.type === "listbox" || c.type === "image" || c.type === "subform" ? { minHeight: c.h } : undefined}>
-          {renderControl(c, rec)}
-        </div>,
-      );
-    }
-    flush();
-    return out;
+    // Phone: one column, labels above their boxes, buttons side by side (see phoneLayout.ts).
+    const wrap = (c: FormControl) => (
+      <div
+        key={valueKey(c, rec)}
+        className={`fv-ctl flow t-${c.type} ${c.tabStop === false ? "no-tab" : ""} ${c.picture && c.type === "button" && !c.caption ? "icon-only" : ""}`}
+        data-field={isExpression(c.field) ? undefined : c.field}
+        data-ctl={c.id}
+        onDoubleClick={c.events?.onDblClick?.length ? () => fireControl(c, "onDblClick") : undefined}
+        onClick={c.type !== "button" && c.events?.onClick?.length && !finding ? () => fireControl(c, "onClick") : undefined}
+        data-gotfocus={c.events?.onGotFocus?.length ? "" : undefined}
+        onFocus={c.events?.onGotFocus?.length ? (e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && fireControl(c, "onGotFocus") : undefined}
+        style={!shown(c) ? { display: "none" } : c.multiline || c.type === "listbox" || c.type === "subform" || (c.type === "image" && !!c.field) ? { minHeight: Math.min(c.h, 320) } : undefined}
+      >
+        {renderControl(c, rec)}
+      </div>
+    );
+    // A list form's column headings (header labels over the detail's boxes): the cards label their values instead.
+    const detail = phoneList && s === "header" ? layout.controls.filter((d) => d.section === "detail" && isBound(d.type)) : [];
+    const heading = (c: FormControl) => c.type === "label" && detail.some((d) => Math.abs(d.x - c.x) < 16 || (c.x >= d.x - 4 && c.x + c.w <= d.x + d.w + 4)) && c.y + c.h >= layout.sections.header - 40;
+    return phoneRows(detail.length ? list.filter((c) => !heading(c)) : list).map((r) =>
+      r.kind === "block" ? (
+        wrap(r.item.c)
+      ) : (
+        <div key={`${r.kind}-${r.items[0].c.id}`} className={r.kind === "buttons" ? `fv-btn-row ${s === "header" ? "toolbar" : ""}` : "fv-inline-row"}>
+          {r.items.map((it) => wrap(it.c))}
+        </div>
+      ),
+    );
   };
 
+  // Phone list: each record as a card (its first few fields), and a switch between the list and one record.
+  const cardControls: { label: string; field: string; c?: FormControl }[] = (() => {
+    const placed = tabSequence(layout).filter((c) => c.section === "detail" && !c.hidden && !c.phoneHidden && (c.type === "textbox" || c.type === "combobox" || c.type === "checkbox") && !!c.field && !isExpression(c.field) && colIdx(c.field) >= 0);
+    const list = placed.length ? placed.map((c) => ({ label: captionOf(c), field: c.field!, c })) : data.columns.map((f) => ({ label: f, field: f }));
+    // An AutoNumber ID says little: the card leads with the first other field.
+    const isId = (f: string) => data.fields[colIdx(f)]?.type === "AutoNumber";
+    return [...list.filter((x) => !isId(x.field)), ...list.filter((x) => isId(x.field))].slice(0, 4);
+  })();
+  const cardText = (x: (typeof cardControls)[number], row: CellValue[]) => {
+    const v = row[colIdx(x.field)];
+    if (v === null || v === undefined || v === "") return "";
+    const opts = x.c ? options[x.c.id] : undefined;
+    const hit = opts?.find((o) => o.value === String(v));
+    if (hit) return hit.label;
+    const f = data.fields[colIdx(x.field)];
+    if (f?.type === "YesNo") return v === true || v === 1 ? "Yes" : "No";
+    if (f?.type === "Image") return "";
+    return formatValue(f, v);
+  };
+  const phoneCard = (p: number) => {
+    const row = data.rows[order[p]];
+    const [first, ...rest] = cardControls;
+    return {
+      key: keyOf(order[p]),
+      title: first ? cardText(first, row) || "(blank)" : `Record ${p + 1}`,
+      lines: rest.map((x) => ({ label: x.label, text: cardText(x, row) })).filter((l) => l.text),
+    };
+  };
+  const phoneSwitch = phoneList ? (
+    <div className="fv-phone-switch" role="tablist">
+      <button role="tab" aria-selected={phoneView === "list"} className={phoneView === "list" ? "on" : ""} onClick={() => setPhoneView("list")}>
+        List · {order.length}
+      </button>
+      <button role="tab" aria-selected={phoneView === "record"} className={phoneView === "record" ? "on" : ""} onClick={() => setPhoneView("record")}>
+        {isNew ? "New record" : "Record"}
+      </button>
+    </div>
+  ) : null;
+
   return (
-    <div ref={rootRef} className={`fv theme-${layout.theme} ${compact ? "compact" : ""} ${finding ? "finding" : ""}`} style={themeStyle(layout.theme)}>
+    <div ref={rootRef} className={`fv theme-${layout.theme} ${phone ? "compact" : ""} ${finding ? "finding" : ""}`} style={themeStyle(layout.theme)}>
       {finding && (
         <FindBar
           finding={finding}
@@ -928,10 +1004,10 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
           }}
         />
       )}
-      {mode !== "datasheet" && <div className={`fv-scroll ${mode === "split" ? "split-top" : ""}`}>
+      {mode !== "datasheet" && <div ref={setScrollEl} className={`fv-scroll ${mode === "split" ? "split-top" : ""}`}>
         <div
           className={`fv-card ${mode === "continuous" ? "continuous" : ""}`}
-          style={compact ? undefined : { width: layout.width }}
+          style={phone ? undefined : { width: layout.width, ...(fit < 1 ? { zoom: fit } : {}) }}
           onKeyDown={(e) => {
             if (finding && e.key === "Escape") {
               e.preventDefault();
@@ -948,7 +1024,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
           {mode === "continuous" ? (
             <>
               {sectionHeight("header") > 0 && (
-                <div className="fv-section fv-header fv-sticky" style={compact ? undefined : { height: sectionHeight("header") }}>
+                <div className="fv-section fv-header fv-sticky" style={phone ? undefined : { height: sectionHeight("header") }}>
                   {sectionBody("header")}
                 </div>
               )}
@@ -958,7 +1034,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
                   <div
                     key={rec.isNew ? "new" : keyOf(rec.rowIndex!)}
                     className={`fv-section fv-detail fv-rec ${current ? "current" : ""} ${rec.isNew ? "new" : ""}`}
-                    style={compact ? undefined : { height: sectionHeight("detail") }}
+                    style={phone ? undefined : { height: sectionHeight("detail") }}
                     onMouseDownCapture={() => selectRec(rec)}
                     onFocusCapture={() => selectRec(rec)}
                   >
@@ -975,19 +1051,44 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
               )}
               {!order.length && !canAdd && <div className="fv-empty muted">No records.</div>}
               {sectionHeight("footer") > 0 && (
-                <div className="fv-section fv-footer" style={compact ? undefined : { height: sectionHeight("footer") }}>
+                <div className="fv-section fv-footer" style={phone ? undefined : { height: sectionHeight("footer") }}>
                   {sectionBody("footer")}
                 </div>
               )}
             </>
           ) : (
             (["header", "detail", "footer"] as const).map((s) =>
-              sectionHeight(s) > 0 ? (
-                <div key={s} className={`fv-section fv-${s}`} style={compact ? undefined : { height: sectionHeight(s) }}>
-                  {sectionBody(s)}
-                </div>
+              sectionHeight(s) > 0 && !(showCards && s !== "header") ? (
+                <Fragment key={s}>
+                  <div className={`fv-section fv-${s}`} style={phone ? undefined : { height: sectionHeight(s) }}>
+                    {sectionBody(s)}
+                  </div>
+                  {phoneList && s === "header" && phoneSwitch}
+                </Fragment>
               ) : null,
             )
+          )}
+          {phoneList && !sectionHeight("header") && phoneSwitch}
+          {showCards && (
+            <PhoneCards
+              count={order.length}
+              limit={limit}
+              onMore={() => setLimit((n) => n + 200)}
+              card={phoneCard}
+              current={isNew ? -1 : pos}
+              canAdd={canAdd}
+              onOpen={(p) => {
+                setIsNew(false);
+                setPos(p);
+                setPhoneView("record");
+                // Show the record from its top (the switch), not from wherever the list was scrolled to.
+                requestAnimationFrame(() => rootRef.current?.querySelector(".fv-phone-switch")?.scrollIntoView({ block: "start" }));
+              }}
+              onNew={() => {
+                goNew();
+                setPhoneView("record");
+              }}
+            />
           )}
         </div>
       </div>}
@@ -1017,7 +1118,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
           />
         </div>
       )}
-      {!finding && !!form.source && mode !== "datasheet" && mode !== "split" && (layout.navigationButtons !== false || filter || where) && (
+      {!finding && !showCards && !!form.source && mode !== "datasheet" && mode !== "split" && (layout.navigationButtons !== false || filter || where) && (
         <div className="record-nav">
           <span className="rn-label">Record:</span>
           <button onClick={() => go(0)} disabled={!count} title="First record">⏮</button>
@@ -1207,6 +1308,58 @@ function FindBar(props: {
       {finding.message && (
         <div className="find-message" role="alert">
           {finding.message}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A phone's list of records: one card each, tap to open; a search box narrows them. */
+function PhoneCards(p: {
+  count: number;
+  limit: number;
+  onMore: () => void;
+  card: (pos: number) => { key: string; title: string; lines: { label: string; text: string }[] };
+  current: number;
+  canAdd: boolean;
+  onOpen: (pos: number) => void;
+  onNew: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const needle = q.trim().toLowerCase();
+  const cards: { pos: number; card: ReturnType<typeof p.card> }[] = [];
+  for (let i = 0; i < p.count && cards.length < p.limit; i++) {
+    const card = p.card(i);
+    if (needle && !`${card.title} ${card.lines.map((l) => l.text).join(" ")}`.toLowerCase().includes(needle)) continue;
+    cards.push({ pos: i, card });
+  }
+  return (
+    <div className="fv-cards">
+      <div className="fv-cards-bar">
+        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${p.count} record${p.count === 1 ? "" : "s"}`} aria-label="Search these records" />
+        {p.canAdd && (
+          <button type="button" onClick={p.onNew}>
+            + New
+          </button>
+        )}
+      </div>
+      {cards.map(({ pos, card }) => (
+        <button key={card.key} type="button" className={`fv-card-item ${pos === p.current ? "current" : ""}`} onClick={() => p.onOpen(pos)}>
+          <span className="fv-card-title">{card.title}</span>
+          {card.lines.map((l, i) => (
+            <span key={i} className="fv-card-line">
+              <span className="fv-card-label">{l.label}</span> {l.text}
+            </span>
+          ))}
+          <span className="fv-card-go" aria-hidden>
+            ›
+          </span>
+        </button>
+      ))}
+      {!cards.length && <div className="fv-empty muted">{needle ? "No records match." : "No records."}</div>}
+      {p.count > p.limit && !needle && (
+        <div className="fv-more">
+          <button onClick={p.onMore}>Show more ({p.count - p.limit} more)</button>
         </div>
       )}
     </div>
