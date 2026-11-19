@@ -12,6 +12,7 @@
  */
 import { formatDate } from "./values";
 import { parseAccessDate } from "../../../shared/dates.js";
+import { richToPlain } from "../../../shared/values.js";
 
 export type ExprValue = number | string | boolean | null;
 
@@ -883,6 +884,8 @@ const FN_LIST: Fn[] = [
   // Inspection
   { name: "IsNull", cat: "Inspection", syntax: "IsNull(«expr»)", desc: "True when the value is blank.", min: 1, max: 1, run: ([v]) => v === null },
   { name: "RGB", cat: "Conversion", syntax: "RGB(«red», «green», «blue»)", desc: "A color as Access stores it: red + green·256 + blue·65536, each 0–255.", min: 3, max: 3, run: ([r, g, b]) => { const c = (v: ExprValue) => Math.max(0, Math.min(255, Math.trunc(Number(v) || 0))); return c(r) + c(g) * 256 + c(b) * 65536; } },
+  { name: "Rnd", cat: "Math", syntax: "Rnd()", desc: "A random number from 0 up to (not including) 1.", min: 0, max: 1, run: () => Math.random() },
+  { name: "TempVars", cat: "Inspection", syntax: 'TempVars("«name»")', desc: "A temporary variable's value (the same as [TempVars]![name]).", min: 1, max: 1, run: ([n]) => resolveQualified(["TempVars", text(n)]) ?? null },
   { name: "VarType", cat: "Inspection", syntax: "VarType(«expr»)", desc: "The kind of value: 1 Null, 3 whole number, 5 number with decimals, 7 date, 8 text, 11 Yes/No.", min: 1, max: 1, run: ([v]) => (v === null || v === undefined ? 1 : typeof v === "boolean" ? 11 : typeof v === "number" ? (Number.isInteger(v) ? 3 : 5) : 8) },
   { name: "IsNumeric", cat: "Inspection", syntax: "IsNumeric(«expr»)", desc: "True when the value is a number.", min: 1, max: 1, run: ([v]) => typeof v === "number" || (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v.replace(/[$,]/g, "")))) },
   { name: "IsDate", cat: "Inspection", syntax: "IsDate(«expr»)", desc: "True when the value is (or reads as) a date.", min: 1, max: 1, run: ([v]) => isDate(v) || (typeof v === "string" && !!parseAccessDate(v.trim())) },
@@ -1091,7 +1094,8 @@ function domainCall(name: string, a: ExprValue[], ctx: ExprContext): ExprValue {
   const crit = a[2] === undefined || a[2] === null || text(a[2]).trim() === "" ? null : compileExpression(text(a[2]));
   if (crit && !crit.ok) throw new ExprError(`${fname}: the criteria "${text(a[2])}" has a problem: ${crit.error}`);
   const matching = crit ? rows.filter((r) => {
-    const v = evaluate((crit as { node: Node }).node, r);
+    // The criteria can use domain functions too (DCount inside DLookup's criteria).
+    const v = evaluate((crit as { node: Node }).node, ctx.domain && !r.domain ? { ...r, domain: ctx.domain } : r);
     return v !== null && truthy(v);
   }) : rows;
   if (exprText.trim() === "*") {
@@ -1112,7 +1116,7 @@ export function displayValue(v: ExprValue, format?: string): string {
   if (format?.trim()) return formatExpr(v, format);
   if (v === null) return "";
   if (typeof v === "boolean") return v ? "Yes" : "No";
-  return text(v);
+  return richToPlain(text(v));
 }
 
 /** A record's row as an expression context: its fields by name, any case. */

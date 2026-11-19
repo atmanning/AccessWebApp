@@ -423,3 +423,34 @@ textarea.ps-input { height: auto; padding: 4px 6px; resize: vertical; }
 .fv-card-label { font-weight: 600; }
 .fv-card-go { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 22px; color: var(--f-muted); }
 .fv-ctl[style*="--btn-pad"] .fc-button { padding-left: var(--btn-pad); padding-right: 4px; justify-content: flex-start; white-space: nowrap; font-size: 12px; letter-spacing: -0.01em; overflow: visible; }
+
+/* A form shown as a chart (Access's PivotChart view). */
+.fv.fv-chart { padding: 12px 16px; overflow: auto; background: var(--f-surface, #fff); }
+.fv.fv-chart.embedded { padding: 4px 6px; height: 100%; box-sizing: border-box; }
+.fch { position: relative; width: 100%; color: #1f2328; font-size: 13px; }
+.fch-head { display: flex; align-items: center; gap: 8px; min-height: 26px; margin-bottom: 4px; }
+.fch-title { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fch-toggle { margin-left: auto; padding: 2px 10px; border: 1px solid #d0d4da; border-radius: 6px; background: #fff; font: inherit; font-size: 12px; color: #444; cursor: pointer; }
+.fch-toggle:hover { background: #f4f5f7; }
+.fch-panel svg { display: block; overflow: visible; }
+.fch-tick { font-size: 11px; fill: #5f6670; font-variant-numeric: tabular-nums; }
+.fch-legend { position: absolute; top: 4px; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: #3b4048; pointer-events: none; }
+.fch-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.fch-legend i.sw { width: 10px; height: 10px; border-radius: 2px; }
+.fch-legend i.ln { width: 14px; height: 2px; border-radius: 1px; }
+.fch-tip { position: absolute; z-index: 3; min-width: 140px; padding: 7px 10px; border-radius: 8px; background: #fff; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16); border: 1px solid #e3e5e8; font-size: 12px; pointer-events: none; }
+.fch-tip strong { display: block; margin-bottom: 3px; }
+.fch-tip div { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.fch-tip i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.fch-tip b { font-variant-numeric: tabular-nums; }
+.fch-pie { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px; padding: 6px 0; }
+.fch-pie-legend { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: auto 1fr auto auto; gap: 6px 10px; align-items: center; font-size: 13px; }
+.fch-pie-legend li { display: contents; }
+.fch-pie-legend i { width: 10px; height: 10px; border-radius: 2px; }
+.fch-pie-legend b, .fch-pie-legend .muted { text-align: right; font-variant-numeric: tabular-nums; }
+.fch-pie-legend li.on .lbl { text-decoration: underline; }
+.fch-empty { padding: 30px 0; text-align: center; }
+.fch-table-wrap { max-height: 360px; overflow: auto; }
+.fch-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.fch-table th, .fch-table td { padding: 5px 10px; border-bottom: 1px solid #eceef1; text-align: left; }
+.fch-table td.num, .fch-table th:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }

@@ -193,3 +193,23 @@ function png(img: Rgba | null): { mime: string; data: Buffer } | null {
   ]);
   return { mime: "image/png", data };
 }
+
+/**
+ * A picture pasted into a form as an OLE object (Paint, Picture Manager…): Access keeps it in an
+ * OLE storage, with the bitmap (a BMP file) or a PNG / JPEG / metafile somewhere inside.
+ */
+export function olePicture(data: Buffer): { mime: string; data: Buffer } | null {
+  const direct = browserPicture(data);
+  if (direct) return direct;
+  for (let at = data.indexOf("BM"); at >= 0; at = data.indexOf("BM", at + 2)) {
+    if (at + 54 > data.length) break;
+    const size = data.readUInt32LE(at + 2);
+    const bits = data.readUInt32LE(at + 10);
+    const hs = data.readUInt32LE(at + 14);
+    if (size > 54 && at + size <= data.length + 16 && bits >= 26 && bits < size && (hs === 12 || hs === 40 || hs === 108 || hs === 124)) {
+      const pic = browserPicture(data.subarray(at, Math.min(data.length, at + size)));
+      if (pic) return pic;
+    }
+  }
+  return null;
+}

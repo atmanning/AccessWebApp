@@ -167,7 +167,7 @@ Link Master/Child Fields), rectangles, lines and bound pictures are supported. A
 SQL statement becomes a saved query. **Unbound forms** (menus, switchboards, dialogs) come across without a
 record source. **Tab controls** keep their pages (each page's controls show when its tab is picked). **Pictures in
 the design** (logos, from the control itself or the database's shared images) come across, converted to PNG when
-Access stored them as a bitmap or metafile. On **reports**, a combo box bound to a lookup shows the name from its
+Access stored them as a bitmap or metafile. Pictures pasted in as OLE objects (Paint) come across too. **PivotChart** forms (Access 2010 and earlier) become **charts** of their records: column, bar, line, area or pie, grouped by the chart's category with each series totalled (Sum, Count, Avg, Min, Max) and its title; a series Access drew against a second value axis gets its own panel instead of a second scale. Hover or tap for values, **Show data** for a table. PivotTable forms show as datasheets. Unbound boxes keep their **Default Value** (Date() → today), and **Link Master Fields** can name such a box (a Date box above a subform). Access **Rich Text** shows as its words (formatting isn't shown yet). On **reports**, a combo box bound to a lookup shows the name from its
 list (Checked Out To → Ann Lee), as in Access. Option group frames, charts and OLE/ActiveX controls are left out.
 
 **Attachment fields** come across as Image fields with each record's first picture (Access databases use them

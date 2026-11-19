@@ -17,6 +17,7 @@ import { useFormEditor } from "./formEditor";
 import { Datasheet, type DatasheetColumn } from "../views/Datasheet";
 import { FormControlView, type ChoiceOption } from "./FormControls";
 import { phoneRows } from "./phoneLayout";
+import { FormChartView } from "./FormChart";
 import { isBound, layoutOf, onShownPage, paintOrder, parseValueList, readingOrder, tabSequence, themeStyle } from "./formLayout";
 
 /** Choices for combo and list boxes, by control id. Table and query row sources are read once per change. */
@@ -150,7 +151,25 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
   /** Continuous forms show this many records, then "Show more". */
   const [limit, setLimit] = useState(100);
   // Unbound controls (no Control Source) hold what's typed while the form is open, as in Access.
-  const [unbound, setUnbound] = useState<Record<string, CellValue>>(saved.unbound ?? {});
+  const [unbound, setUnbound] = useState<Record<string, CellValue>>(() => {
+    if (saved.unbound) return saved.unbound;
+    // Unbound boxes start with their Default Value (Date() → today).
+    const init: Record<string, CellValue> = {};
+    const withDefaults = (form.layout?.controls ?? []).filter((c) => !c.field && c.defaultValue);
+    if (withDefaults.length) {
+      const calc0 = makeFormCalc(ws.doc, form.layout!, []);
+      for (const c of withDefaults) {
+        const e = c.defaultValue!.trim();
+        try {
+          const v = calc0.evaluate(e.startsWith("=") ? e : `=${e}`, null, () => []);
+          if (v !== null && v !== undefined) init[c.id] = (typeof v === "boolean" ? v : v) as CellValue;
+        } catch {
+          // A default that refers to something not there yet: start empty, as Access shows #Name? there.
+        }
+      }
+    }
+    return init;
+  });
   // Set by macros: a Where Condition (OpenForm, ApplyFilter), control properties, Data Mode Read Only.
   const [where, setWhere] = useState<string | null>("where" in saved ? saved.where! : (open?.where ?? null));
   const [overrides, setOverrides] = useState<Record<string, Override>>(saved.overrides ?? {});
@@ -718,7 +737,19 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
     if (c.type === "subform") {
       // Related records of this record (Link Child Fields = this record's Link Master Fields).
       const mi = c.linkMaster ? colIdx(c.linkMaster) : -1;
-      const master = c.linkMaster ? (row && mi >= 0 ? row[mi] : undefined) : null;
+      // Link Master Fields can also name a control of this form (an unbound Date box above the subform).
+      const masterName = c.linkMaster?.replace(/^\[|\]$/g, "").toLowerCase();
+      const masterCtl = masterName && mi < 0 ? designed.controls.find((x) => x.name.toLowerCase() === masterName && x.type !== "subform") : undefined;
+      const ctlValue = (m: FormControl): CellValue | undefined => {
+        if (isExpression(m.field)) {
+          const v = calc ? calc.value(m, row, foundRows, unboundVars).value : null;
+          return (v === undefined ? null : v) as CellValue;
+        }
+        if (!m.field) return (unboundVars[m.name] ?? null) as CellValue;
+        const i = colIdx(m.field);
+        return row && i >= 0 ? row[i] : undefined;
+      };
+      const master = c.linkMaster ? (mi >= 0 ? (row ? row[mi] : undefined) : masterCtl ? ctlValue(masterCtl) : undefined) : null;
       const sub = c.sourceForm ? ws.doc.forms.find((f) => f.id === c.sourceForm) : undefined;
       const content = finding ? (
         <div className="sf-box sf-message">Related records aren't searched in Find.</div>
@@ -727,7 +758,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
           <div className="sf-box sf-message">The form this subform showed was deleted. Choose another in the Property Sheet.</div>
         ) : sub.id === form.id || (embedded?.depth ?? 0) >= 3 ? (
           <div className="sf-box sf-message">A form can't show itself as a subform.</div>
-        ) : !!c.linkMaster && mi < 0 ? (
+        ) : !!c.linkMaster && mi < 0 && !masterCtl ? (
           <div className="sf-box sf-message">The form's records have no field named {c.linkMaster}. Check Link Master Fields in the Property Sheet.</div>
         ) : (
           <div className="sf-box sf-form">
@@ -739,7 +770,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
           </div>
         )
       ) : (
-        <SubformView c={c} master={master} newRecord={isNew} masterMissing={!!c.linkMaster && mi < 0} readOnly={layout.allowEdits === false} />
+        <SubformView c={c} master={master} newRecord={isNew} masterMissing={!!c.linkMaster && mi < 0 && !masterCtl} readOnly={layout.allowEdits === false} />
       );
       return <FormControlView c={c} inputId={inputId} run={{ value: null, readOnly: true, isNew, content, onCommit: () => {}, onAction: () => {} }} />;
     }
@@ -751,7 +782,9 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
     if (finding && isBound(c.type)) return <FindField c={c} inputId={inputId} field={c.field ? data.fields[colIdx(c.field)] : undefined} finding={finding} setFinding={setFinding} options={options[c.id]} onEnter={runFind} />;
     if (!isBound(c.type)) return <FormControlView c={c} inputId={inputId} run={{ value: null, readOnly: true, isNew, onCommit: () => {}, onAction: () => act(c), buttonDisabled: !!finding || buttonDisabled(c), imageUrl: (imageId: string) => ws.imageUrl(imageId) }} />;
     if (!c.field && (c.type === "textbox" || c.type === "combobox" || c.type === "listbox" || c.type === "checkbox")) {
-      const kind = c.type === "checkbox" ? "YesNo" : "ShortText";
+      // An unbound box holding a date (Date() as its Default Value) shows and edits it as a date.
+      const v0 = unbound[c.id];
+      const kind = c.type === "checkbox" ? "YesNo" : c.type === "textbox" && typeof v0 === "string" && /^\d{4}-\d{2}-\d{2}(T[\d:.]+)?$/.test(v0) ? "DateTime" : "ShortText";
       return (
         <FormControlView
           c={c}
@@ -993,6 +1026,14 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
       </button>
     </div>
   ) : null;
+
+  // A chart of the records (Access's PivotChart view).
+  if (layout.chart)
+    return (
+      <div ref={rootRef} className={`fv fv-chart theme-${layout.theme} ${embedded ? "embedded" : ""}`} style={themeStyle(layout.theme)}>
+        <FormChartView chart={layout.chart} columns={data.columns} fields={data.fields} rows={order.map((i) => data.rows[i])} title={embedded ? undefined : form.title || form.name} />
+      </div>
+    );
 
   return (
     <div ref={rootRef} className={`fv theme-${layout.theme} ${phone ? "compact" : ""} ${finding ? "finding" : ""}`} style={themeStyle(layout.theme)}>

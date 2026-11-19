@@ -67,7 +67,7 @@ export function jetStatementsToSteps(list: readonly JetStatement[] | undefined):
   return out;
 }
 
-interface XmlNode {
+export interface XmlNode {
   tag: string;
   attrs: Record<string, string>;
   children: XmlNode[];
@@ -80,7 +80,7 @@ const decodeXml = (t: string) =>
   );
 
 /** A small XML reader for Access's macro XML (elements, attributes, text; no DTDs). */
-function parseXml(xml: string): XmlNode | null {
+export function parseXml(xml: string): XmlNode | null {
   const root: XmlNode = { tag: "#root", attrs: {}, children: [], text: "" };
   const stack = [root];
   const re = /<!\[CDATA\[([\s\S]*?)\]\]>|<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<(\/?)([A-Za-z_][\w.:-]*)((?:\s+[\w.:-]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*(\/?)>|([^<]+)/g;

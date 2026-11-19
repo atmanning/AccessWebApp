@@ -305,6 +305,8 @@ export const formControlSchema = z.object({
   target: id.optional(),
   /** Button look (primary/secondary/outline/danger), or "switch" for a check box drawn as a switch. */
   variant: z.enum(["primary", "secondary", "outline", "danger", "switch"]).optional(),
+  /** Unbound boxes: what they start with when the form opens (an expression such as Date(), or a value). */
+  defaultValue: z.string().max(1000).optional(),
   /** Left out of the one-column layout phones get (it still shows on bigger screens). */
   phoneHidden: z.boolean().optional(),
   /** Buttons: invisible but clickable, over a picture (Access's Transparent property). */
@@ -316,6 +318,35 @@ export type FormControl = z.infer<typeof formControlSchema>;
 
 export const FORM_VIEWS = ["single", "continuous", "datasheet", "split"] as const;
 export type FormViewMode = (typeof FORM_VIEWS)[number];
+
+export const CHART_TYPES = ["column", "bar", "line", "area", "pie"] as const;
+export type ChartType = (typeof CHART_TYPES)[number];
+export const CHART_AGGS = ["sum", "count", "avg", "min", "max"] as const;
+/**
+ * A chart of the form's records (Access's PivotChart view): the records grouped by the category
+ * field, each series a field's total per group.
+ */
+export const formChartSchema = z.object({
+  type: z.enum(CHART_TYPES),
+  /** The field along the bottom (or the pie's slices); none: one group of all records. */
+  category: z.string().max(200).optional(),
+  series: z
+    .array(
+      z.object({
+        field: z.string().max(200),
+        agg: z.enum(CHART_AGGS),
+        /** A different kind of chart for this series (Access's combination charts). */
+        type: z.enum(CHART_TYPES).optional(),
+        /** Plotted against its own scale in Access (a second value axis): drawn as its own panel here. */
+        ownScale: z.boolean().optional(),
+        label: z.string().max(200).optional(),
+      }),
+    )
+    .min(1)
+    .max(8),
+  title: z.string().max(400).optional(),
+});
+export type FormChart = z.infer<typeof formChartSchema>;
 
 export const formLayoutSchema = z.object({
   width: px(160, 4000),
@@ -333,6 +364,8 @@ export const formLayoutSchema = z.object({
   allowDeletions: z.boolean().optional(),
   /** On phones: rearranged into one column (automatic, the default), or the designed layout shrunk to fit. */
   phoneLayout: z.enum(["auto", "original"]).optional(),
+  /** Shown as a chart of its records instead (Access's PivotChart view). */
+  chart: formChartSchema.optional(),
 });
 export type FormLayout = z.infer<typeof formLayoutSchema>;
 

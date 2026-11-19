@@ -65,8 +65,31 @@ export function formatValue(field: Pick<Field, "type"> | undefined, v: CellValue
     case "Image":
       return "(picture)";
     default:
-      return typeof v === "boolean" ? (v ? "Yes" : "No") : String(v);
+      return typeof v === "boolean" ? (v ? "Yes" : "No") : richToPlain(String(v));
   }
+}
+
+/** Access's Rich Text (HTML kept in a Long Text field): looks like <div>…</div> or <font …>. */
+export const isRichText = (s: string) => /^\s*<(div|p|font|strong|em|b|i|u|ul|ol|blockquote)\b[^>]*>/i.test(s) && /<\/(div|p|font|strong|em|b|i|u|ul|ol|li|blockquote)>/i.test(s);
+
+/** Rich Text shown as its words (line breaks kept), never as markup; other text as it is. */
+export function richToPlain(s: string): string {
+  if (!isRichText(s)) return s;
+  return s
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(div|p|li|blockquote)>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "• ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (_, n: string) => String.fromCodePoint(Number(n)))
+    .replace(/&amp;/gi, "&")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export function formatDate(iso: string): string {

@@ -10,7 +10,8 @@
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import { LOOKUP_TYPES, MAX_IMAGE_BYTES, type FormControl, type FormControlType, type FormDef, type FormLayout, type FormSection, type ProjectDoc, type QueryDef, type ReportControl, type ReportDef, type ReportLayout, type SourceRef } from "../../shared/model.js";
-import { browserPicture } from "./pictures.js";
+import { browserPicture, olePicture } from "./pictures.js";
+import { pivotChart } from "./accessCharts.js";
 import { cleanName, rid, unique } from "../../shared/exchange.js";
 import type { MacroDef, MacroStep } from "../../shared/macros.js";
 import { findProcedure, jetMacroSteps, vbaConstants, vbaEventCall, vbaProcedure, vbaToSteps, type JetStatement, type VbaProcedure } from "./accessMacros.js";
@@ -134,7 +135,13 @@ function designPicture(db: JetDatabase, out: ImportedDesigns, p: Props): string 
   let raw: Buffer | undefined;
   // PictureData, or (newer files) an unnamed property such as 0x023E that holds the picture file itself.
   const embedded = p.bytes("PictureData") ?? p.unnamedBytes().find((b) => b.length > 32 && browserPicture(Buffer.from(b)));
+  const ole = !embedded && p.bytes("OleData");
   if (embedded?.length) raw = Buffer.from(embedded);
+  else if (ole && ole.length) {
+    // A picture pasted in as an OLE object (Paint): the bitmap inside it.
+    const pic = olePicture(Buffer.from(ole));
+    if (pic) raw = pic.data;
+  }
   else {
     // A shared image (Picture names a row of MSysResources).
     const name = p.str("Picture")?.toLowerCase();
@@ -485,6 +492,14 @@ export function importTableLookups(db: JetDatabase, doc: ProjectDoc, out: Import
 function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns, src: Sources) {
   const list = db.forms();
   if (!list.length) return;
+  // An event set to a macro the database doesn't have does nothing worth reporting (Access can't run it either).
+  let macroNames: Set<string>;
+  try {
+    macroNames = new Set(db.macros().map((m) => m.toLowerCase()));
+  } catch {
+    macroNames = new Set();
+  }
+  const liveEvent = (v: string | undefined) => !!v?.trim() && (/^\[|^=/.test(v.trim()) || macroNames.has(v.trim().split(".")[0].replace(/^\[|\]$/g, "").toLowerCase()));
   const { sourceFor, tableOf, columnsOf } = src;
   const designs = new Map<string, JetDesign>();
   for (const item of list) {
@@ -597,7 +612,15 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns, src: So
     if (view === 1 && source) layout.defaultView = "continuous";
     else if (view === 2) layout.defaultView = "datasheet";
     else if (view === 5) layout.defaultView = "split";
-    else if (view === 3 || view === 4) out.warnings.push(`Form '${item.name}' is a PivotTable or PivotChart in Access; here it shows one record at a time.`);
+    else if (view === 3 || view === 4) {
+      // PivotChart (4) and PivotTable (3) views: a chart of the records, from the form's chart XML.
+      const chart = source ? pivotChart(props.str("0x0196"), props.str("0x0197"), columnsOf(source)) : null;
+      if (chart && view === 4) layout.chart = chart;
+      else if (view === 3) {
+        layout.defaultView = "datasheet";
+        out.warnings.push(`Form '${item.name}' is a PivotTable in Access; here it shows its records as a datasheet.`);
+      } else out.warnings.push(`Form '${item.name}' is a PivotChart in Access, but its chart settings couldn't be read; here it shows one record at a time.`);
+    }
 
     const sourceTable = source ? tableOf(source) : undefined;
     const fieldType = (f: string | undefined) => (f ? sourceTable?.fields.find((x) => x.name.toLowerCase() === f.toLowerCase())?.type : undefined);
@@ -684,7 +707,7 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns, src: So
       }
       if (!section) continue;
       // A picture placed on the form (a logo): stored, and shown by an image control.
-      const picture = (code === AC.image || code === AC.boundObject) && !p.str("ControlSource") ? designPicture(db, out, p) : undefined;
+      const picture = (code === AC.image || code === AC.boundObject || code === AC.objectFrame) && !p.str("ControlSource") ? designPicture(db, out, p) : undefined;
       const kind = picture ? "image" : kindOf(code, p);
       if (code === AC.page && tabState) {
         // A page of the tab control above: the controls listed after it (inside it) are on it.
@@ -806,7 +829,12 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns, src: So
         const steps = eventSteps(p.str(e.prop), jc.name, e.jet, `${prefix}_${e.vba}`);
         if (steps?.length) c.events = { ...c.events, [e.ev]: steps };
       }
-      for (const e of OTHER_EVENTS) if (p.str(e)) otherEvents.add(e.replace(/^On/, "On "));
+      for (const e of OTHER_EVENTS) if (liveEvent(p.str(e))) otherEvents.add(e.replace(/^On/, "On "));
+      // An unbound box's Default Value (=Date(), "Smith", 0): what it starts with.
+      if ((kind === "textbox" || kind === "combobox" || kind === "checkbox") && !c.field) {
+        const dv = p.str("DefaultValue")?.trim();
+        if (dv) c.defaultValue = dv.slice(0, 1000);
+      }
       if (kind === "button") {
         c.action = "none";
         c.variant = "secondary";
@@ -850,7 +878,7 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns, src: So
       const steps = eventSteps(props.str(e.prop), null, e.jet, `Form_${e.vba}`);
       if (steps?.length) formEvents[e.ev] = [...(formEvents[e.ev] ?? []), ...steps];
     }
-    for (const e of OTHER_EVENTS) if (props.str(e)) otherEvents.add(e.replace(/^On/, "On "));
+    for (const e of OTHER_EVENTS) if (liveEvent(props.str(e))) otherEvents.add(e.replace(/^On/, "On "));
     const mapped = new Set([...CONTROL_EVENT_PROPS, ...FORM_EVENT_PROPS].map((e) => e.jet.toLowerCase()));
     for (const m of (macros as JetMacro[] | null) ?? []) {
       const ev = m.source?.event;
@@ -1077,7 +1105,7 @@ function convertReport(
       : code === AC.rectangle ? "rectangle"
       : code === AC.line ? "line"
       : (code === AC.image || code === AC.boundObject || code === AC.attachment) && p.str("ControlSource") ? "image"
-      : (code === AC.image || code === AC.boundObject) && (picture = designPicture(db, out, p)) ? "image"
+      : (code === AC.image || code === AC.boundObject || code === AC.objectFrame) && (picture = designPicture(db, out, p)) ? "image"
       : null;
     if (!kind) {
       // Buttons on a report only work in Access's Report View, on screen; printed reports don't show them.
