@@ -46,6 +46,7 @@ import { copyObject, PasteDialog, readClipboard, type ClipItem } from "./clipboa
 import { LinkedTableView, SqlConsoleView } from "../views/RemoteViews";
 import { cleanName } from "../../../shared/exchange";
 import { QUERY_TYPE_ICONS, typeOfQuery } from "./queryKinds";
+import { FullScreenBar } from "./FullScreenBar";
 import { NavPane, type Selection } from "./NavPane";
 import { setPublicViewing } from "../engine/linked";
 import { VersionStamp } from "../ui/VersionStamp";
@@ -87,6 +88,8 @@ export function Workspace(props: {
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [selection, setSelection] = useState<Selection>(null);
   const [navCollapsed, setNavCollapsed] = useState(false);
+  // Full screen: the open form on its own, like an app (FullScreenBar.tsx).
+  const [fullScreen, setFullScreenState] = useState(() => !!props.deepLink?.full);
   // Phone layout: the navigation pane is a drawer that closes once something is opened.
   const { compact } = useLayout();
   const compactRef = useRef(compact);
@@ -235,7 +238,8 @@ export function Workspace(props: {
   }, []);
 
   // Opened from a record's link (a label's QR code): show that form or table at the record.
-  useEffect(() => {
+  // After AutoExec, so a form it opens (a Welcome screen) doesn't cover the one the link is for.
+  const openDeepLink = useCallback(() => {
     const l = props.deepLink;
     if (!l) return;
     const d = docRef.current;
@@ -281,6 +285,36 @@ export function Workspace(props: {
   }, [tabs, activeKey]);
 
   const activeTab = tabs.find((t) => t.key === activeKey) ?? null;
+  const setFullScreen = useCallback((on: boolean) => {
+    setFullScreenState(on);
+    // The browser's own full screen too, where it has one (not iPhones): no address bar.
+    try {
+      const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
+      if (on && !document.fullscreenElement && el.requestFullscreen && window.matchMedia("(pointer: coarse)").matches) void el.requestFullscreen().catch(() => {});
+      if (!on && document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    } catch {
+      /* no browser full screen */
+    }
+  }, []);
+  // Closing the last thing open (a form's Close button) leaves full screen.
+  const hadTabs = useRef(false);
+  useEffect(() => {
+    if (tabs.length) hadTabs.current = true;
+    else if (fullScreen && hadTabs.current) setFullScreen(false);
+  }, [tabs.length, fullScreen, setFullScreen]);
+  // The address shows what's open full screen, so reloading keeps it and it can be bookmarked
+  // (or added to a phone's home screen).
+  const fullLink = fullScreen && activeTab?.kind === "form" ? `${location.origin}${location.pathname}?db=${encodeURIComponent(props.project.id)}&open=form:${encodeURIComponent(activeTab.id)}&full=1` : undefined;
+  useEffect(() => {
+    const q = new URLSearchParams(location.search);
+    if (q.get("db") !== props.project.id) return;
+    if (fullLink) {
+      if (location.href !== fullLink) window.history.replaceState(null, "", fullLink);
+    } else if (!fullScreen && (q.has("full") || q.has("open"))) {
+      for (const k of ["open", "full", "key", "rec"]) q.delete(k);
+      window.history.replaceState(null, "", `${location.pathname}?${q}`);
+    }
+  }, [fullLink, fullScreen, props.project.id]);
 
   const wsApi: WorkspaceApi = useMemo(
     () => ({
@@ -691,8 +725,24 @@ export function Workspace(props: {
 
   return (
     <WorkspaceContext.Provider value={wsApi}>
-      <AutoExec key={props.project.id} />
-      <div className="app-shell">
+      <AutoExec key={props.project.id} then={openDeepLink} />
+      <div className={`app-shell ${fullScreen && activeTab ? "full-screen" : ""}`}>
+        {fullScreen && activeTab && (
+          <FullScreenBar
+            doc={doc}
+            title={(() => {
+              const o = activeTab.kind === "form" ? doc.forms.find((f) => f.id === activeTab.id) : activeTab.kind === "report" ? doc.reports.find((r) => r.id === activeTab.id) : undefined;
+              return o ? o.title || o.name : "";
+            })()}
+            canGoBack={tabs.length > 1}
+            onBack={() => closeTab(activeTab.key)}
+            activeFormId={activeTab.kind === "form" ? activeTab.id : undefined}
+            onOpenForm={(id) => openObject("form", id, "form")}
+            onExit={() => setFullScreen(false)}
+            link={fullLink}
+            onCopied={(ok) => setStatus(ok ? "Copied. Open the link on a phone (and add it to the home screen) to use this form like an app." : `Couldn't copy. The link is ${fullLink}`, ok ? "info" : "error")}
+          />
+        )}
         <header className="title-bar">
           <div className="qat">
             {compact ? (
@@ -837,6 +887,11 @@ export function Workspace(props: {
         <footer className={`status-bar ${status.kind === "error" ? "error" : ""}`}>
           <span className="status-msg" role="status">{status.message}</span>
           <span className={`save-state ${saveState}`}>{saveLabel}</span>
+          {activeTab && (activeTab.kind === "form" || activeTab.kind === "report") && activeTab.view !== "design" && (
+            <button className="status-full" onClick={() => setFullScreen(true)} title="Show this on its own, without the ribbon and panes (like an app)">
+              ⤢ Full screen
+            </button>
+          )}
           {activeTab && (
             <span className="status-views">
               {viewsFor(activeTab.kind).map((v) => (
@@ -1002,7 +1057,7 @@ function liveCommands(all: Map<string, ViewCommands>, key: string | null): ViewC
 }
 
 /** Runs the AutoExec macro once when the database opens, as Access does. */
-function AutoExec() {
+function AutoExec({ then }: { then: () => void }) {
   const ws = useWorkspaceDoc();
   const run = useMacroRunner();
   useEffect(() => {
@@ -1010,7 +1065,8 @@ function AutoExec() {
     // Load SQLite now: DLookup, DCount… over queries need it to be ready.
     void preloadSql();
     const m = ws.doc.macros?.find((x) => x.name.toLowerCase() === "autoexec");
-    if (m?.steps.length) void run(m.steps);
+    if (m?.steps.length) void run(m.steps).finally(then);
+    else then();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return null;
 }

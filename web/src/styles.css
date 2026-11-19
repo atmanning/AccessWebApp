@@ -980,3 +980,29 @@ button.props-tab.active { background: #fff; font-weight: 600; }
   .rd-print .rd-page:last-child { break-after: auto; page-break-after: auto; }
   .rd-band.highlight { background: none !important; box-shadow: none; }
 }
+
+/* Full screen: one form (or report) on its own, like an app; a slim bar instead of the ribbon and panes. */
+.app-shell.full-screen > .title-bar,
+.app-shell.full-screen > .ribbon,
+.app-shell.full-screen > .message-bar,
+.app-shell.full-screen .nav-pane,
+.app-shell.full-screen .nav-scrim,
+.app-shell.full-screen .doc-tabs { display: none !important; }
+.app-shell.full-screen > .status-bar:not(.error) { display: none; }
+.app-shell.full-screen > .status-bar.error { min-height: 0; }
+.app-shell.full-screen > .status-bar.error > :not(.status-msg) { display: none; }
+.fs-bar { display: flex; align-items: center; gap: 4px; height: 48px; padding: 0 6px; padding-top: env(safe-area-inset-top); box-sizing: content-box; background: var(--accent, #a4373a); color: #fff; flex: none; }
+.fs-title { flex: 1; min-width: 0; text-align: center; font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fs-btn, .fs-btn-space { width: 44px; height: 44px; flex: none; }
+.fs-btn { border: 0; border-radius: 8px; background: transparent; color: inherit; font-size: 26px; line-height: 1; cursor: pointer; }
+.fs-btn:hover, .fs-btn[aria-expanded="true"] { background: rgba(255, 255, 255, 0.16); }
+.fs-btn:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
+.fs-menu-wrap { position: relative; }
+.fs-menu { position: absolute; right: 0; top: 46px; z-index: 50; min-width: 220px; max-width: calc(100vw - 16px); max-height: 70vh; overflow: auto; padding: 6px; border-radius: 10px; background: #fff; color: #222; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25); }
+.fs-menu button { display: block; width: 100%; min-height: 40px; padding: 0 12px; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 15px; text-align: left; color: inherit; cursor: pointer; }
+.fs-menu button:hover { background: #f1f3f5; }
+.fs-menu button.on { font-weight: 600; background: #fbecec; }
+.fs-menu-head { padding: 6px 12px 2px; font-size: 12px; font-weight: 600; color: #777; text-transform: uppercase; letter-spacing: 0.04em; }
+.fs-menu-sep { height: 1px; margin: 6px 0; background: #e3e5e8; }
+.status-full { height: 22px; margin-left: 8px; padding: 0 8px; border: 1px solid rgba(255, 255, 255, 0.5); border-radius: 4px; background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.status-full:hover { background: rgba(255, 255, 255, 0.15); }

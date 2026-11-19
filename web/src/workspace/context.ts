@@ -39,6 +39,8 @@ export interface DeepLink {
   /** The record to show (forms and tables); none for a report. */
   field?: string;
   value?: string;
+  /** Open it full screen (the form on its own, as an app: `&full=1`). */
+  full?: boolean;
 }
 
 /** Commands the ribbon can send to whichever view is active. */

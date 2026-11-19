@@ -201,7 +201,7 @@ function Root() {
   );
 }
 
-/** `?db=…&open=form:…&key=ID&rec=42` → open that form or table at that record. */
+/** `?db=…&open=form:…&key=ID&rec=42` → open that form or table at that record; `&full=1` full screen. */
 function readDeepLink(): { db: string; link: DeepLink } | null {
   const q = new URLSearchParams(location.search);
   const db = q.get("db");
@@ -209,10 +209,13 @@ function readDeepLink(): { db: string; link: DeepLink } | null {
   const field = q.get("key");
   const value = q.get("rec");
   if (!db || !m) return null;
-  // A report opens by itself (a report's page QR code); forms and tables open at a record.
-  if (m[1] === "report") return { db, link: { kind: "report", id: m[2] } };
+  const full = q.get("full") === "1";
+  // A report opens by itself (a report's page QR code); forms and tables open at a record;
+  // a form also opens on its own (a link to it full screen, for phones).
+  if (m[1] === "report") return { db, link: { kind: "report", id: m[2], full } };
+  if (m[1] === "form" && (!field || value === null)) return { db, link: { kind: "form", id: m[2], full } };
   if (!field || value === null) return null;
-  return { db, link: { kind: m[1] as "form" | "table", id: m[2], field, value } };
+  return { db, link: { kind: m[1] as "form" | "table", id: m[2], field, value, full } };
 }
 
 /** Shown as the "user" of a public database opened without signing in. */
