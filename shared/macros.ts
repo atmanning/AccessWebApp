@@ -108,6 +108,8 @@ export const MACRO_ACTIONS: Record<string, MacroActionDef> = {
       { name: "View", label: "View", kind: "choice", choices: ["Form", "Design", "Datasheet"], default: "Form" },
       { name: "WhereCondition", label: "Where Condition", kind: "where", hint: "e.g. [CustomerID]=[Forms]![Orders]![CustomerID]" },
       { name: "DataMode", label: "Data Mode", kind: "choice", choices: ["", "Add", "Edit", "Read Only"] },
+      { name: "WindowMode", label: "Window Mode", kind: "choice", choices: ["Normal", "Dialog"], default: "Normal" },
+      { name: "OpenArgs", label: "Open Args", kind: "text", hint: "a value the form reads as [OpenArgs]" },
     ],
   },
   OpenReport: {
@@ -249,6 +251,32 @@ export const MACRO_ACTIONS: Record<string, MacroActionDef> = {
       { name: "RepeatExpression", label: "Repeat Expression", kind: "expr" },
     ],
   },
+  FollowHyperlink: {
+    group: "User Interface",
+    help: "Opens a web page or a map in a new browser tab (or an e-mail with mailto:).",
+    args: [{ name: "Address", label: "Address", kind: "text", required: true }],
+  },
+  SearchForRecord: {
+    group: "Filter/Query/Search",
+    help: "Goes to the first record that matches the condition (the filter stays as it is).",
+    args: [
+      { name: "ObjectType", label: "Object Type", kind: "choice", choices: ["Form"], default: "Form" },
+      { name: "ObjectName", label: "Object Name", kind: "form" },
+      { name: "Record", label: "Record", kind: "choice", choices: ["First", "Next", "Previous", "Last"], default: "First" },
+      { name: "WhereCondition", label: "Where Condition", kind: "where", required: true },
+    ],
+  },
+  EMailDatabaseObject: {
+    group: "Data",
+    help: "Starts an e-mail in your mail app (To, Cc, Subject, Message). Attaching an object isn't possible from the web.",
+    args: [
+      { name: "To", label: "To", kind: "text" },
+      { name: "Cc", label: "Cc", kind: "text" },
+      { name: "Bcc", label: "Bcc", kind: "text" },
+      { name: "Subject", label: "Subject", kind: "text" },
+      { name: "MessageText", label: "Message Text", kind: "text" },
+    ],
+  },
   RunMenuCommand: {
     group: "Macro Commands",
     help: "Runs one of Access's commands.",
@@ -257,7 +285,7 @@ export const MACRO_ACTIONS: Record<string, MacroActionDef> = {
         name: "Command",
         label: "Command",
         kind: "choice",
-        choices: ["SaveRecord", "DeleteRecord", "RecordsGoToNew", "Undo", "Refresh", "RemoveFilterSort", "Find", "PrintObject", "Close", "NewLabels"],
+        choices: ["SaveRecord", "DeleteRecord", "RecordsGoToNew", "Undo", "Refresh", "RemoveFilterSort", "Find", "PrintObject", "Close", "NewLabels", "ManageAttachments", "UnhideColumns", "SaveAsOutlookContact"],
         required: true,
       },
     ],

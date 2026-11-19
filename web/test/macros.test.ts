@@ -54,6 +54,8 @@ function fakeForm(values: Record<string, unknown>): FormHandle & { log: string[]
     setValue: (n, v) => (log.push(`set ${n}=${v}`), null),
     setProperty: (n, p, v) => (log.push(`prop ${n}.${p}=${v}`), null),
     property: () => undefined,
+    searchForRecord: (w: string) => (log.push(`search ${w}`), true),
+    pickPicture: () => true,
     close: () => void log.push("close"),
   };
 }
@@ -177,5 +179,67 @@ describe("macros", () => {
     d.tables[0].nextAutoNumber = 1;
     const parsed = projectDocSchema.safeParse(d);
     expect(parsed.error?.issues ?? []).toEqual([]);
+  });
+
+  it("runs the Contacts template's actions: dialogs, search, e-mail, links and contact cards", async () => {
+    const f = fakeForm({ ID: 3, "First Name": "Ann", "Last Name": "Lee", "E-mail Address": "ann@example.com", City: "Austin", Company: "A, B; C" });
+    const e = env(f);
+    const urls: string[] = [];
+    const files: { name: string; text: string }[] = [];
+    let closed = 0;
+    e.openUrl = (u) => void urls.push(u);
+    e.download = (name, _mime, text) => void files.push({ name, text });
+    e.waitClosed = async () => void (closed += 1);
+    const r = await runMacro(
+      [
+        act("OpenForm", { FormName: "Customers", WhereCondition: "1=0", WindowMode: "Dialog" }),
+        act("SearchForRecord", { WhereCondition: '="[ID]=" & [ID]' }),
+        act("EMailDatabaseObject", { To: "=[E-mail Address]", Subject: "Hi" }),
+        act("FollowHyperlink", { Address: '="www.bing.com/maps?q=" & [City]' }),
+        act("RunMenuCommand", { Command: "SaveAsOutlookContact" }),
+      ],
+      e,
+    );
+    expect(r).toMatchObject({ ok: true });
+    expect(closed).toBe(1);
+    expect(f.log).toContain("search [ID]=3");
+    expect(urls[0]).toMatch(/^mailto:ann@example\.com\?subject=Hi/);
+    expect(urls[1]).toBe("https://www.bing.com/maps?q=Austin");
+    expect(files[0].name).toBe("Ann Lee.vcf");
+    expect(files[0].text).toContain("N:Lee;Ann;;;");
+    expect(files[0].text).toContain("ORG:A\\, B\\; C");
+    expect(files[0].text).toContain("EMAIL;TYPE=INTERNET:ann@example.com");
+    // Only web pages, mail and phone numbers are opened.
+    const bad = await runMacro([act("FollowHyperlink", { Address: "javascript:alert(1)" })], e);
+    expect(bad.ok).toBe(false);
+    expect(urls).toHaveLength(2);
+  });
+
+  it("keeps each macro's local variables to itself when macros run side by side", async () => {
+    const f = fakeForm({ ID: 3, Name: "Ada" });
+    const e = env(f);
+    let release!: () => void;
+    e.waitClosed = () => new Promise<void>((r) => (release = r));
+    const slow = runMacro(
+      [
+        act("SetLocalVar", { Name: "who", Expression: "[Name]" }),
+        act("OpenForm", { FormName: "Customers", WindowMode: "Dialog" }),
+        act("MessageBox", { Message: "=[LocalVars]![who]" }),
+      ],
+      e,
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    // Another macro (a button's On Got Focus) runs while the first waits for its dialog.
+    await runMacro([act("SetLocalVar", { Name: "who", Expression: '"Bob"' })], env(f));
+    release();
+    expect(await slow).toMatchObject({ ok: true });
+    expect(e.log).toContain("msg Ada");
+  });
+
+  it("treats Nz() of a blank as empty text, and as 0 in sums", () => {
+    const f = fakeForm({ ID: 3, Name: null });
+    expect(f.evaluate('Nz([Name]) & "x"')).toBe("x");
+    expect(f.evaluate("Nz([Name]) + 2")).toBe(2);
+    expect(f.evaluate('IIf(Nz([Name]) = "", "blank", "set")')).toBe("blank");
   });
 });

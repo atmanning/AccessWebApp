@@ -191,6 +191,12 @@ functions from standard modules…) is kept as a comment in the macro and counte
 condition can't be translated stops the macro when reached rather than running its steps unchecked. Events this app
 doesn't run yet (Before Update, On Key Down, On Timer…) are listed in the notes.
 
+Forms opened as **dialogs** (`OpenForm` with Window Mode Dialog) make the macro wait until they're closed, as in the
+templates' New Contact button, and **OpenArgs** reaches the opened form. A form opened with a Where Condition that
+matches nothing (`1=0`) starts on a new record. Other actions: `SearchForRecord`, `FollowHyperlink` (web pages, maps,
+e-mail and phone links only), `EMailDatabaseObject` (opens a new e-mail to the address), Save As Outlook Contact (a
+contact card, `.vcf`, that Outlook and phones open), Create Mailing Labels (the label maker), and Edit Picture.
+
 **Reports** come across as designed reports you can edit in Report Design View: every section (report, page and
 group headers and footers, detail) with its height, back color and Force New Page; labels, text boxes (fields and
 expressions such as `=Sum(...)`, `=Now()` and page numbers), check boxes, rectangles, lines and bound pictures with

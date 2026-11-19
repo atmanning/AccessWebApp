@@ -61,6 +61,46 @@ function jetdb() {
   return jet!;
 }
 
+/**
+ * Which event an embedded macro is for, by the id of the (unnamed) property Access keeps it in,
+ * for files where jetdb can't tell (the event property itself isn't set): OnClickEmMacro and so on.
+ */
+const EM_MACRO_EVENTS: Record<number, string> = {
+  0x01ea: "OnClick",
+  0x01eb: "OnDblClick",
+  0x01f9: "AfterUpdate",
+  0x01f6: "OnGotFocus",
+  0x0200: "OnLoad",
+};
+
+/** A binary property holding an embedded macro (it starts with a count, then ff×8). */
+const isEmMacroBlob = (pr: JetProp) => {
+  const v = pr.value as unknown;
+  if (!v || typeof v !== "object") return false;
+  const b = v instanceof Uint8Array ? v : Uint8Array.from(Object.values(v as Record<string, number>));
+  return b.length > 32 && b[4] === 0xff && b[5] === 0xff && b[6] === 0xff && b[7] === 0xff && b[8] === 0xff && b[11] === 0xff;
+};
+
+/**
+ * Fills in the events jetdb left blank: from the macro's XML (Event="OnClick") or, failing that,
+ * from the order of the embedded-macro properties on the control (they come in the same order).
+ */
+function withEmbeddedEvents(macros: JetMacro[], d: JetDesign): JetMacro[] {
+  const eventsOf = (props: JetProp[]) => props.filter(isEmMacroBlob).map((pr) => EM_MACRO_EVENTS[pr.id] ?? "");
+  const seen = new Map<string, number>();
+  return macros.map((m) => {
+    const control = m.source?.control ?? /\bFor="([^"]*)"/.exec(/<UserInterfaceMacro\b([^>]*)>/.exec(m.xml ?? "")?.[1] ?? "")?.[1] ?? null;
+    const key = (control ?? "").toLowerCase();
+    const n = seen.get(key) ?? 0;
+    seen.set(key, n + 1);
+    if (m.source?.event) return m;
+    const fromXml = /<UserInterfaceMacro\b[^>]*\bEvent="([^"]*)"/.exec(m.xml ?? "")?.[1];
+    const props = control === null ? d.properties : d.controls.find((c) => c.name.toLowerCase() === key)?.properties;
+    const event = fromXml || (props ? eventsOf(props)[n] : "") || "";
+    return { ...m, source: { ...m.source, control, event } };
+  });
+}
+
 /** acControlType: the low byte of jetdb's type codes. */
 const AC = {
   label: 100,
@@ -641,6 +681,18 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns, src: So
     const knownNames = () =>
       // Fields are unknown when the record source wasn't imported: then every bare name stays a field or control.
       !source && sourceText ? undefined : new Set([...d.controls.map((x) => x.name.toLowerCase()), ...(source ? columnsOf(source) : []).map((x) => x.toLowerCase())]);
+    /** RunCode OpenMap([Address], …): the VBA function's own steps, when it can become macro actions. */
+    const inlineRunCode = (steps: MacroStep[]): MacroStep[] =>
+      steps.map((st): MacroStep => {
+        if (st.kind === "action" && st.action === "RunCode" && st.args?.FunctionName) {
+          const r = vbaEventCall(`=${st.args.FunctionName.replace(/^=/, "")}`, vbaOpts());
+          if (r && !r.unconverted.length) return { kind: "group", name: st.args.FunctionName.replace(/\(.*$/s, "").slice(0, 200), steps: r.steps };
+          return st;
+        }
+        if (st.kind === "if") return { ...st, branches: st.branches.map((b) => ({ ...b, steps: inlineRunCode(b.steps) })) };
+        if (st.kind === "group" || st.kind === "submacro") return { ...st, steps: inlineRunCode(st.steps) };
+        return st;
+      });
     const otherEvents = new Set<string>();
     /** An event's steps: its embedded macro, its VBA procedure, or the named macro it runs. */
     const eventSteps = (value: string | undefined, control: string | null, jetEvent: string, procedure: string): MacroStep[] | undefined => {
@@ -648,12 +700,16 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns, src: So
       // Embedded macros: found by control and event (some files don't set the event property).
       if (!v || /^\[Embedded Macro\]$/i.test(v)) {
         try {
-          macros ??= db.embeddedMacros(item.name, { type: "Form" });
+          macros ??= withEmbeddedEvents(db.embeddedMacros(item.name, { type: "Form" }), d);
         } catch {
           macros = [];
         }
-        const mac = macros.find((x) => (x.source?.control ?? null)?.toLowerCase() === control?.toLowerCase() && x.source?.event?.toLowerCase() === jetEvent.toLowerCase());
-        return mac ? jetMacroSteps(mac) : undefined;
+        // jetdb doesn't always know which event a macro is for; its XML does (<UserInterfaceMacro For="cmdClose" Event="OnClick">).
+        const head = (x: JetMacro) => /<UserInterfaceMacro\b([^>]*)>/.exec(x.xml ?? "")?.[1] ?? "";
+        const eventOf = (x: JetMacro) => x.source?.event || /\bEvent="([^"]*)"/.exec(head(x))?.[1] || "";
+        const controlOf = (x: JetMacro) => x.source?.control ?? /\bFor="([^"]*)"/.exec(head(x))?.[1] ?? null;
+        const mac = macros.find((x) => (controlOf(x) ?? null)?.toLowerCase() === control?.toLowerCase() && eventOf(x).toLowerCase() === jetEvent.toLowerCase());
+        return mac ? inlineRunCode(jetMacroSteps(mac)) : undefined;
       }
       if (/^\[Event Procedure\]$/i.test(v)) {
         const body = vbaProcedure(vbaCode, procedure);
@@ -777,6 +833,8 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns, src: So
       const backStyle = p.num("BackStyle", kind === "label" ? 0 : 1);
       const back = color(p.num("BackColor", -1));
       if (back && backStyle === 1 && kind !== "line") c.backColor = back;
+      // A see-through box over a colored header (the record's name as its title).
+      if (backStyle === 0 && (kind === "textbox" || kind === "combobox" || kind === "button")) c.seeThrough = true;
       const border = color(p.num("BorderColor", -1));
       const borderStyle = p.has("BorderStyle") ? p.num("BorderStyle", 1) : p.num("OldBorderStyle", kind === "label" ? 0 : 1);
       if (kind === "line" || kind === "rectangle") {
@@ -840,6 +898,9 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns, src: So
         c.variant = "secondary";
         // A transparent button sits over a picture (a search icon) and takes its clicks.
         if (p.flipped("Transparent")) c.transparent = true;
+        // A button that's a link (the templates' "Send us your feedback"): it opens the address.
+        const link = p.str("HyperlinkAddress")?.trim();
+        if (link && !c.events?.onClick) c.events = { ...c.events, onClick: [{ kind: "action", action: "FollowHyperlink", args: { Address: link.slice(0, 1000) } }] };
         const simple = c.events?.onClick ? simpleButtonAction(c.events.onClick) : null;
         if (simple) {
           // A plain Next / New / Open Form button: the built-in action (it greys out at the last record).
@@ -1156,7 +1217,8 @@ function convertReport(
     const back = color(p.num("BackColor", -1));
     if (back && backStyle === 1 && kind !== "line") c.backColor = back;
     const border = color(p.num("BorderColor", -1));
-    const style = p.has("BorderStyle") ? p.num("BorderStyle", 1) : p.num("OldBorderStyle", kind === "label" ? 0 : 1);
+    // Access stores only what differs from its defaults, and a report's text boxes have no border by default.
+    const style = p.has("BorderStyle") ? p.num("BorderStyle", 1) : p.num("OldBorderStyle", kind === "label" || kind === "textbox" ? 0 : 1);
     if (kind === "line" || kind === "rectangle") {
       c.borderWidth = clamp(p.num("BorderWidth", 0) + 1, 1, 12);
       if (border) c.borderColor = border;

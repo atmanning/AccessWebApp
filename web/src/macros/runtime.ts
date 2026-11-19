@@ -24,6 +24,10 @@ export interface FormHandle {
   /** Shows only the records matching the expression; null shows all of them. */
   applyFilter(where: string | null): void;
   findRecord(text: string, match: string): boolean;
+  /** Goes to the first (or next, previous, last) record matching the condition; false when none does. */
+  searchForRecord(where: string, which: string): boolean;
+  /** Lets the person choose a picture for a picture control (Access's Manage Attachments); false if there's none. */
+  pickPicture(name?: string): boolean;
   setValue(name: string, value: ExprValue): string | null;
   setProperty(name: string, property: string, value: ExprValue): string | null;
   /** A control's property ([cmdSearchClear].[Visible]), or undefined when there's no such control. */
@@ -68,6 +72,8 @@ export interface FormSession {
   lastCurrent?: string;
   onClose?: () => void;
   unregister?: () => void;
+  /** The form's live state (a ref to what its handle calls), across remounts of its tab. */
+  host?: { current: unknown };
 }
 export const formSessions = new Map<string, FormSession>();
 
@@ -102,7 +108,7 @@ export const localVars = new Map<string, ExprValue>();
 export const macroError: { number: number; description: string; actionName: string } = { number: 0, description: "", actionName: "" };
 
 /** The form whose macro is running, and the control whose event started it ([Screen].[ActiveControl]). */
-export const macroContext: { form?: FormHandle; activeControl?: string } = {};
+export const macroContext: { form?: FormHandle; activeControl?: string; locals?: Map<string, ExprValue> } = {};
 
 setQualifiedResolver((path) => {
   const root = path[0].toLowerCase();
@@ -111,6 +117,11 @@ setQualifiedResolver((path) => {
   if (root === "screen" && path.length === 2) {
     if (p1 === "activecontrol" && f && macroContext.activeControl) return { value: f.value(macroContext.activeControl) ?? null };
     if ((p1 === "activeform" || p1 === "activedatasheet") && f) return { value: f.name };
+  }
+  // [Screen].[ActiveForm].[Name], [Screen].[ActiveControl].[Name]
+  if (root === "screen" && path.length === 3 && path[2].toLowerCase() === "name" && f) {
+    if (p1 === "activeform" || p1 === "activedatasheet") return { value: f.name };
+    if (p1 === "activecontrol" && macroContext.activeControl) return { value: macroContext.activeControl };
   }
   // Templates check these before using features Access blocks in untrusted databases.
   if (root === "currentproject" && path.length === 2 && p1 === "istrusted") return { value: true };
@@ -134,9 +145,10 @@ setQualifiedResolver((path) => {
   if ((root === "form" || root === "me") && path.length === 2 && f) {
     const v = f.value(path[1]);
     if (v !== undefined) return { value: v };
+    if (p1 === "name") return { value: f.name };
   }
   if (root === "tempvars" && path.length === 2) return { value: tempVars.get(path[1].toLowerCase()) ?? null };
-  if (root === "localvars" && path.length === 2) return { value: localVars.get(path[1].toLowerCase()) ?? null };
+  if (root === "localvars" && path.length === 2) return { value: (macroContext.locals ?? localVars).get(path[1].toLowerCase()) ?? null };
   if (root === "macroerror" && path.length === 2) {
     const p = path[1].toLowerCase();
     return { value: p === "number" ? macroError.number : p === "description" ? macroError.description : p === "actionname" ? macroError.actionName : null };

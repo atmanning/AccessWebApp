@@ -53,6 +53,7 @@ export function textStyle(c: FormControl): CSSProperties {
 function boxStyle(c: FormControl): CSSProperties {
   const s: CSSProperties = {};
   if (c.backColor) s.background = c.backColor;
+  else if (c.seeThrough) s.background = "transparent";
   if (c.borderColor) s.borderColor = c.borderColor;
   if (c.borderWidth !== undefined) {
     s.borderWidth = c.borderWidth;
@@ -130,7 +131,7 @@ export function FormControlView({ c, run, inputId, page, onPage }: { c: FormCont
       return (
         <button
           type="button"
-          className={`fc-button ${variant} ${c.transparent ? "transparent" : ""}`}
+          className={`fc-button ${variant} ${c.transparent ? "transparent" : ""} ${c.seeThrough && !c.backColor ? "see-through" : ""}`}
           style={{ ...ts, ...bs }}
           tabIndex={design ? -1 : undefined}
           disabled={!design && run?.buttonDisabled}
@@ -139,7 +140,7 @@ export function FormControlView({ c, run, inputId, page, onPage }: { c: FormCont
           title={c.picture && !c.caption ? c.name : undefined}
         >
           {c.picture && run?.imageUrl && <img className="fc-btn-pic" src={run.imageUrl(c.picture)} alt="" />}
-          {c.caption || (c.picture ? null : "Button")}
+          {c.caption || (c.picture || !design ? null : "Button")}
         </button>
       );
     }

@@ -498,6 +498,8 @@ function num(v: ExprValue, what = "a number"): number {
   if (typeof v === "string") {
     const t = v.trim().replace(/[$,]/g, "");
     if (t !== "" && Number.isFinite(Number(t))) return Number(t);
+    // Nz() of a blank gives Empty in Access: "" as text, 0 as a number.
+    if (v === "") return 0;
   }
   throw new ExprError(`'${v}' isn't ${what}.`);
 }
@@ -867,7 +869,7 @@ const FN_LIST: Fn[] = [
   { name: "Exp", cat: "Math", syntax: "Exp(«number»)", desc: "e raised to the number.", min: 1, max: 1, run: ([n]) => nullOr(n, (n) => Math.exp(num(n))) },
   { name: "Log", cat: "Math", syntax: "Log(«number»)", desc: "The natural logarithm.", min: 1, max: 1, run: ([n]) => nullOr(n, (n) => Math.log(num(n))) },
   // Conversion
-  { name: "Nz", cat: "Conversion", syntax: "Nz(«value», «valueifnull»)", desc: "The value, or «valueifnull» (or 0 / empty) when it's blank.", min: 1, max: 2, run: ([v, d]) => (v === null ? (d === undefined ? 0 : d) : v) },
+  { name: "Nz", cat: "Conversion", syntax: "Nz(«value», «valueifnull»)", desc: "The value, or «valueifnull» (or empty: \"\" as text, 0 as a number) when it's blank.", min: 1, max: 2, run: ([v, d]) => (v === null ? (d === undefined ? "" : d) : v) },
   { name: "CStr", cat: "Conversion", syntax: "CStr(«expr»)", desc: "The value as text.", min: 1, max: 1, run: ([v]) => str(v) },
   { name: "CInt", cat: "Conversion", syntax: "CInt(«expr»)", desc: "The value as a whole number (rounded).", min: 1, max: 1, run: ([v]) => nullOr(v, (v) => bankersRound(num(v))) },
   { name: "CLng", cat: "Conversion", syntax: "CLng(«expr»)", desc: "The value as a whole number (rounded).", min: 1, max: 1, run: ([v]) => nullOr(v, (v) => bankersRound(num(v))) },

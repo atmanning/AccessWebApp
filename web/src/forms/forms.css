@@ -454,3 +454,7 @@ textarea.ps-input { height: auto; padding: 4px 6px; resize: vertical; }
 .fch-table { border-collapse: collapse; width: 100%; font-size: 13px; }
 .fch-table th, .fch-table td { padding: 5px 10px; border-bottom: 1px solid #eceef1; text-align: left; }
 .fch-table td.num, .fch-table th:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.fv-ctl.pass { pointer-events: none; }
+/* Back Style: Transparent: just its words (a link) or a click area over a picture. */
+.fc-button.see-through { background: transparent; border-color: transparent; box-shadow: none; }
+.fc-button.see-through:hover:not(:disabled) { background: color-mix(in srgb, currentColor 8%, transparent); }

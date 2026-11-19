@@ -51,9 +51,13 @@ export interface DatasheetProps {
   emptyMessage?: string;
   /** The record the selected cell is on (an index into the rows, or "new"), as it changes. */
   onCurrentRow?: (row: number | "new") => void;
+  /** The record the form has made current (a macro's GoToRecord or SearchForRecord): the datasheet follows it. */
+  current?: number | "new";
   /** Take the keyboard when it opens (not in a subform, where the form's first field should). */
   autoFocus?: boolean;
   onStatus?: (message: string, kind?: "info" | "error") => void;
+  /** A form's datasheet: runs the column's control's On Click / On Dbl Click; true when it had one (a double-click then doesn't edit). */
+  onCellEvent?: (row: number, col: number, event: "click" | "dblClick") => boolean;
 }
 
 export interface DatasheetHandle {
@@ -163,9 +167,23 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
 
   const count = order.length;
   const currentRow = cell.r >= count ? "new" : order[cell.r];
+  // The selected record goes to the form (onCurrentRow), and the form's current record (a macro moved
+  // it) comes back (current). When both change at once, the form's wins, and a move that came from
+  // the form isn't reported back to it.
+  const synced = useRef<{ current: number | "new" | undefined }>({ current: p.current });
   useEffect(() => {
-    if (currentRow !== undefined) p.onCurrentRow?.(currentRow);
-  }, [currentRow]); // eslint-disable-line react-hooks/exhaustive-deps
+    const formMoved = p.current !== synced.current.current;
+    synced.current.current = p.current;
+    if (formMoved && p.current !== undefined && p.current !== currentRow) {
+      const r = p.current === "new" ? ((p.allowNew ?? p.editable) ? count : -1) : order.indexOf(p.current);
+      if (r >= 0) {
+        setCell((c) => ({ r, c: c.c }));
+        scrollIntoView(r);
+        return;
+      }
+    }
+    if (currentRow !== undefined && currentRow !== p.current) p.onCurrentRow?.(currentRow);
+  }, [currentRow, p.current]); // eslint-disable-line react-hooks/exhaustive-deps
   const allowNew = p.allowNew ?? p.editable;
   const totalRows = count + (allowNew ? 1 : 0);
   const isNewRow = (r: number) => allowNew && r === count;
@@ -818,10 +836,14 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
                           moveTo(r, c);
                           scroller.current?.focus();
                         }}
-                        onDoubleClick={() => !touch && startEdit()}
+                        onDoubleClick={() => {
+                          if (!newRow && p.onCellEvent?.(order[r], c, "dblClick")) return;
+                          if (!touch) startEdit();
+                        }}
                         onClick={() => {
                           if (active && type === "YesNo") toggle();
                           else if (touch && active && wasActive.current) startEdit();
+                          if (!newRow) p.onCellEvent?.(order[r], c, "click");
                         }}
                       >
                         {col.image ? (

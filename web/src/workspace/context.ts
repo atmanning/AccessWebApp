@@ -23,6 +23,8 @@ export interface OpenArgs {
   dataMode?: string;
   /** Print as soon as it's shown (OpenReport with View: Print). */
   print?: boolean;
+  /** OpenForm's Open Args: a value the form reads as [OpenArgs]. */
+  openArgs?: string;
   n: number;
 }
 

@@ -7,7 +7,7 @@ import { useDialogs } from "../ui/dialogs";
 import { tabKey, useWorkspace } from "../workspace/context";
 import { useRunAction } from "../workspace/useRunAction";
 import { runMacro, type MacroEnv, type MacroResult } from "./runMacro";
-import type { FormHandle } from "./runtime";
+import { formSessions, type FormHandle } from "./runtime";
 
 let audio: AudioContext | null = null;
 export function beep() {
@@ -45,7 +45,7 @@ export function useMacroRunner() {
       evaluate: (e: string): ExprValue => (form ? form.evaluate(e) : makeFormCalc(L().ws.getDoc(), { controls: [] }, []).evaluate(e, null, () => [])),
       doc: () => L().ws.getDoc(),
       open: (kind, id, view, opts) => {
-        const how = opts.where || opts.dataMode || opts.print ? opts : undefined;
+        const how = opts.where || opts.dataMode || opts.print || opts.openArgs ? opts : undefined;
         L().ws.openObject(kind, id, view, undefined, how);
       },
       close: (kind, id) => L().ws.closeTab(tabKey(kind, id)),
@@ -73,6 +73,41 @@ export function useMacroRunner() {
       status: (text, kind) => L().ws.setStatus(text, kind),
       beep,
       print: () => window.print(),
+      openUrl: (url) => {
+        // mailto: and tel: go to the mail or phone app; web pages open in a new tab.
+        const a = document.createElement("a");
+        a.href = url;
+        if (/^https?:/i.test(url)) {
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+        }
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      },
+      waitClosed: (kind, id) =>
+        new Promise<void>((resolve) => {
+          const key = tabKey(kind, id);
+          const started = Date.now();
+          let seen = false;
+          const tick = () => {
+            if (formSessions.has(key)) seen = true;
+            // Closed again (or never opened): go on.
+            if ((seen && !formSessions.has(key)) || (!seen && Date.now() - started > 3000)) return resolve();
+            setTimeout(tick, 250);
+          };
+          tick();
+        }),
+      download: (name, mime, text) => {
+        const url = URL.createObjectURL(new Blob([text], { type: mime }));
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      },
     };
     const r = await runMacro(steps, env);
     if (!r.ok && r.error) L().ws.setStatus(`The macro stopped: ${r.error}`, "error");

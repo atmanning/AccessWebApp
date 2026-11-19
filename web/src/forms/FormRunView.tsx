@@ -114,6 +114,9 @@ type Rec = { row: CellValue[] | null; rowIndex: number | undefined; isNew: boole
 
 const sameKey = (a: CellValue | undefined, b: CellValue | undefined) => a !== null && a !== undefined && b !== null && b !== undefined && String(a) === String(b);
 
+/** A picture or decoration that does nothing when clicked lets clicks through to what's under it (a button drawn under its icon). */
+const passThrough = (c: FormControl) => (c.type === "image" || c.type === "rectangle" || c.type === "line") && !c.field && !c.events?.onClick && !c.events?.onDblClick;
+
 export function FormRunView({ form, tabKey, goto, open, embedded }: { form: FormDef; tabKey: string; goto?: RecordTarget; open?: OpenArgs; embedded?: EmbeddedLink }) {
   const ws = useWorkspace();
   const runMacro = useMacroRunner();
@@ -136,6 +139,12 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
   /** Position in the found (filtered and sorted) records. */
   const [pos, setPos] = useState(saved.pos ?? 0);
   const [isNew, setIsNew] = useState(false);
+  const [openApplied, setOpenApplied] = useState(0);
+  /** Values typed into a just-added record before it came back from its query (saved once it does). */
+  const pendingFields = useRef<{ col: number; input: string | boolean }[]>([]);
+  const newTok = useRef(0);
+  const wasNew = useRef(false);
+  const adopted = useRef<string | null>(null);
   const [fieldError, setFieldError] = useState<{ id: string; msg: string } | null>(null);
 
   // ---- Find mode (Filter by Form): type criteria into the form's own fields ----
@@ -228,8 +237,9 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
     out.RecordSource ??= (src?.kind === "table" ? ws.doc.tables.find((t) => t.id === src.id)?.name : src ? ws.doc.queries.find((q) => q.id === src.id)?.name : undefined) ?? "";
     out.FilterOn ??= !!where || filterOn;
     out.Filter ??= where ?? "";
+    out.OpenArgs ??= open?.openArgs ?? null;
     return out;
-  }, [designed.controls, unbound, form.source, ws.doc.tables, ws.doc.queries, where, filterOn]);
+  }, [designed.controls, unbound, form.source, ws.doc.tables, ws.doc.queries, where, filterOn, open?.openArgs]);
   const calc = useMemo(() => (data ? makeFormCalc(ws.doc, layout, data.columns) : null), [ws.doc, layout, data]);
 
   const colOf = (name: string) => (data ? data.columns.findIndex((c) => c.toLowerCase() === name.toLowerCase()) : -1);
@@ -304,19 +314,50 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
     return idx;
   }, [data, filter, filterOn, kept, sort, shownBy, where, calc, embedded?.value, embedded?.child]); // eslint-disable-line react-hooks/exhaustive-deps
   const count = order.length;
+  // The current record stays current when records come and go around it (a record added or saved
+  // into a filtered form's view, another person's change): follow it to its new place. A new filter
+  // or sort starts again at the first record, as in Access.
+  const shape = `${where ?? ""}|${filterOn}|${JSON.stringify(filter ?? null)}|${sort ? sort.field + sort.dir : ""}|${embedded?.value ?? ""}`;
+  const follow = useRef<{ order: number[]; shape: string; key: string | null; pos: number }>({ order, shape, key: null, pos });
+  let followed = false;
+  if (follow.current.order !== order) {
+    // (Not when the form was also sent to another record just now: that's where it should be.)
+    const sameView = follow.current.shape === shape && follow.current.pos === pos;
+    follow.current.order = order;
+    follow.current.shape = shape;
+    if (sameView && !isNew && addedKey === null && follow.current.key !== null && data) {
+      const want = follow.current.key;
+      const p = order.findIndex((i) => keyOf(i) === want);
+      if (p >= 0 && p !== pos) {
+        setPos(p);
+        followed = true;
+      }
+    }
+  }
+  if (!followed && data) {
+    follow.current.key = !isNew && order[pos] !== undefined ? keyOf(order[pos]) : null;
+    follow.current.pos = pos;
+  }
 
   useEffect(() => {
     if (pos >= count && count > 0 && !isNew) setPos(count - 1);
   }, [count, pos, isNew]);
-  // An empty table opens on a new record, like Access.
+  // No records to show (an empty table, or a Where Condition such as 1=0 that New Contact buttons use):
+  // a new record, like Access.
   useEffect(() => {
-    if (data && !data.rows.length && canAdd) setIsNew(true);
-  }, [data, canAdd]);
+    // (Not while a record just added is on its way back: it's the one being filled in.)
+    if (data && !count && canAdd && !isNew && addedKey === null) setIsNew(true);
+    // openApplied: a macro opened the form with a Where Condition that leaves nothing to show.
+  }, [data, count, canAdd, isNew, openApplied, addedKey]);
   // A record just added: keep it in view (even when filtered) and go to it.
   useEffect(() => {
     if (addedKey === null || !data) return;
     const i = data.rows.findIndex((_, r) => keyOf(r) === addedKey);
     if (i < 0) return;
+    for (const f of pendingFields.current.splice(0)) {
+      const err = editor.commit(i, f.col, f.input);
+      if (err) ws.setStatus(err, "error");
+    }
     if (filterOn || where) setKept((k) => new Set(k).add(addedKey));
     const p = order.indexOf(i);
     if (p >= 0) {
@@ -341,6 +382,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
   const go = (n: number) => {
     (document.activeElement as HTMLElement | null)?.blur?.();
     setIsNew(false);
+    setAddedKey(null);
     setFieldError(null);
     setPos(Math.max(0, Math.min(count - 1, n)));
   };
@@ -437,7 +479,9 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
     const call =
       <K extends keyof Host>(k: K) =>
       (...a: Parameters<Host[K]>) => {
-        const h = hostRef.current;
+        // The tab may have been switched away and back while a macro waited (a dialog it opened):
+        // act on the form as it is now, not on the copy that was showing when the macro started.
+        const h = (embedded ? hostRef : (session.host as typeof hostRef | undefined) ?? hostRef).current;
         if (!h) throw new Error(`The form '${form.name}' is still opening.`);
         return (h[k] as (...x: unknown[]) => ReturnType<Host[K]>)(...a);
       };
@@ -447,6 +491,8 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
       tabKey,
       value: call("value"),
       property: call("property"),
+      searchForRecord: call("searchForRecord"),
+      pickPicture: call("pickPicture"),
       evaluate: call("evaluate"),
       goToRecord: call("goToRecord"),
       goToControl: call("goToControl"),
@@ -464,6 +510,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
   }, [form.id, form.name, tabKey]);
   // Registered until the tab closes (endFormSession), so [Forms]![Name]![Control] works from other tabs too.
   useEffect(() => {
+    if (!embedded) session.host = hostRef;
     session.unregister?.();
     const off = registerForm(handle);
     const offSub = embedded?.alias ? registerSubform(embedded.alias, handle) : undefined;
@@ -495,6 +542,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
       setIsNew(false);
       setPos(0);
     }
+    setOpenApplied((n) => n + 1);
   }, [open?.n, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!loaded || session.loaded) return;
@@ -518,7 +566,10 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
   if (!data) return <div className="empty-view">Loading…</div>;
 
   const colIdx = colOf;
-  const rowIndex = order[pos];
+  // A record just added is the current one while it finds its place in the form's order (not
+  // whichever record happens to be at the old position meanwhile).
+  const addedAt = addedKey === null ? -1 : data.rows.findIndex((_, r) => keyOf(r) === addedKey);
+  const rowIndex = addedKey !== null && !isNew ? (addedAt >= 0 ? addedAt : undefined) : order[pos];
   const row = isNew || rowIndex === undefined ? null : data.rows[rowIndex];
   /** The records the form shows (for Sum, Count… in calculated controls). */
   const foundRows = () => order.map((i) => data.rows[i]);
@@ -526,12 +577,19 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
   const cur: Rec = { row, rowIndex, isNew, p: pos };
   /** Saves a field of a record (a new record is added by its first field); returns the error, if any. */
   const commitAt = (rec: Rec, col: number, input: string | boolean): string | null => {
+    // The record was just added and isn't back from its query yet (typing fast into a new record of a
+    // filtered form): keep the value and save it as soon as the record shows up.
+    if (!rec.isNew && rec.rowIndex === undefined && addedKey !== null) {
+      pendingFields.current.push({ col, input });
+      return null;
+    }
     const preset = embedded?.child ? { [embedded.child]: embedded.value ?? null } : undefined;
     const err = editor.commit(rec.isNew ? "new" : rec.rowIndex!, col, input, preset);
     if (err) return err;
     if (rec.isNew) {
       setIsNew(false);
-      setAddedKey(editor.lastAddedKey()); // go to the record that was just added
+      adopted.current = editor.lastAddedKey();
+      setAddedKey(adopted.current); // go to the record that was just added
     } else if (filterOn || where) setKept((k) => new Set(k).add(keyOf(rec.rowIndex!)));
     return null;
   };
@@ -558,6 +616,8 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
       if (/^orderby$/i.test(name) && !c) return sort ? `[${sort.field}]${sort.dir === "DESC" ? " DESC" : ""}` : "";
       if (/^orderbyon$/i.test(name) && !c) return !!sort;
       if (/^name$/i.test(name) && !c && colIdx(name) < 0) return form.name;
+      if (/^openargs$/i.test(name) && !c && colIdx(name) < 0) return open?.openArgs ?? null;
+      if (/^recordsource$/i.test(name) && !c && colIdx(name) < 0) return (unboundVars.RecordSource as ExprValue) ?? "";
       if (c?.type === "tab") return tabPages[c.id] ?? 0;
       if (c && !c.field) return c.id in unbound ? (unbound[c.id] as ExprValue) : c.type === "checkbox" ? false : null;
       if (c?.field && isExpression(c.field)) return calc!.value(c, exprRow, foundRows, unboundVars).value;
@@ -624,6 +684,28 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
         }
       }
       return false;
+    },
+    searchForRecord: (cond, which) => {
+      if (!calc) return false;
+      const hit = (p: number) => truthy(calc.evaluate(cond, data.rows[order[p]], () => [], unboundVars) ?? false);
+      const w = which.toLowerCase();
+      const list = w === "last" ? [...Array(count).keys()].reverse() : w === "next" ? [...Array(count).keys()].map((k) => (pos + 1 + k) % count) : w === "previous" ? [...Array(count).keys()].map((k) => (pos - 1 - k + count * 2) % count) : [...Array(count).keys()];
+      for (const p of list) {
+        if (hit(p)) {
+          go(p);
+          return true;
+        }
+      }
+      return false;
+    },
+    pickPicture: (name) => {
+      // The named control when it's a picture (the button that runs Edit Picture isn't), else the form's picture.
+      const named = name ? controlByName(name) : undefined;
+      const c = (named?.type === "image" && named.field ? named : undefined) ?? designed.controls.find((x) => x.type === "image" && x.field && !x.hidden);
+      const input = c && rootRef.current?.querySelector<HTMLButtonElement>(`[data-ctl="${c.id}"] button.fc-image`);
+      if (!input) return false;
+      input.click();
+      return true;
     },
     setValue: (name, v) => {
       const c = controlByName(name);
@@ -862,9 +944,14 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
     if (finding) return `${c.id}-find-${finding.active}`;
     const i = c.field ? colIdx(c.field) : -1;
     const k = rec === cur ? recordKey : rec.isNew ? "new" : keyOf(rec.rowIndex!);
-    return `${c.id}-${k}-${rec.row && i >= 0 ? String(rec.row[i]) : ""}`;
+    return `${c.id}-${k}-${rec.row && i >= 0 ? String(rec.row[i] ?? "") : ""}`;
   };
-  const recordKey = isNew ? "new" : `${pos}`;
+  // A new record keeps its key once its first field adds it, so the controls being typed into next
+  // aren't remounted (and what's typed in them lost) when the record comes back saved.
+  if (isNew && !wasNew.current) newTok.current++;
+  wasNew.current = isNew;
+  const stillNew = isNew || (rowIndex === undefined && addedKey !== null) || (rowIndex !== undefined && adopted.current !== null && keyOf(rowIndex) === adopted.current);
+  const recordKey = stillNew ? `new${newTok.current}` : `${pos}`;
   // Default View: Find always uses one record (the form's own fields hold the criteria).
   const designMode: FormViewMode = finding ? "single" : (layout.defaultView ?? "single");
   // Phones: a list form (continuous, datasheet, split) is a list of cards; tapping one shows its record.
@@ -946,7 +1033,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
       return paintOrder(list).map((c) => (
         <div
           key={valueKey(c, rec)}
-          className={`fv-ctl t-${c.type} ${c.tabStop === false ? "no-tab" : ""}`}
+          className={`fv-ctl t-${c.type} ${c.tabStop === false ? "no-tab" : ""} ${passThrough(c) ? "pass" : ""}`}
           data-field={isExpression(c.field) ? undefined : c.field}
           data-ctl={c.id}
           onDoubleClick={c.events?.onDblClick?.length ? () => fireControl(c, "onDblClick") : undefined}
@@ -1155,9 +1242,14 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
               return commitAt(r === "new" ? { row: null, rowIndex: undefined, isNew: true, p: -1 } : { row: data.rows[order[r]], rowIndex: order[r], isNew: false, p: r }, ci, input);
             }}
             onDeleteRows={(rs) => void editor.deleteRows(rs.map((r) => order[r]))}
+            onCellEvent={(_r, col, e) => {
+              const c = sheetControls[col];
+              return !!c && fireControl(c, e === "click" ? "onClick" : "onDblClick");
+            }}
             newRowPlaceholder={(col) => (sheetControls[col]?.field && data.fields[colIdx(sheetControls[col].field!)]?.type === "AutoNumber" ? "(New)" : "")}
             onStatus={ws.setStatus}
             onCurrentRow={(r) => (r === "new" ? !isNew && canAdd && setIsNew(true) : (isNew || r !== pos) && (setIsNew(false), setPos(r)))}
+            current={isNew ? "new" : pos}
             emptyMessage={linkBlocked ? "Fill in the main form's record first." : canAdd ? undefined : "No records."}
           />
         </div>

@@ -311,6 +311,8 @@ export const formControlSchema = z.object({
   phoneHidden: z.boolean().optional(),
   /** Buttons: invisible but clickable, over a picture (Access's Transparent property). */
   transparent: z.boolean().optional(),
+  /** Text and combo boxes: no fill, so the section's color shows through (Access's Back Style: Transparent). */
+  seeThrough: z.boolean().optional(),
   /** Embedded macros run by the control's events (On Click takes the place of `action`). */
   events: controlEventsSchema.optional(),
 });

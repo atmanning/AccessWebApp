@@ -892,6 +892,14 @@ export function vbaToSteps(
         add(act("RunMenuCommand", { Command: m[1] ? `NewLabels:${m[1]}` : "NewLabels" }));
         continue;
       }
+      // Application.FollowHyperlink "https://…" (a map, a web page): opens it.
+      if ((m = /^(?:Call\s+)?(?:Application\.)?FollowHyperlink\s*\(?\s*([\s\S]+?)\s*\)?$/i.exec(stmt))) {
+        const addr = splitArgs(m[1]).positional[0];
+        if (addr) {
+          add(act("FollowHyperlink", { Address: `=${vbaExpr(addr, scope)}` }));
+          continue;
+        }
+      }
       if ((m = /^DoCmd\.(\w+)\s*([\s\S]*)$/i.exec(stmt))) {
         add(docmdStep(m[1], m[2], scope));
         continue;

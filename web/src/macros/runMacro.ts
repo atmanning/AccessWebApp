@@ -6,7 +6,7 @@
 import { canonicalAction, MACRO_ACTIONS, type MacroStep } from "../../../shared/macros";
 import type { ProjectDoc } from "../../../shared/model";
 import { truthy, type ExprValue } from "../engine/expr";
-import { localVars, macroContext, macroError, openForm, tempVars, type FormHandle } from "./runtime";
+import { macroContext, macroError, openForm, tempVars, type FormHandle } from "./runtime";
 
 /** Asks the workspace to show New Labels (detail: a table or query name, or ""). */
 export const NEW_LABELS_EVENT = "accessweb:new-labels";
@@ -24,7 +24,7 @@ export interface MacroEnv {
   evaluate(expression: string): ExprValue;
   /** The database as it is now (a RunSQL earlier in the macro may have changed it). */
   doc(): ProjectDoc;
-  open(kind: OpenKind, id: string, view: "design" | "sql" | undefined, opts: { where?: string; dataMode?: string; print?: boolean }): void;
+  open(kind: OpenKind, id: string, view: "design" | "sql" | undefined, opts: { where?: string; dataMode?: string; print?: boolean; openArgs?: string }): void;
   close(kind: OpenKind, id: string): void;
   closeAll(): void;
   /** Runs an action query's SQL; asks first unless warnings are off. Throws on errors. */
@@ -37,6 +37,12 @@ export interface MacroEnv {
   status(text: string, kind?: "info" | "error"): void;
   beep(): void;
   print(): void;
+  /** Opens a web address (http, https, mailto, tel) in a new tab or the mail app. */
+  openUrl?(url: string): void;
+  /** OpenForm as a dialog: waits until that form is closed again. */
+  waitClosed?(kind: OpenKind, id: string): Promise<void>;
+  /** Hands the person a file to save (a contact card). */
+  download?(name: string, mime: string, text: string): void;
 }
 
 export interface MacroResult {
@@ -59,6 +65,10 @@ interface RunState {
   /** Submacros of the macro being run (RunMacro "Name" and OnError Macro Name find them first). */
   submacros: Map<string, MacroStep[]>;
   depth: number;
+  /** This macro's local variables (SetLocalVar). */
+  locals: Map<string, ExprValue>;
+  /** Makes this macro the one [Form], [Screen] and [LocalVars] refer to. */
+  enter: () => void;
 }
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
@@ -66,11 +76,25 @@ const bare = (name: string) => name.trim().replace(/^\[|\]$/g, "");
 
 /** Runs the steps. `steps` may be a named macro's (its submacros are callable by name). */
 export async function runMacro(steps: readonly MacroStep[], env: MacroEnv): Promise<MacroResult> {
-  const state: RunState = { env, warnings: true, onError: { mode: "fail" }, cancelled: false, submacros: submacrosOf(steps), depth: 0 };
-  localVars.clear();
+  // Macros can run side by side (a button's On Got Focus while its On Click waits for a dialog), so
+  // each one has its own form, active control and local variables, put in place whenever it works
+  // something out (expressions are worked out in one go, between the awaits).
+  const locals = new Map<string, ExprValue>();
+  const enter = () => {
+    macroContext.form = env.form;
+    macroContext.activeControl = env.activeControl;
+    macroContext.locals = locals;
+  };
+  const own: MacroEnv = {
+    ...env,
+    evaluate: (x) => {
+      enter();
+      return env.evaluate(x);
+    },
+  };
+  const state: RunState = { env: own, locals, enter, warnings: true, onError: { mode: "fail" }, cancelled: false, submacros: submacrosOf(steps), depth: 0 };
   const outer = { ...macroContext };
-  macroContext.form = env.form;
-  macroContext.activeControl = env.activeControl;
+  enter();
   try {
     await runSteps(steps, state);
     return { ok: true, cancelled: state.cancelled };
@@ -78,9 +102,9 @@ export async function runMacro(steps: readonly MacroStep[], env: MacroEnv): Prom
     if (e instanceof Stop) return { ok: true, cancelled: state.cancelled };
     return { ok: false, cancelled: state.cancelled, error: (e as Error).message };
   } finally {
-    localVars.clear();
     macroContext.form = outer.form;
     macroContext.activeControl = outer.activeControl;
+    macroContext.locals = outer.locals;
   }
 }
 
@@ -112,6 +136,7 @@ async function runSteps(steps: readonly MacroStep[], st: RunState): Promise<void
       }
       case "action":
         try {
+          st.enter();
           await runAction(canonicalAction(s.action), s.args ?? {}, st);
         } catch (e) {
           if (e instanceof Stop) throw e;
@@ -290,7 +315,11 @@ async function runAction(action: string, a: Record<string, string>, st: RunState
       const f = findByName(doc.forms, await argText(a.FormName, st), "form");
       const view = await argText(a.View, st);
       const where = a.WhereCondition?.trim() ? freezeReferences(await argText(a.WhereCondition, st), env.evaluate) : undefined;
-      return env.open("form", f.id, /design/i.test(view) ? "design" : undefined, { where, dataMode: await argText(a.DataMode, st) || undefined });
+      const openArgs = a.OpenArgs?.trim() ? await argText(a.OpenArgs, st) : undefined;
+      env.open("form", f.id, /design/i.test(view) ? "design" : undefined, { where, dataMode: await argText(a.DataMode, st) || undefined, ...(openArgs ? { openArgs } : {}) });
+      // A dialog: the macro goes on once it's closed (then requeries, finds the new record…).
+      if (/dialog|^3$/i.test(await argText(a.WindowMode, st)) && env.waitClosed) await env.waitClosed("form", f.id);
+      return;
     }
     case "OpenReport": {
       const r = findByName(doc.reports, await argText(a.ReportName, st), "report");
@@ -319,7 +348,13 @@ async function runAction(action: string, a: Record<string, string>, st: RunState
       if (!kind) return;
       const list = { form: doc.forms, report: doc.reports, table: doc.tables, query: doc.queries }[kind];
       const o = list.find((x) => x.name.toLowerCase() === bare(name).toLowerCase());
-      if (o) env.close(kind, o.id);
+      if (!o) return;
+      // Closing the form the macro belongs to ends the macro (its later actions have nothing to act on).
+      if (kind === "form" && st.env.form && st.env.form.name.toLowerCase() === o.name.toLowerCase()) {
+        st.env.form.close();
+        throw new Stop(false);
+      }
+      env.close(kind, o.id);
       return;
     }
     case "GoToRecord": {
@@ -340,13 +375,61 @@ async function runAction(action: string, a: Record<string, string>, st: RunState
       return targetForm(undefined, st).deleteRecord();
     case "RefreshRecord":
     case "Requery":
-      return targetForm(undefined, st).requery();
+      // Requery of one control (a combo box's list): lists here already follow the data, so there's nothing to do.
+      if (action === "Requery" && a.ControlName?.trim()) return;
+      targetForm(undefined, st).requery();
+      // Let the form show the fresh records before the next action looks at them.
+      return settle(60);
     case "ApplyFilter": {
-      const w = (await argText(a.WhereCondition, st)).trim();
+      // A Where Condition of "" (as the templates' Clear Filter has) shows every record again.
+      const w = (await argText(a.WhereCondition, st)).trim().replace(/^(""|'')$/, "");
       return targetForm(undefined, st).applyFilter(w ? freezeReferences(w, env.evaluate) : null);
     }
     case "ShowAllRecords":
       return targetForm(undefined, st).applyFilter(null);
+    case "SearchForRecord": {
+      const name = /form/i.test(await argText(a.ObjectType, st)) || !a.ObjectType ? await argText(a.ObjectName, st) : "";
+      const where = freezeReferences(await argText(a.WhereCondition, st), env.evaluate).trim();
+      if (!where) return;
+      const which = (await argText(a.Record, st)) || "First";
+      // A record just added (by a dialog this macro opened) may take a moment to reach the form.
+      for (let tries = 0; ; tries++) {
+        if (targetForm(name, st).searchForRecord(where, which)) return;
+        if (tries >= 10) break;
+        await settle(100);
+      }
+      env.status("No record matches.");
+      return;
+    }
+    case "FollowHyperlink": {
+      const url = (await argText(a.Address, st)).trim();
+      if (!url) return;
+      // Web pages, maps, e-mail and phone numbers only; a bare "www.…" is a web page.
+      const full = /^www\./i.test(url) ? `https://${url}` : url;
+      if (!/^(https?:|mailto:|tel:)/i.test(full)) throw new MacroActionError(`'${url}' isn't a web address this app can open.`);
+      if (env.openUrl) env.openUrl(full);
+      return;
+    }
+    case "EMailDatabaseObject": {
+      const q: string[] = [];
+      const add = async (k: string, v?: string) => {
+        const t = (await argText(v, st)).trim();
+        if (t) q.push(`${k}=${encodeURIComponent(t)}`);
+      };
+      await add("cc", a.Cc);
+      await add("bcc", a.Bcc);
+      await add("subject", a.Subject);
+      await add("body", a.MessageText);
+      // "Ann Lee [ann@example.com]" as Access writes recipients: the address in brackets.
+      const to = (await argText(a.To, st))
+        .split(";")
+        .map((x) => (/\[([^\]]+@[^\]]+)\]/.exec(x)?.[1] ?? x).trim())
+        .filter((x) => x.includes("@"))
+        .join(",");
+      env.openUrl?.(`mailto:${encodeURIComponent(to).replace(/%40/g, "@").replace(/%2C/g, ",")}${q.length ? `?${q.join("&")}` : ""}`);
+      if (a.ObjectName?.trim()) env.status("The e-mail opens without the attachment: attaching a form or report isn't possible from the web.");
+      return;
+    }
     case "FindRecord": {
       const what = await argText(a.FindWhat, st);
       if (!targetForm(undefined, st).findRecord(what, await argText(a.Match, st) || "Whole Field")) env.status(`'${what}' wasn't found.`);
@@ -360,7 +443,12 @@ async function runAction(action: string, a: Record<string, string>, st: RunState
     case "SetValue": {
       const item = await argText(a.Item, st);
       const value = await evaluateAsync(a.Expression ?? "", st);
-      const path = item.split(/\s*[!.]\s*/).map(bare).filter(Boolean);
+      let path = item.split(/\s*[!.]\s*/).map(bare).filter(Boolean);
+      // [Screen].[ActiveControl]: the control whose event runs the macro.
+      if (path.length === 2 && /^screen$/i.test(path[0]) && /^activecontrol$/i.test(path[1])) {
+        if (!st.env.activeControl) throw new MacroActionError("There's no active control to set.");
+        path = [st.env.activeControl];
+      }
       const [form, name] =
         path.length >= 3 && /^forms$/i.test(path[0]) ? [targetForm(path[1], st), path[2]] : [targetForm(undefined, st), path[path.length - 1]]; // [Form]![X], [Me]![X] and [X]: this form
       if (!name) throw new MacroActionError("Choose the Item to set.");
@@ -399,7 +487,7 @@ async function runAction(action: string, a: Record<string, string>, st: RunState
     case "SetLocalVar": {
       const name = (await argText(a.Name, st)).trim();
       if (!name) throw new MacroActionError("Name the local variable.");
-      localVars.set(name.toLowerCase(), await evaluateAsync(a.Expression ?? "", st));
+      st.locals.set(name.toLowerCase(), await evaluateAsync(a.Expression ?? "", st));
       return;
     }
     case "RunMacro": {
@@ -428,6 +516,12 @@ async function runAction(action: string, a: Record<string, string>, st: RunState
         case "printobject": case "print": return env.print();
         case "close": case "closewindow": return f().close();
         case "find": return env.status("Use 🔍 Find under the form to look for records.");
+        case "manageattachments":
+          if (!f().pickPicture(st.env.activeControl)) env.status("This form has no picture to change.");
+          return;
+        case "unhidecolumns": return env.status("To show or hide fields, use the column headings' menu (⋮) in the list.");
+        case "saveasoutlookcontact": return saveContactCard(f(), env);
+        case "addcontactfromoutlook": return env.status("Adding contacts from Outlook isn't available on the web. Use External Data → Import to bring in a list of contacts.");
       }
       // New Labels (Access's Label Wizard): "NewLabels" or "NewLabels:Contacts" to start from that table or query.
       if (cmd === "newlabels" || cmd.startsWith("newlabels:")) {
@@ -466,3 +560,40 @@ async function runAction(action: string, a: Record<string, string>, st: RunState
   }
   throw new MacroActionError(MACRO_ACTIONS[action] ? `'${action}' isn't supported here yet.` : `'${action}' isn't an action this app can run.`);
 }
+
+/** Save As Outlook Contact: the record as a contact card (.vcf), which Outlook, phones and mail apps open. */
+function saveContactCard(f: FormHandle, env: MacroEnv) {
+  const get = (...names: string[]) => {
+    for (const n of names) {
+      const v = f.value(n);
+      if (v !== undefined && v !== null && String(v).trim() !== "") return String(v).trim();
+    }
+    return "";
+  };
+  const esc = (t: string) => t.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/([,;])/g, "\\$1");
+  const first = get("First Name", "FirstName");
+  const last = get("Last Name", "LastName", "Surname");
+  const company = get("Company", "Company Name");
+  const full = [first, last].filter(Boolean).join(" ") || company;
+  if (!full) return env.status("This record has no name to save as a contact.");
+  const lines = ["BEGIN:VCARD", "VERSION:3.0", `N:${esc(last)};${esc(first)};;;`, `FN:${esc(full)}`];
+  const put = (key: string, ...names: string[]) => {
+    const v = get(...names);
+    if (v) lines.push(`${key}:${esc(v)}`);
+  };
+  put("ORG", "Company", "Company Name");
+  put("TITLE", "Job Title", "Title");
+  put("EMAIL;TYPE=INTERNET", "E-mail Address", "Email", "E-mail");
+  put("TEL;TYPE=WORK", "Business Phone", "Work Phone");
+  put("TEL;TYPE=HOME", "Home Phone");
+  put("TEL;TYPE=CELL", "Mobile Phone", "Cell Phone");
+  put("TEL;TYPE=FAX", "Fax Number", "Fax");
+  const adr = [get("Address", "Street"), get("City"), get("State/Province", "State"), get("ZIP/Postal Code", "Zip/Postal Code", "Zip"), get("Country/Region", "Country")];
+  if (adr.some(Boolean)) lines.push(`ADR;TYPE=WORK:;;${adr.map(esc).join(";")}`);
+  put("URL", "Web Page", "Website");
+  put("NOTE", "Notes");
+  lines.push("END:VCARD");
+  env.download?.(`${full.replace(/[\\/:*?"<>|]+/g, " ").trim() || "contact"}.vcf`, "text/vcard", lines.join("\r\n") + "\r\n");
+}
+
+const settle = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
