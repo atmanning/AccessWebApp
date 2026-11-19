@@ -622,14 +622,16 @@ select.grid-input { padding: 0 2px; }
 [data-compact] .home-user { display: none; }
 [data-compact] .home-nav .spacer, [data-compact] .backstage-nav .spacer { flex: 1; }
 /* Phones: the File screen's menu wraps onto more lines, so Close and Sign out are always in view. */
-[data-compact] .backstage-nav { flex-wrap: wrap; overflow-x: visible; padding: 4px; }
-[data-compact] .backstage-nav .spacer { display: none; }
+[data-compact] .backstage-nav, [data-compact] .home-nav { flex-wrap: wrap; overflow-x: visible; padding: 4px; }
+[data-compact] .backstage-nav .spacer, [data-compact] .home-nav .spacer { display: none; }
 [data-compact] .backstage-nav button { padding: 10px 12px; }
 [data-compact] .home-main, [data-compact] .backstage-main { padding: 16px 12px; }
 [data-compact] .home-main h1 { font-size: 22px; }
 [data-compact] .template-row { gap: 10px; }
 [data-compact] .template-tile { width: calc(50% - 5px); }
-[data-compact] .template-art { height: 90px; }
+[data-compact] .template-art { height: 45px; margin-bottom: 6px; }
+[data-compact] .template-art svg { width: 28px; height: 28px; }
+[data-compact] .template-art .plus { font-size: 24px; }
 [data-compact] .recent-table .col-minor { display: none; }
 [data-compact] .recent-table td { padding: 10px 6px; }
 [data-compact] .recent-actions button { min-height: 34px; }
