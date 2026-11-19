@@ -915,7 +915,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
           data-ctl={c.id}
           onDoubleClick={c.events?.onDblClick?.length ? () => fireControl(c, "onDblClick") : undefined}
           onClick={c.type !== "button" && c.events?.onClick?.length && !finding ? () => fireControl(c, "onClick") : undefined}
-          data-gotfocus={c.events?.onGotFocus?.length ? "" : undefined} onFocus={c.events?.onGotFocus?.length ? (e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && fireControl(c, "onGotFocus") : undefined}
+          data-gotfocus={c.events?.onGotFocus?.length ? "" : undefined} onFocus={c.events?.onGotFocus?.length ? (e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && fireControl(c, "onGotFocus") : undefined} onBlur={c.events?.onLostFocus?.length ? (e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && fireControl(c, "onLostFocus") : undefined}
           style={{ left: c.x, top: c.y, width: c.w, height: c.h, ...(c.transparent ? { zIndex: 1 } : {}), ...(pad.has(c.id) ? ({ "--btn-pad": `${pad.get(c.id)}px` } as object) : {}), ...(shown(c) ? {} : { display: "none" }) }}
         >
           {renderControl(c, rec)}
@@ -932,7 +932,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
         onDoubleClick={c.events?.onDblClick?.length ? () => fireControl(c, "onDblClick") : undefined}
         onClick={c.type !== "button" && c.events?.onClick?.length && !finding ? () => fireControl(c, "onClick") : undefined}
         data-gotfocus={c.events?.onGotFocus?.length ? "" : undefined}
-        onFocus={c.events?.onGotFocus?.length ? (e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && fireControl(c, "onGotFocus") : undefined}
+        onFocus={c.events?.onGotFocus?.length ? (e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && fireControl(c, "onGotFocus") : undefined} onBlur={c.events?.onLostFocus?.length ? (e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && fireControl(c, "onLostFocus") : undefined}
         style={!shown(c) ? { display: "none" } : c.multiline || c.type === "listbox" || c.type === "subform" || (c.type === "image" && !!c.field) ? { minHeight: Math.min(c.h, 320) } : undefined}
       >
         {renderControl(c, rec)}

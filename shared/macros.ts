@@ -32,7 +32,7 @@ export const macroStepSchema: z.ZodType<MacroStep> = z.lazy(() =>
 export const macroStepsSchema: z.ZodType<MacroStep[]> = z.lazy(() => z.array(macroStepSchema).max(500));
 
 /** Events of a control that can run a macro. */
-export const CONTROL_EVENTS = ["onClick", "onDblClick", "afterUpdate", "onGotFocus"] as const;
+export const CONTROL_EVENTS = ["onClick", "onDblClick", "afterUpdate", "onGotFocus", "onLostFocus"] as const;
 export type ControlEvent = (typeof CONTROL_EVENTS)[number];
 /** Events of a form that can run a macro. */
 export const FORM_EVENTS = ["onLoad", "onCurrent", "onClose"] as const;
@@ -42,12 +42,13 @@ export const EVENT_LABELS: Record<ControlEvent | FormEvent, string> = {
   onDblClick: "On Dbl Click",
   afterUpdate: "After Update",
   onGotFocus: "On Got Focus",
+  onLostFocus: "On Lost Focus",
   onLoad: "On Load",
   onCurrent: "On Current",
   onClose: "On Close",
 };
 
-export const controlEventsSchema = z.object({ onClick: macroStepsSchema.optional(), onDblClick: macroStepsSchema.optional(), afterUpdate: macroStepsSchema.optional(), onGotFocus: macroStepsSchema.optional() });
+export const controlEventsSchema = z.object({ onClick: macroStepsSchema.optional(), onDblClick: macroStepsSchema.optional(), afterUpdate: macroStepsSchema.optional(), onGotFocus: macroStepsSchema.optional(), onLostFocus: macroStepsSchema.optional() });
 export const formEventsSchema = z.object({ onLoad: macroStepsSchema.optional(), onCurrent: macroStepsSchema.optional(), onClose: macroStepsSchema.optional() });
 
 export const macroSchema = z.object({

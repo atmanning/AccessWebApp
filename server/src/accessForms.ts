@@ -384,6 +384,7 @@ const CONTROL_EVENT_PROPS = [
   { prop: "OnDblClick", jet: "OnDblClick", vba: "DblClick", ev: "onDblClick" },
   { prop: "AfterUpdate", jet: "AfterUpdate", vba: "AfterUpdate", ev: "afterUpdate" },
   { prop: "OnGotFocus", jet: "OnGotFocus", vba: "GotFocus", ev: "onGotFocus" },
+  { prop: "OnLostFocus", jet: "OnLostFocus", vba: "LostFocus", ev: "onLostFocus" },
 ] as const;
 const FORM_EVENT_PROPS = [
   { prop: "OnOpen", jet: "OnOpen", vba: "Open", ev: "onLoad" },
@@ -393,7 +394,7 @@ const FORM_EVENT_PROPS = [
   { prop: "OnClose", jet: "OnClose", vba: "Close", ev: "onClose" },
 ] as const;
 /** Events this app doesn't have, reported when they have code. */
-const OTHER_EVENTS = ["BeforeUpdate", "OnChange", "OnEnter", "OnExit", "OnLostFocus", "OnKeyDown", "OnKeyPress", "OnMouseDown", "BeforeInsert", "AfterInsert", "OnDelete", "OnTimer", "OnError", "OnDirty"];
+const OTHER_EVENTS = ["BeforeUpdate", "OnChange", "OnEnter", "OnExit", "OnKeyDown", "OnKeyPress", "OnMouseDown", "BeforeInsert", "AfterInsert", "OnDelete", "OnTimer", "OnError", "OnDirty"];
 
 type SourceFor = (raw: string | undefined, nameForSql: string) => (SourceRef & { name: string }) | null;
 type ColumnsOf = (ref: SourceRef & { name: string }) => string[];
