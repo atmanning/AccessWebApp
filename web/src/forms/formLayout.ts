@@ -210,6 +210,7 @@ export function makeControl(
     c.rowSource = lk?.rowSource ?? "";
     if (lk?.boundColumn) c.boundColumn = lk.boundColumn;
     if (lk?.displayColumn) c.displayColumn = lk.displayColumn;
+    if (type === "combobox" && lk?.limitToList === false) c.limitToList = false;
   }
   if (type === "tab") c.pages = ["Page 1", "Page 2"];
   if (type === "rectangle") {

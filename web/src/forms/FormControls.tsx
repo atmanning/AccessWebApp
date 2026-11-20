@@ -261,7 +261,7 @@ function LiveInput({ c, run, ts, bs, id }: { c: FormControl; run: RunProps; ts: 
         </div>
       );
     }
-    if (c.limitToList === false && !run.readOnly) return <FreeCombo id={id} style={style} current={current} options={all} onCommit={run.onCommit} />;
+    if (c.limitToList === false && !(c.displayColumn && c.displayColumn !== c.boundColumn) && !run.readOnly) return <FreeCombo id={id} style={style} current={current} options={all} onCommit={run.onCommit} />;
     return (
       <select id={id} className="fc-input combo" value={current} disabled={run.readOnly} style={style} onChange={(e) => run.onCommit(e.target.value)}>
         <option value="">{c.placeholder ?? ""}</option>

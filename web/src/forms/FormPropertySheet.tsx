@@ -684,6 +684,7 @@ function RowSourceProps({ c, onPatch }: { c: FormControl; onPatch: (p: Patch) =>
   const type = c.rowSourceType ?? "values";
   const cols = useColumnsOf(type, c.rowSource);
   const colOptions = [{ value: "", label: "(automatic)" }, ...cols.map((x) => ({ value: x, label: x }))];
+  const showsOther = type !== "values" && !!c.displayColumn && c.displayColumn !== c.boundColumn;
   return (
     <>
       <Row label="Row Source Type">
@@ -719,6 +720,18 @@ function RowSourceProps({ c, onPatch }: { c: FormControl; onPatch: (p: Patch) =>
             <Select label="Display Column" value={c.displayColumn ?? ""} options={colOptions} onChange={(v) => onPatch({ displayColumn: v || undefined })} />
           </Row>
         </>
+      )}
+      {c.type === "combobox" && (
+        <Row
+          label="Limit To List"
+          hint={
+            showsOther
+              ? "Always Yes: the list saves one column and shows another, so a typed value couldn't be saved"
+              : "No lets people type a value that isn't in the list (a new company); the list offers it next time"
+          }
+        >
+          {showsOther ? <span>Yes</span> : <BoolProp label="Limit To List" value={c.limitToList !== false} onChange={(v) => onPatch({ limitToList: v ? undefined : false })} />}
+        </Row>
       )}
     </>
   );
