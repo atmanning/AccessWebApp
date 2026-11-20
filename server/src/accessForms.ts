@@ -862,6 +862,8 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns, src: So
       if (fontSize) c.fontSize = clamp(Math.round((fontSize * 96) / 72), 8, 72);
       if (p.num("FontWeight", 400) >= 600) c.bold = true;
       if (p.flipped("FontItalic")) c.italic = true;
+      if (p.flipped("FontUnderline")) c.underline = true;
+      if (p.flipped("ColumnHidden")) c.columnHidden = true;
       const align = p.num("TextAlign", 0);
       if (align >= 1 && align <= 3) c.align = (["left", "center", "right"] as const)[align - 1];
       const fore = color(p.num("ForeColor", -1));

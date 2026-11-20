@@ -5,6 +5,7 @@ import { readSource } from "../engine/engine";
 import { formatValue } from "../engine/values";
 import { compileCriteria } from "../engine/findCriteria";
 import { isExpression, truthy, type ExprValue } from "../engine/expr";
+import { Modal } from "../ui/dialogs";
 import type { ControlEvent, FormEvent } from "../../../shared/macros";
 import { useMacroRunner } from "../macros/useMacroRunner";
 import { formSession, registerForm, registerSubform, type FormHandle } from "../macros/runtime";
@@ -117,6 +118,9 @@ const sameKey = (a: CellValue | undefined, b: CellValue | undefined) => a !== nu
 /** A picture or decoration that does nothing when clicked lets clicks through to what's under it (a button drawn under its icon). */
 const passThrough = (c: FormControl) => (c.type === "image" || c.type === "rectangle" || c.type === "line") && !c.field && !c.events?.onClick && !c.events?.onDblClick;
 
+/** A read-only box that does something when clicked (the templates' "Open"): it looks like a link. */
+const opensOnClick = (c: FormControl) => c.type === "textbox" && !!c.events?.onClick?.length && (c.locked || isExpression(c.field));
+
 export function FormRunView({ form, tabKey, goto, open, embedded }: { form: FormDef; tabKey: string; goto?: RecordTarget; open?: OpenArgs; embedded?: EmbeddedLink }) {
   const ws = useWorkspace();
   const runMacro = useMacroRunner();
@@ -140,6 +144,12 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
   const [pos, setPos] = useState(saved.pos ?? 0);
   const [isNew, setIsNew] = useState(false);
   const [openApplied, setOpenApplied] = useState(0);
+  const [colShown, setColShownState] = useState<Record<string, boolean>>(() => (session.colShown as Record<string, boolean> | undefined) ?? {});
+  const setColShown = (next: Record<string, boolean>) => {
+    session.colShown = next;
+    setColShownState(next);
+  };
+  const [pickingColumns, setPickingColumns] = useState(false);
   /** Values typed into a just-added record before it came back from its query (saved once it does). */
   const pendingFields = useRef<{ col: number; input: string | boolean }[]>([]);
   const newTok = useRef(0);
@@ -493,6 +503,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
       property: call("property"),
       searchForRecord: call("searchForRecord"),
       pickPicture: call("pickPicture"),
+      unhideColumns: call("unhideColumns"),
       evaluate: call("evaluate"),
       goToRecord: call("goToRecord"),
       goToControl: call("goToControl"),
@@ -697,6 +708,11 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
         }
       }
       return false;
+    },
+    unhideColumns: () => {
+      if (mode !== "datasheet" && mode !== "split") return false;
+      setPickingColumns(true);
+      return true;
     },
     pickPicture: (name) => {
       // The named control when it's a picture (the button that runs Edit Picture isn't), else the form's picture.
@@ -991,7 +1007,11 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
     }
   };
   // Datasheet View: the detail section's text boxes, combo boxes and check boxes, in tab order.
-  const designedSheet = mode === "datasheet" || mode === "split" ? tabSequence(layout).filter((c) => c.section === "detail" && !c.hidden && (c.type === "textbox" || c.type === "combobox" || c.type === "listbox" || c.type === "checkbox") && !!c.field) : [];
+  // Datasheet View: the detail section's text boxes, combo boxes and check boxes, in tab order, less
+  // the columns hidden (Column Hidden in Access, or unticked in Unhide Columns).
+  const sheetCandidates = mode === "datasheet" || mode === "split" ? tabSequence(layout).filter((c) => c.section === "detail" && !c.hidden && (c.type === "textbox" || c.type === "combobox" || c.type === "listbox" || c.type === "checkbox") && !!c.field) : [];
+  const columnShown = (c: FormControl) => colShown[c.id] ?? !c.columnHidden;
+  const designedSheet = sheetCandidates.filter(columnShown);
   // A datasheet form with no fields placed shows every column of its record source.
   const sheetControls: FormControl[] =
     designedSheet.length || (mode !== "datasheet" && mode !== "split")
@@ -1017,6 +1037,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
       readOnly: !!reason,
       readOnlyReason: reason ?? undefined,
       lookup: opts?.length && (c.type === "combobox" || c.type === "listbox") ? { options: opts, limit: c.limitToList !== false } : undefined,
+      link: !!c.events?.onClick?.length,
     };
   });
   const sheetValue = (r: number, col: number): CellValue => {
@@ -1051,7 +1072,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
       return paintOrder(list).map((c) => (
         <div
           key={valueKey(c, rec)}
-          className={`fv-ctl t-${c.type} ${c.tabStop === false ? "no-tab" : ""} ${passThrough(c) ? "pass" : ""}`}
+          className={`fv-ctl t-${c.type} ${c.tabStop === false ? "no-tab" : ""} ${passThrough(c) ? "pass" : ""} ${opensOnClick(c) ? "link" : ""}`}
           data-field={isExpression(c.field) ? undefined : c.field}
           data-ctl={c.id}
           onDoubleClick={c.events?.onDblClick?.length ? () => fireControl(c, "onDblClick") : undefined}
@@ -1095,7 +1116,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
 
   // Phone list: each record as a card (its first few fields), and a switch between the list and one record.
   const cardControls: { label: string; field: string; c?: FormControl }[] = (() => {
-    const placed = tabSequence(layout).filter((c) => c.section === "detail" && !c.hidden && !c.phoneHidden && (c.type === "textbox" || c.type === "combobox" || c.type === "checkbox") && !!c.field && !isExpression(c.field) && colIdx(c.field) >= 0);
+    const placed = tabSequence(layout).filter((c) => c.section === "detail" && !c.hidden && !c.phoneHidden && !c.columnHidden && (c.type === "textbox" || c.type === "combobox" || c.type === "checkbox") && !!c.field && !isExpression(c.field) && colIdx(c.field) >= 0);
     const list = placed.length ? placed.map((c) => ({ label: captionOf(c), field: c.field!, c })) : data.columns.map((f) => ({ label: f, field: f }));
     // An AutoNumber ID says little: the card leads with the first other field.
     const isId = (f: string) => data.fields[colIdx(f)]?.type === "AutoNumber";
@@ -1309,6 +1330,17 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
           )}
           {!table && !data.edit?.ok && <span className="rn-filter" title={data.edit && !data.edit.ok ? data.edit.reason : undefined}>Read-only (query)</span>}
         </div>
+      )}
+      {pickingColumns && (
+        <Modal title="Unhide Columns" onClose={() => setPickingColumns(false)} width={320} footer={<button className="primary" onClick={() => setPickingColumns(false)}>Close</button>}>
+          <div className="unhide-cols">
+            {sheetCandidates.map((c) => (
+              <label key={c.id}>
+                <input type="checkbox" checked={columnShown(c)} onChange={(e) => setColShown({ ...colShown, [c.id]: e.target.checked })} /> {captionOf(c)}
+              </label>
+            ))}
+          </div>
+        </Modal>
       )}
     </div>
   );

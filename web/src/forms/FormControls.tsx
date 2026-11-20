@@ -46,6 +46,7 @@ export function textStyle(c: FormControl): CSSProperties {
   if (c.fontSize) s.fontSize = c.fontSize;
   if (c.bold) s.fontWeight = 600;
   if (c.italic) s.fontStyle = "italic";
+  if (c.underline) s.textDecoration = "underline";
   if (c.align) s.textAlign = c.align;
   if (c.color) s.color = c.color;
   return s;

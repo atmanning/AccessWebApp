@@ -56,6 +56,7 @@ function fakeForm(values: Record<string, unknown>): FormHandle & { log: string[]
     property: () => undefined,
     searchForRecord: (w: string) => (log.push(`search ${w}`), true),
     pickPicture: () => true,
+    unhideColumns: () => true,
     close: () => void log.push("close"),
   };
 }

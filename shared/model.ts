@@ -288,6 +288,9 @@ export const formControlSchema = z.object({
   fontSize: px(8, 72).optional(),
   bold: z.boolean().optional(),
   italic: z.boolean().optional(),
+  underline: z.boolean().optional(),
+  /** Datasheet View: left out of the columns (Access's Column Hidden). */
+  columnHidden: z.boolean().optional(),
   align: z.enum(["left", "center", "right"]).optional(),
   color: hexColor.optional(),
   backColor: hexColor.optional(),

@@ -519,7 +519,9 @@ async function runAction(action: string, a: Record<string, string>, st: RunState
         case "manageattachments":
           if (!f().pickPicture(st.env.activeControl)) env.status("This form has no picture to change.");
           return;
-        case "unhidecolumns": return env.status("To show or hide fields, use the column headings' menu (⋮) in the list.");
+        case "unhidecolumns":
+          if (!f().unhideColumns()) env.status("Unhide Columns works on a form showing a datasheet.");
+          return;
         case "saveasoutlookcontact": return saveContactCard(f(), env);
         case "addcontactfromoutlook": return env.status("Adding contacts from Outlook isn't available on the web. Use External Data → Import to bring in a list of contacts.");
       }

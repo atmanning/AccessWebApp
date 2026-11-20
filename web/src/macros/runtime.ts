@@ -28,6 +28,8 @@ export interface FormHandle {
   searchForRecord(where: string, which: string): boolean;
   /** Lets the person choose a picture for a picture control (Access's Manage Attachments); false if there's none. */
   pickPicture(name?: string): boolean;
+  /** Datasheet and split forms: lets people choose which columns show (Access's Unhide Columns). */
+  unhideColumns(): boolean;
   setValue(name: string, value: ExprValue): string | null;
   setProperty(name: string, property: string, value: ExprValue): string | null;
   /** A control's property ([cmdSearchClear].[Visible]), or undefined when there's no such control. */
@@ -74,6 +76,8 @@ export interface FormSession {
   unregister?: () => void;
   /** The form's live state (a ref to what its handle calls), across remounts of its tab. */
   host?: { current: unknown };
+  /** Columns shown or hidden with Unhide Columns, by control id. */
+  colShown?: Record<string, boolean>;
 }
 export const formSessions = new Map<string, FormSession>();
 

@@ -21,6 +21,8 @@ export interface DatasheetColumn {
   lookup?: ColumnLookup;
   /** An Image field: shows a thumbnail; double-click, drop or paste to change the picture. */
   image?: { url: (imageId: string) => string; upload?: (file: Blob) => Promise<string> };
+  /** Clicking the cell does something (opens the record): shown as a link. */
+  link?: boolean;
 }
 
 export interface DatasheetProps {
@@ -814,7 +816,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
                     return (
                       <td
                         key={col.key}
-                        className={`${cls} ${col.image ? "image-cell" : ""} ${dropCell?.r === r && dropCell.c === c ? "drop-over" : ""}`}
+                        className={`${cls} ${col.image ? "image-cell" : ""} ${col.link && !newRow ? "link-cell" : ""} ${dropCell?.r === r && dropCell.c === c ? "drop-over" : ""}`}
                         title={col.image && canEdit(c) ? "Double-click to view or change the picture, or drop an image file here" : undefined}
                         onDragOver={(e) => {
                           if (!imageDrop || !e.dataTransfer.types.includes("Files")) return;

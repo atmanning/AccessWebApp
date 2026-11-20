@@ -472,3 +472,7 @@ textarea.ps-input { height: auto; padding: 4px 6px; resize: vertical; }
   background: var(--f-input, #fff); border: 1px solid var(--f-border, #c6cbd3); border-radius: 6px; box-shadow: 0 6px 20px rgb(0 0 0 / 0.16);
 }
 .fc-free-list .fc-list-item.hi { background: color-mix(in srgb, var(--f-accent) 14%, transparent); }
+/* A read-only box that opens something when clicked. */
+.fv-ctl.link .fc-input { color: #1a5fb4; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.unhide-cols { display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow: auto; }
+.unhide-cols label { display: flex; align-items: center; gap: 8px; cursor: pointer; }

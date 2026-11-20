@@ -1016,3 +1016,6 @@ button.props-tab.active { background: #fff; font-weight: 600; }
 .nav-foot { flex: none; display: flex; flex-direction: column; border-top: 1px solid var(--border); padding: 4px 0 calc(4px + env(safe-area-inset-bottom)); }
 .nav-foot button { min-height: 44px; padding: 0 16px; border: 0; background: none; font: inherit; font-size: 15px; text-align: left; color: var(--accent); cursor: pointer; }
 .nav-foot button:hover { background: #f4f5f7; }
+/* A cell that opens something when clicked (a form's "Open" column). */
+.datasheet td.link-cell { color: #1a5fb4; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.datasheet td.link-cell:hover { color: #0b3d82; }
