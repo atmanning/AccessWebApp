@@ -377,6 +377,37 @@ export interface ImportedDesigns {
 }
 
 /** Reads the forms and reports of an Access file and converts them for `doc` (its tables and queries). */
+/**
+ * Access numbers Tab Index separately in each section and on each page of a tab control, and Tab goes
+ * through a tab control's page in place of the tab control itself. A control drawn over a page whose
+ * number is already taken there belongs to the section (the templates' Edit Picture button under the
+ * picture), so it comes after the tab control rather than among the page's fields.
+ */
+export function accessTabOrder(tabbed: { c: FormControl; index: number }[]): string[] {
+  const items = tabbed.map((t, seq) => ({ ...t, seq, parent: t.c.onPage ? `${t.c.onPage.tab}:${t.c.onPage.index}` : t.c.section }));
+  const taken = new Map<string, Set<number>>();
+  for (const t of items) {
+    if (t.c.onPage && taken.get(t.parent)?.has(t.index)) t.parent = t.c.section;
+    const s = taken.get(t.parent) ?? new Set<number>();
+    s.add(t.index);
+    taken.set(t.parent, s);
+  }
+  const seen = new Set<string>();
+  const within = (parent: string): string[] =>
+    items
+      .filter((t) => t.parent === parent)
+      .sort((a, b) => a.index - b.index || a.seq - b.seq)
+      .flatMap((t) => {
+        if (seen.has(t.c.id)) return [];
+        seen.add(t.c.id);
+        if (t.c.type !== "tab") return [t.c.id];
+        return [t.c.id, ...(t.c.pages ?? []).flatMap((_, i) => within(`${t.c.id}:${i}`))];
+      });
+  const ids = (["header", "detail", "footer"] as const).flatMap((s) => within(s));
+  // Anything on a page whose tab control wasn't numbered still gets a place.
+  return [...ids, ...items.filter((t) => !seen.has(t.c.id)).map((t) => t.c.id)];
+}
+
 export function importFormsAndReports(file: Buffer, doc: ProjectDoc): ImportedDesigns {
   const out: ImportedDesigns = { forms: [], reports: [], queries: [], macros: [], images: [], warnings: [] };
   let db: JetDatabase;
@@ -919,7 +950,7 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns, src: So
         }
       }
       layout.controls.push(c);
-      if (p.has("TabIndex") || kind === "textbox" || kind === "combobox" || kind === "listbox" || kind === "checkbox" || kind === "button" || kind === "subform") {
+      if (p.has("TabIndex") || kind === "textbox" || kind === "combobox" || kind === "listbox" || kind === "checkbox" || kind === "button" || kind === "subform" || kind === "tab" || (kind === "image" && c.field)) {
         tabbed.push({ c, index: p.num("TabIndex", 0) });
       }
     }
@@ -935,10 +966,7 @@ function convert(db: JetDatabase, doc: ProjectDoc, out: ImportedDesigns, src: So
     const right = layout.controls.reduce((m, c) => Math.max(m, c.x + c.w), 0);
     if (right > layout.width) layout.width = clamp(right, 160, 4000);
     for (const c of layout.controls) if (c.type === "rectangle" && c.name.endsWith("Background")) c.w = layout.width;
-    // Tab order: by section, then Access's Tab Index.
-    const order = { header: 0, detail: 1, footer: 2 };
-    tabbed.sort((a, b) => order[a.c.section] - order[b.c.section] || a.index - b.index);
-    if (tabbed.length) layout.tabOrder = tabbed.map((t) => t.c.id);
+    if (tabbed.length) layout.tabOrder = accessTabOrder(tabbed);
 
     const fields = new Set((source ? columnsOf(source) : []).map((f) => f.toLowerCase()));
     const columns = [...new Set(layout.controls.map((c) => c.field).filter((f): f is string => !!f && !f.startsWith("=") && fields.has(f.toLowerCase())))];

@@ -925,6 +925,22 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
   // Enter moves to the next control, like Access (Shift+Enter goes back).
   const onKeyDown = (e: KeyboardEvent) => {
     const t = e.target as HTMLElement;
+    // Tab stays in the section, as in Access: from the last control it goes back to the first, not
+    // on to the record buttons and the ribbon. (The controls are in the page in tab order.)
+    if (e.key === "Tab" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      const card = e.currentTarget as HTMLElement;
+      const section = t.closest<HTMLElement>(".fv-section");
+      // (A subform's own card looks after Tab inside it; the datasheet and open lists have their own keys.)
+      if (!section || t.closest(".fv-card") !== card || t.closest(".datasheet, .fc-free-list")) return;
+      const stops = [...section.querySelectorAll<HTMLElement>("input, select, textarea, button, [tabindex]")].filter(
+        (el) => el.tabIndex >= 0 && !(el as HTMLInputElement).disabled && el.offsetParent !== null && el.closest(".fv-card") === card,
+      );
+      const edge = e.shiftKey ? stops[0] : stops[stops.length - 1];
+      if (stops.length < 2 || t !== edge) return;
+      e.preventDefault();
+      (e.shiftKey ? stops[stops.length - 1] : stops[0]).focus();
+      return;
+    }
     if (e.key !== "Enter" || t.tagName === "TEXTAREA" || t.tagName === "BUTTON" || e.ctrlKey || e.altKey) return;
     const root = e.currentTarget as HTMLElement;
     // Buttons with On Got Focus too: a search box's Enter goes to its Go button, which runs the search.

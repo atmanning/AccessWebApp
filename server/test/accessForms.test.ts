@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { buttonAction, importFormsAndReports, readGroupLevels } from "../src/accessForms.js";
+import { accessTabOrder, buttonAction, importFormsAndReports, readGroupLevels } from "../src/accessForms.js";
 import type { ProjectDoc } from "../../shared/model.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -116,3 +116,22 @@ describe("importing lookup fields", () => {
     expect(loans[2].lookup).toBeUndefined();
   });
 });
+
+describe("accessTabOrder", () => {
+  it("numbers each tab page apart, and puts a control drawn over a page but numbered with the section after the tab control", () => {
+    const ctl = (id: string, type: string, section = "detail", onPage?: { tab: string; index: number }) =>
+      ({ id, type, name: id, section, x: 0, y: 0, w: 10, h: 10, ...(onPage ? { onPage } : {}), ...(type === "tab" ? { pages: ["General"] } : {}) }) as never;
+    const page = { tab: "tabs", index: 0 };
+    const order = accessTabOrder([
+      { c: ctl("save", "button", "header"), index: 1 },
+      { c: ctl("tabs", "tab"), index: 0 },
+      { c: ctl("picture", "image", "detail", page), index: 0 },
+      { c: ctl("first", "textbox", "detail", page), index: 1 },
+      { c: ctl("last", "textbox", "detail", page), index: 2 },
+      { c: ctl("editPicture", "button", "detail", page), index: 1 },
+      { c: ctl("close", "button", "header"), index: 0 },
+    ]);
+    expect(order).toEqual(["close", "save", "tabs", "picture", "first", "last", "editPicture"]);
+  });
+});
+
