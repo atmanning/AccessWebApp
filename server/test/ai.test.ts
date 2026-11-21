@@ -77,9 +77,43 @@ describe("AI assistant", () => {
     const agent = await signUp(makeApp({ fetchImpl: fakeApi(() => design) }));
     for (let i = 0; i < 3; i++) expect((await agent.post("/api/ai/database").send({ prompt: "volunteers", sampleData: false })).status).toBe(200);
     const over = await agent.post("/api/ai/database").send({ prompt: "volunteers" });
-    expect(over.status).toBe(402);
+    expect(over.status).toBe(429);
     expect(over.body.error).toMatch(/today/);
     expect((await agent.get("/api/ai/status")).body).toMatchObject({ available: false, remaining: 0 });
+  });
+
+  it("gives people without the plan the free requests the admin sets, then offers the plan", async () => {
+    let fail = false;
+    const app = makeApp({
+      dailyLimit: 50,
+      fetchImpl: (async (url: string, init: { body: string }) => {
+        if (fail) return new Response(JSON.stringify({ error: { type: "overloaded_error" } }), { status: 529 });
+        return fakeApi(() => ({ name: "All", sql: "SELECT * FROM [Customers];", explanation: "All customers." }))(url, init as never);
+      }) as unknown as typeof fetch,
+    });
+    const admin = await signUp(app); // the first account is the admin
+    expect((await admin.put("/api/admin/plans/settings").send({ gated: false, advanced: [], ai: { free: 2, period: "once", daily: 50 } })).status).toBe(200);
+    expect((await admin.get("/api/admin/plans")).body.ai).toEqual({ free: 2, period: "once", daily: 50 });
+    const pat = await signUp(app);
+    expect((await pat.get("/api/ai/status")).body).toMatchObject({ available: true, included: false, free: { left: 2, total: 2, monthly: false }, remaining: 2 });
+    const one = await pat.post("/api/ai/query").send({ prompt: "all customers", schema });
+    expect(one.body).toMatchObject({ remaining: 1, free: { left: 1 } });
+    // A request that fails doesn't use up a free one.
+    fail = true;
+    expect((await pat.post("/api/ai/query").send({ prompt: "x", schema })).status).toBe(503);
+    fail = false;
+    expect((await pat.post("/api/ai/query").send({ prompt: "x", schema })).status).toBe(200);
+    const out = await pat.post("/api/ai/query").send({ prompt: "x", schema });
+    expect(out.status).toBe(402);
+    expect(out.body).toMatchObject({ code: "upgrade", feature: "ai" });
+    expect(out.body.error).toMatch(/2 free AI requests/);
+    // The plan (or the admin turning it on for them) includes it; the plan dialog lists it.
+    expect((await pat.get("/api/billing/status")).body).toMatchObject({ advanced: ["ai"], features: ["sharing", "public", "mysql", "accdb"] });
+    const patId = (await pat.get("/api/auth/me")).body.user.id;
+    expect((await admin.post("/api/admin/plans/grant").send({ userIds: [patId], features: ["ai"], enable: true })).status).toBe(200);
+    expect((await pat.get("/api/ai/status")).body).toMatchObject({ available: true, included: true, remaining: 47 });
+    // The admin itself always has it.
+    expect((await admin.get("/api/ai/status")).body).toMatchObject({ included: true });
   });
 
   it("explains a busy or refused API plainly", async () => {

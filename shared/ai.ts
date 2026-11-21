@@ -96,6 +96,12 @@ export interface AiStatus {
   available: boolean;
   /** Why not, when it isn't. */
   reason?: string;
-  /** Requests left today. */
+  /** Requests left now (today's, or the free ones left, whichever is fewer). */
   remaining?: number;
+  /** The plan includes it (or the admin turned it on for them). */
+  included?: boolean;
+  /** Without the plan: the free requests to try it. */
+  free?: { left: number; total: number; monthly: boolean };
+  /** The free requests are used up: the plan is the way to go on. */
+  upgrade?: boolean;
 }

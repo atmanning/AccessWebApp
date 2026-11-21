@@ -745,7 +745,7 @@ describe("plans: advanced features", () => {
     const p = (await pat.post("/api/projects").send({ name: "Club" })).body.project;
     // Off by default: sharing works.
     expect((await pat.put(`/api/projects/${p.id}/shares`).send({ email: "sam@example.com", permission: "view" })).status).toBe(200);
-    expect((await pat.get("/api/billing/status")).body).toMatchObject({ gated: false, features: ["sharing", "public", "mysql", "accdb", "ai"], billing: false });
+    expect((await pat.get("/api/billing/status")).body).toMatchObject({ gated: false, features: ["sharing", "public", "mysql", "accdb"], billing: false });
 
     // Require a plan, with Sharing and Public links advanced.
     expect((await admin.put("/api/admin/plans/settings").send({ gated: true, advanced: ["sharing", "public"] })).status).toBe(200);
@@ -756,19 +756,19 @@ describe("plans: advanced features", () => {
     expect((await pat.put(`/api/projects/${p.id}/public-access`).send({ publicView: true })).status).toBe(402);
     // Turning things off is always allowed, and features that aren't advanced still work.
     expect((await pat.put(`/api/projects/${p.id}/link-access`).send({ linkAccess: "none" })).status).toBe(200);
-    expect((await pat.get("/api/billing/status")).body.features).toEqual(["mysql", "accdb", "ai"]);
+    expect((await pat.get("/api/billing/status")).body.features).toEqual(["mysql", "accdb"]);
     // Admins always have everything.
     const mine = (await admin.post("/api/projects").send({ name: "Mine" })).body.project;
     expect((await admin.put(`/api/projects/${mine.id}/public-access`).send({ publicView: true })).status).toBe(200);
 
     // The admin enables Sharing for Pat.
     const plans = (await admin.get("/api/admin/plans")).body;
-    expect(plans).toMatchObject({ gated: true, advanced: ["sharing", "public"] });
+    expect(plans).toMatchObject({ gated: true, advanced: ["sharing", "public", "ai"] });
     expect(plans.stripe.configured).toBe(false);
     const patId = plans.users.find((u: { email: string }) => u.email === "pat@example.com").id;
     expect((await admin.post("/api/admin/plans/grant").send({ userIds: [patId], features: ["sharing"], enable: true })).body.changed).toBe(1);
     expect((await pat.put(`/api/projects/${p.id}/shares`).send({ email: "admin@example.com", permission: "view" })).status).toBe(200);
-    expect((await pat.get("/api/billing/status")).body).toMatchObject({ granted: ["sharing"], features: ["sharing", "mysql", "accdb", "ai"] });
+    expect((await pat.get("/api/billing/status")).body).toMatchObject({ granted: ["sharing"], features: ["sharing", "mysql", "accdb"] });
 
     // An editor of Pat's database is governed by Pat's plan, not their own.
     const sam = await request.agent(app);

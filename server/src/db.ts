@@ -152,6 +152,14 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (user_id, day)
   );
   `,
+  // 11: the AI assistant's free requests for people without the plan (period: "all", or "2026-11" when monthly)
+  `
+  CREATE TABLE ai_free (
+    user_id TEXT PRIMARY KEY,
+    period  TEXT NOT NULL,
+    used    INTEGER NOT NULL DEFAULT 0
+  );
+  `,
 ];
 
 export function openDatabase(file: string): DB {

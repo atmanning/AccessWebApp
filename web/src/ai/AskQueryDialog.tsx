@@ -3,10 +3,11 @@
  * query, it's tried on your data at once, and you save it as an ordinary query (in Design View when
  * it fits there) or ask for a change.
  */
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { AiQuerySpec } from "../../../shared/ai";
 import { formatValue } from "../../../shared/values";
 import { api } from "../api";
+import { allowanceText, Unavailable, useAiStatus } from "./allowance";
 import { runQuery, type ResultSet } from "../engine/engine";
 import { sqlToDesign } from "../engine/sqlToDesign";
 import { Modal } from "../ui/dialogs";
@@ -32,16 +33,10 @@ export function AskQueryDialog({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [result, setResult] = useState<ResultSet | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
-  const [remaining, setRemaining] = useState<number | null>(null);
+  const [aiStatus, updateAi] = useAiStatus();
   const box = useRef<HTMLTextAreaElement>(null);
   const examples = ws.doc.tables.length ? EXAMPLES : [];
 
-  useEffect(() => {
-    api.aiStatus().then((s) => {
-      if (!s.available) setError(s.reason ?? "The AI assistant isn't available.");
-      if (s.remaining !== undefined) setRemaining(s.remaining);
-    }, () => undefined);
-  }, []);
 
   const tryRun = async (sql: string): Promise<string | null> => {
     try {
@@ -65,7 +60,7 @@ export function AskQueryDialog({ onClose }: { onClose: () => void }) {
       // One more go when the query doesn't run, with the error, as a person would.
       for (let attempt = 0; attempt < 2; attempt++) {
         const r = await api.aiQuery({ prompt: ask, schema: schemaForAi(ws.getDoc()), history: turns });
-        setRemaining(r.remaining);
+        updateAi(r);
         const failed = await tryRun(r.query.sql);
         turns = [...turns, { prompt: ask, sql: r.query.sql, ...(failed ? { error: failed } : {}) }];
         setQuery(r.query);
@@ -148,7 +143,7 @@ export function AskQueryDialog({ onClose }: { onClose: () => void }) {
             ))}
           </div>
         )}
-        {error && <div className="ai-error" role="alert">{error}</div>}
+        {error ? <div className="ai-error" role="alert">{error}</div> : aiStatus && !aiStatus.available && <Unavailable status={aiStatus} />}
         {query && (
           <div className="ai-result">
             <div className="ai-explain">{query.explanation}</div>
@@ -183,7 +178,7 @@ export function AskQueryDialog({ onClose }: { onClose: () => void }) {
         )}
         <p className="small muted ai-privacy">
           Your request and this database's design (table and field names, and the values of short lists) go to Claude, Anthropic's AI, to write the query. Other records stay here.
-          {remaining !== null && ` ${remaining} AI request${remaining === 1 ? "" : "s"} left today.`}
+          {allowanceText(aiStatus)}
         </p>
       </div>
     </Modal>

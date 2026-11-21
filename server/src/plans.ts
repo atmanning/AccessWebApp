@@ -8,7 +8,7 @@
  * MySQL tables); only setting up new ones is refused.
  */
 import type { NextFunction, Request, Response } from "express";
-import { FEATURE_IDS, PLAN_INCLUDES, type FeatureId, type PlanStatus } from "../../shared/plans.js";
+import { AI_DEFAULTS, FEATURE_IDS, PLAN_INCLUDES, type AiPlanSettings, type FeatureId, type PlanStatus } from "../../shared/plans.js";
 import type { DB } from "./db.js";
 
 export function settingsStore(db: DB) {
@@ -37,28 +37,48 @@ export interface PlanUserRow {
   plan_status: string | null;
 }
 
-export function createPlans(db: DB, isAdmin: (u: { id: string; email: string }) => boolean) {
+export function createPlans(db: DB, isAdmin: (u: { id: string; email: string }) => boolean, aiDailyDefault = AI_DEFAULTS.daily, aiConfigured = false) {
   const settings = settingsStore(db);
   const userRow = db.prepare("SELECT id, email, features, plan_status FROM users WHERE id = ?");
 
   const gated = () => settings.get("plans.gated") === "on";
+  // The AI assistant costs money per request, so it's always part of the plan (after the free
+  // requests everyone gets), whether or not "Require a plan" is on.
   const advanced = (): FeatureId[] => {
     const saved = settings.get("plans.advanced");
-    return saved === null ? [...FEATURE_IDS] : featureList(saved);
+    const list = saved === null ? [...FEATURE_IDS] : featureList(saved);
+    return FEATURE_IDS.filter((f) => f === "ai" || list.includes(f));
   };
 
-  /** What a person can use, from their row. */
+  /** What a person can use, from their row (the AI assistant: unlimited use, beyond the free requests). */
   const featuresOf = (u: PlanUserRow): FeatureId[] => {
-    if (!gated() || isAdmin(u) || PLAN_INCLUDES.has(u.plan_status ?? "")) return [...FEATURE_IDS];
-    const adv = new Set(advanced());
     const granted = new Set(featureList(u.features));
+    if (isAdmin(u) || PLAN_INCLUDES.has(u.plan_status ?? "")) return [...FEATURE_IDS];
+    if (!gated()) return FEATURE_IDS.filter((f) => f !== "ai" || granted.has(f));
+    const adv = new Set(advanced());
     return FEATURE_IDS.filter((f) => !adv.has(f) || granted.has(f));
+  };
+
+  /** The AI assistant's allowances (Site admin → Plans). */
+  const aiSettings = (): AiPlanSettings => {
+    const n = (key: string, dflt: number) => {
+      const v = Number(settings.get(key));
+      return settings.get(key) !== null && Number.isFinite(v) && v >= 0 ? Math.floor(v) : dflt;
+    };
+    return {
+      free: n("ai.free", AI_DEFAULTS.free),
+      period: settings.get("ai.freePeriod") === "month" ? "month" : "once",
+      daily: n("ai.daily", aiDailyDefault),
+    };
   };
 
   return {
     settings,
     gated,
     advanced,
+    aiSettings,
+    /** What the plan adds right now: the advanced features when plans are required, and the AI assistant when the site has it. */
+    sold: (): FeatureId[] => (gated() ? advanced() : ["ai" as FeatureId]).filter((f) => f !== "ai" || aiConfigured),
     featureList,
     featuresOf,
     has(userId: string, f: FeatureId) {

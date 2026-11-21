@@ -22,3 +22,4 @@
 @media (max-width: 560px) {
   .plan-cols { grid-template-columns: 1fr; }
 }
+.plan-col li.some::before { content: "◐"; color: #b26a00; }

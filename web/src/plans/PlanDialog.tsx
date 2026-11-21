@@ -30,6 +30,12 @@ export function PlanDialog({ reason, onClose, initial }: { reason?: PlanReason; 
   const [s, setS] = useState<BillingStatus | null>(initial ?? null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"upgrade" | "manage" | null>(null);
+  const [aiFree, setAiFree] = useState<string | null>(null);
+  useEffect(() => {
+    api.aiStatus().then((a) => {
+      if (a.free && a.free.total > 0) setAiFree(`${a.free.total} free request${a.free.total === 1 ? "" : "s"}${a.free.monthly ? " a month" : " to try it"} (${a.free.left} left)`);
+    }, () => undefined);
+  }, []);
 
   useEffect(() => {
     if (!initial) api.billingStatus().then(setS, (e) => setError(e.message));
@@ -51,7 +57,7 @@ export function PlanDialog({ reason, onClose, initial }: { reason?: PlanReason; 
   const advanced = s?.advanced ?? [];
   const granted = new Set(s?.granted ?? []);
   const free = FEATURE_IDS.filter((f) => !advanced.includes(f));
-  const showPlans = !!s && s.gated && advanced.length > 0;
+  const showPlans = !!s && advanced.length > 0;
 
   return (
     <Modal
@@ -122,9 +128,9 @@ export function PlanDialog({ reason, onClose, initial }: { reason?: PlanReason; 
                     </li>
                   ))}
                   {advanced.map((f) => (
-                    <li key={f} className={granted.has(f) ? "yes" : "no"}>
+                    <li key={f} className={granted.has(f) ? "yes" : f === "ai" && aiFree ? "some" : "no"}>
                       {FEATURES[f].name}
-                      {granted.has(f) && <span className="plan-tag">turned on for you</span>}
+                      {granted.has(f) ? <span className="plan-tag">turned on for you</span> : f === "ai" && aiFree ? <span className="small muted"> · {aiFree}</span> : null}
                     </li>
                   ))}
                 </ul>

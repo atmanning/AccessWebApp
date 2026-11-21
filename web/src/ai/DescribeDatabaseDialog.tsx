@@ -4,10 +4,11 @@
  * anything is made. Used from the home screen (a new database) and Create > Describe Tables (adds to
  * this one).
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { FIELD_TYPE_LABELS } from "../../../shared/model";
 import type { AiDatabaseSpec } from "../../../shared/ai";
 import { api } from "../api";
+import { allowanceText, Unavailable, useAiStatus } from "./allowance";
 import { Modal } from "../ui/dialogs";
 
 const EXAMPLES = [
@@ -32,14 +33,8 @@ export function DescribeDatabaseDialog(props: {
   const [designedWithSamples, setDesignedWithSamples] = useState(false);
   const [history, setHistory] = useState<{ prompt: string; design?: string }[]>([]);
   const [name, setName] = useState("");
-  const [remaining, setRemaining] = useState<number | null>(null);
+  const [aiStatus, updateAi] = useAiStatus();
 
-  useEffect(() => {
-    api.aiStatus().then((s) => {
-      if (!s.available) setError(s.reason ?? "The AI assistant isn't available.");
-      if (s.remaining !== undefined) setRemaining(s.remaining);
-    }, () => undefined);
-  }, []);
 
   const ask = async (text = prompt.trim()) => {
     if (!text || busy) return;
@@ -47,7 +42,7 @@ export function DescribeDatabaseDialog(props: {
     setError(null);
     try {
       const r = await api.aiDatabase({ prompt: text, schema: props.schema, sampleData, history });
-      setRemaining(r.remaining);
+      updateAi(r);
       setDesign(r.design);
       setDesignedWithSamples(sampleData);
       if (!design || !name) setName(r.design.name);
@@ -128,7 +123,7 @@ export function DescribeDatabaseDialog(props: {
             ))}
           </div>
         )}
-        {error && <div className="ai-error" role="alert">{error}</div>}
+        {error ? <div className="ai-error" role="alert">{error}</div> : aiStatus && !aiStatus.available && <Unavailable status={aiStatus} />}
         {busy && !design && <div className="small muted">Designing tables and relationships… this takes up to a minute.</div>}
         {design && (
           <div className="ai-result">
@@ -172,7 +167,7 @@ export function DescribeDatabaseDialog(props: {
         )}
         <p className="small muted ai-privacy">
           Your description{props.mode === "add" ? " and this database's design go" : " goes"} to Claude, Anthropic's AI, to design the tables. Everything it makes can be changed in Design View.
-          {remaining !== null && ` ${remaining} AI request${remaining === 1 ? "" : "s"} left today.`}
+          {allowanceText(aiStatus)}
         </p>
       </div>
     </Modal>

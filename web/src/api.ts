@@ -17,7 +17,7 @@ import type {
 import type { AiDatabaseRequest, AiDatabaseSpec, AiQueryRequest, AiQuerySpec, AiStatus } from "../../shared/ai";
 import type { TemplateId } from "../../shared/templates";
 import type { ActivityEntry, AdminOverview, AdminUserDetail, AdminUserRow } from "../../shared/activity";
-import type { AdminPlans, BillingStatus, FeatureId } from "../../shared/plans";
+import type { AdminPlans, AiPlanSettings, BillingStatus, FeatureId } from "../../shared/plans";
 
 export class ApiError extends Error {
   constructor(message: string, public status: number, public body: Record<string, unknown> = {}) {
@@ -130,7 +130,7 @@ export const api = {
   adminActivity: (f: AdminActivityFilter, before?: number) =>
     call<{ entries: ActivityEntry[]; more: number | null }>("GET", `/api/admin/activity?${activityParams(f, before)}`),
   adminPlans: () => call<AdminPlans>("GET", "/api/admin/plans"),
-  adminPlanSettings: (gated: boolean, advanced: FeatureId[]) => call<{ ok: true }>("PUT", "/api/admin/plans/settings", { gated, advanced }),
+  adminPlanSettings: (gated: boolean, advanced: FeatureId[], ai?: AiPlanSettings) => call<{ ok: true }>("PUT", "/api/admin/plans/settings", { gated, advanced, ai }),
   adminGrant: (userIds: string[], features: FeatureId[], enable: boolean) => call<{ ok: true; changed: number }>("POST", "/api/admin/plans/grant", { userIds, features, enable }),
 
   // The Advanced plan (Stripe)
@@ -145,8 +145,8 @@ export const api = {
 
   // The AI assistant
   aiStatus: () => call<AiStatus>("GET", "/api/ai/status"),
-  aiQuery: (req: AiQueryRequest) => call<{ query: AiQuerySpec; remaining: number }>("POST", "/api/ai/query", req),
-  aiDatabase: (req: AiDatabaseRequest) => call<{ design: AiDatabaseSpec; remaining: number }>("POST", "/api/ai/database", req),
+  aiQuery: (req: AiQueryRequest) => call<{ query: AiQuerySpec; remaining: number; free?: AiStatus["free"] }>("POST", "/api/ai/query", req),
+  aiDatabase: (req: AiDatabaseRequest) => call<{ design: AiDatabaseSpec; remaining: number; free?: AiStatus["free"] }>("POST", "/api/ai/database", req),
 
   listProjects: () => call<{ projects: ProjectSummary[]; shared: ProjectSummary[] }>("GET", "/api/projects"),
   createProject: (name: string, template: TemplateId) =>

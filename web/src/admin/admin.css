@@ -124,3 +124,7 @@ button.feat.on:hover { border-color: #1f6b28; }
 .feat.viaplan { background: #eef1fb; color: #2a3f8f; }
 .feat.free { color: #999; }
 .admin-legend .feat { min-width: 0; }
+.admin-sub { font-size: 14px; margin: 14px 0 2px; }
+.admin-ai { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 6px 0; }
+.admin-ai label { display: flex; align-items: center; gap: 6px; }
+.admin-ai input[type="number"] { width: 84px; }

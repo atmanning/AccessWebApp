@@ -9,7 +9,7 @@ export const FEATURES = {
   public: { name: "Public links", description: "Public databases, public reports, and name-tag QR codes anyone can open without an account." },
   mysql: { name: "MySQL connections", description: "Connect to MySQL or MariaDB databases: link, query and import their tables." },
   accdb: { name: "Access files", description: "Import Access .accdb and .mdb files, and download databases as .accdb." },
-  ai: { name: "AI assistant", description: "Describe a query or a database in plain words and have it built." },
+  ai: { name: "AI assistant", description: "Describe a query or a database in plain words and have it built (everyone gets some free requests to try it)." },
 } as const;
 
 export type FeatureId = keyof typeof FEATURES;
@@ -21,10 +21,21 @@ export const PLAN_INCLUDES = new Set<string>(["active", "trialing", "past_due"])
 
 export const PLAN_NAME = "Advanced";
 
+/**
+ * The AI assistant: people without the plan get `free` requests (once, or every month) to try it;
+ * with the plan it's included, up to `daily` requests a day (so one account can't run up the bill).
+ */
+export interface AiPlanSettings {
+  free: number;
+  period: "once" | "month";
+  daily: number;
+}
+export const AI_DEFAULTS: AiPlanSettings = { free: 10, period: "once", daily: 50 };
+
 export interface BillingStatus {
   /** "Require a plan" is on: advanced features need the plan or the admin. */
   gated: boolean;
-  /** The features reserved for the plan. */
+  /** What the plan adds: the advanced features when plans are required, and the AI assistant. */
   advanced: FeatureId[];
   /** What this person can use right now. */
   features: FeatureId[];
@@ -51,6 +62,7 @@ export interface AdminPlansUser {
 export interface AdminPlans {
   gated: boolean;
   advanced: FeatureId[];
+  ai: AiPlanSettings;
   users: AdminPlansUser[];
   stripe: {
     configured: boolean;

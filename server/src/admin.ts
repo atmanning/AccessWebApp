@@ -208,6 +208,7 @@ export function adminRouter(
     const out: AdminPlans = {
       gated: plans.gated(),
       advanced: plans.advanced(),
+      ai: plans.aiSettings(),
       users: rows.map((u) => ({
         id: u.id,
         email: u.email,
@@ -232,13 +233,25 @@ export function adminRouter(
 
   router.put("/plans/settings", (req, res) => {
     const plans = opts.plans!;
-    const body = z.object({ gated: z.boolean(), advanced: z.array(featureSchema).max(FEATURE_IDS.length) }).parse(req.body);
-    const was = { gated: plans.gated(), advanced: plans.advanced() };
+    const body = z
+      .object({
+        gated: z.boolean(),
+        advanced: z.array(featureSchema).max(FEATURE_IDS.length),
+        ai: z.object({ free: z.number().int().min(0).max(100_000), period: z.enum(["once", "month"]), daily: z.number().int().min(1).max(100_000) }).optional(),
+      })
+      .parse(req.body);
+    const was = { gated: plans.gated(), advanced: plans.advanced(), ai: plans.aiSettings() };
     plans.settings.set("plans.gated", body.gated ? "on" : "off");
     plans.settings.set("plans.advanced", JSON.stringify([...new Set(body.advanced)]));
     const parts: string[] = [];
+    if (body.ai) {
+      plans.settings.set("ai.free", String(body.ai.free));
+      plans.settings.set("ai.freePeriod", body.ai.period);
+      plans.settings.set("ai.daily", String(body.ai.daily));
+      if (JSON.stringify(was.ai) !== JSON.stringify(body.ai)) parts.push(`AI: ${body.ai.free} free request(s) ${body.ai.period === "month" ? "a month" : "to try it"}, ${body.ai.daily} a day with the plan`);
+    }
     if (was.gated !== body.gated) parts.push(`Require a plan: ${body.gated ? "on" : "off"}`);
-    if (was.advanced.join() !== [...new Set(body.advanced)].join()) parts.push(`advanced features: ${body.advanced.join(", ") || "none"}`);
+    if (was.advanced.join() !== plans.advanced().join()) parts.push(`advanced features: ${body.advanced.join(", ") || "none"}`);
     if (parts.length) opts.log?.write({ action: "plans_settings", userId: req.user!.id, email: req.user!.email, detail: parts.join("; "), ip: req.ip ?? null });
     res.json({ ok: true });
   });

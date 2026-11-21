@@ -61,7 +61,7 @@ export function createApp(opts: AppOptions) {
   const logDays = opts.logDays ?? 90;
   const activityLog = createActivityLog(opts.db, { retentionDays: logDays });
   const isAdmin = adminCheck(opts.db, opts.adminEmails ?? []);
-  const plans = createPlans(opts.db, isAdmin);
+  const plans = createPlans(opts.db, isAdmin, opts.ai?.dailyLimit, !!opts.ai?.apiKey);
   const billingOpts: BillingOptions = opts.billing ?? { stripe: null, webhookSecret: null, priceId: null };
   const billing = createBilling(opts.db, plans, { ...billingOpts, log: activityLog, isAdmin });
   // Stripe signs the raw body, so its webhook comes before the JSON parser.

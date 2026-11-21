@@ -136,7 +136,7 @@ export function createBilling(db: DB, plans: Plans, opts: BillingOptions & { log
     const row = byId.get(user.id) as PlanRow;
     return price().then((p) => ({
       gated: plans.gated(),
-      advanced: plans.advanced(),
+      advanced: plans.sold(),
       features: plans.featuresOf(row),
       granted: plans.featureList(row.features),
       admin: opts.isAdmin(user),

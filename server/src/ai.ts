@@ -11,6 +11,7 @@ import { z } from "zod";
 import type { DB } from "./db.js";
 import { requireUser } from "./auth.js";
 import type { Plans } from "./plans.js";
+import { PLAN_NAME } from "../../shared/plans.js";
 import {
   aiDatabaseRequest,
   aiDatabaseSpec,
@@ -24,6 +25,7 @@ export interface AiOptions {
   model: string;
   /** The API's address (default https://api.anthropic.com). */
   baseUrl?: string;
+  /** Requests a day with the plan, until the admin sets it on the Plans tab (AI_DAILY_LIMIT). */
   dailyLimit: number;
   /** For tests. */
   fetchImpl?: typeof fetch;
@@ -115,24 +117,58 @@ export function aiRouter(db: DB, plans: Plans, opts: AiOptions) {
   const used = db.prepare("SELECT count FROM ai_usage WHERE user_id = ? AND day = ?");
   const bump = db.prepare("INSERT INTO ai_usage (user_id, day, count) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET count = count + 1");
   const clean = db.prepare("DELETE FROM ai_usage WHERE day < ?");
-  const remaining = (userId: string) => Math.max(0, opts.dailyLimit - (((used.get(userId, today()) as { count: number } | undefined)?.count) ?? 0));
+  const freeRow = db.prepare("SELECT period, used FROM ai_free WHERE user_id = ?");
+  const freeSet = db.prepare("INSERT INTO ai_free (user_id, period, used) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET period = excluded.period, used = excluded.used");
+
+  const periodNow = (p: "once" | "month") => (p === "month" ? today().slice(0, 7) : "all");
+  const dailyLeft = (userId: string) => Math.max(0, plans.aiSettings().daily - (((used.get(userId, today()) as { count: number } | undefined)?.count) ?? 0));
+  /** Free requests used this period (a new month starts again at 0 when they're monthly). */
+  const freeUsed = (userId: string) => {
+    const row = freeRow.get(userId) as { period: string; used: number } | undefined;
+    return row && row.period === periodNow(plans.aiSettings().period) ? row.used : 0;
+  };
 
   const status = (req: Request): AiStatus => {
     if (!opts.apiKey) return { configured: false, available: false, reason: "The AI assistant isn't set up on this site (the administrator adds an Anthropic API key)." };
-    if (!plans.has(req.user!.id, "ai")) return { configured: true, available: false, reason: "The AI assistant is part of the Advanced plan." };
-    const left = remaining(req.user!.id);
-    if (left <= 0) return { configured: true, available: false, reason: `You've used today's ${opts.dailyLimit} AI requests. They start again tomorrow.`, remaining: 0 };
-    return { configured: true, available: true, remaining: left };
+    const id = req.user!.id;
+    const ai = plans.aiSettings();
+    const daily = dailyLeft(id);
+    const dailyOut = { configured: true, available: false, reason: `You've used today's ${ai.daily} AI requests. They start again tomorrow.`, remaining: 0 } as const;
+    if (plans.has(id, "ai")) return daily > 0 ? { configured: true, available: true, included: true, remaining: daily } : { ...dailyOut, included: true };
+    const freeLeft = Math.max(0, ai.free - freeUsed(id));
+    const monthly = ai.period === "month";
+    if (freeLeft <= 0) {
+      return {
+        configured: true,
+        available: false,
+        included: false,
+        free: { left: 0, total: ai.free, monthly },
+        upgrade: true,
+        reason: ai.free
+          ? `You've used your ${ai.free} free AI request${ai.free === 1 ? "" : "s"}${monthly ? " for this month" : ""}. The AI assistant is part of the ${PLAN_NAME} plan.`
+          : `The AI assistant is part of the ${PLAN_NAME} plan.`,
+      };
+    }
+    if (daily <= 0) return { ...dailyOut, included: false, free: { left: freeLeft, total: ai.free, monthly } };
+    return { configured: true, available: true, included: false, free: { left: freeLeft, total: ai.free, monthly }, remaining: Math.min(daily, freeLeft) };
   };
 
   /** Checks they may ask, counts the request, and answers with the result or a plain error. */
   const handle = (run: (req: Request) => Promise<unknown>) => async (req: Request, res: Response) => {
     const s = status(req);
-    if (!s.available) return res.status(opts.apiKey ? 402 : 503).json({ error: s.reason, code: opts.apiKey && s.remaining !== 0 ? "upgrade" : undefined });
-    bump.run(req.user!.id, today());
+    if (!s.available) {
+      if (!opts.apiKey) return res.status(503).json({ error: s.reason });
+      return res.status(s.upgrade ? 402 : 429).json({ error: s.reason, ...(s.upgrade ? { code: "upgrade", feature: "ai", yours: true } : {}) });
+    }
+    const id = req.user!.id;
+    bump.run(id, today());
     if (Math.random() < 0.02) clean.run(new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10));
     try {
-      res.json({ ...(await run(req)) as object, remaining: remaining(req.user!.id) });
+      const result = (await run(req)) as object;
+      // A free request is used up only when it gave an answer.
+      if (!s.included) freeSet.run(id, periodNow(plans.aiSettings().period), freeUsed(id) + 1);
+      const after = status(req);
+      res.json({ ...result, remaining: after.remaining ?? 0, ...(after.free ? { free: after.free } : {}) });
     } catch (e) {
       if (e instanceof z.ZodError) return res.status(400).json({ error: "That request is too long or incomplete." });
       if (e instanceof AiError) return res.status(e.status).json({ error: e.message });

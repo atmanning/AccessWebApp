@@ -230,8 +230,13 @@ Design View and change:
 
 What's sent: your request and the database's design (table, field and query names, relationships, and the values of
 short lists like Status that repeat). Other records stay on the server. Set `ANTHROPIC_API_KEY` to turn it on;
-`AI_MODEL` (default `claude-sonnet-5-5`) and `AI_DAILY_LIMIT` (requests per person per day, default 50) are optional.
-With "Require a plan" on, the assistant is an advanced feature like the others.
+`AI_MODEL` (default `claude-sonnet-5-5`) is optional.
+
+**Pricing:** each request costs the site money, so the assistant is part of the Advanced plan whether or not "Require a
+plan" is on. Everyone without the plan gets free requests to try it (Site admin → Plans → AI assistant: how many, once
+or every month; default 10, once). A free request is used only when it gives an answer. With the plan (or the admin
+turning it on for someone, or being an admin) it's included up to a daily limit per person (default 50, or
+`AI_DAILY_LIMIT` until set on the Plans tab). When the free requests run out, the dialog offers the plan.
 
 ## Sharing
 
