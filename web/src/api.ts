@@ -14,6 +14,7 @@ import type {
   UserInfo,
   VersionInfo,
 } from "../../shared/model";
+import type { AiDatabaseRequest, AiDatabaseSpec, AiQueryRequest, AiQuerySpec, AiStatus } from "../../shared/ai";
 import type { TemplateId } from "../../shared/templates";
 import type { ActivityEntry, AdminOverview, AdminUserDetail, AdminUserRow } from "../../shared/activity";
 import type { AdminPlans, BillingStatus, FeatureId } from "../../shared/plans";
@@ -141,6 +142,11 @@ export const api = {
   adminSuspend: (id: string, reason: string) => call<{ ok: true }>("POST", `/api/admin/users/${encodeURIComponent(id)}/suspend`, { reason }),
   adminUnsuspend: (id: string) => call<{ ok: true }>("POST", `/api/admin/users/${encodeURIComponent(id)}/unsuspend`, {}),
   adminActivityCsvUrl: (f: AdminActivityFilter) => `/api/admin/activity.csv?${activityParams(f)}`,
+
+  // The AI assistant
+  aiStatus: () => call<AiStatus>("GET", "/api/ai/status"),
+  aiQuery: (req: AiQueryRequest) => call<{ query: AiQuerySpec; remaining: number }>("POST", "/api/ai/query", req),
+  aiDatabase: (req: AiDatabaseRequest) => call<{ design: AiDatabaseSpec; remaining: number }>("POST", "/api/ai/database", req),
 
   listProjects: () => call<{ projects: ProjectSummary[]; shared: ProjectSummary[] }>("GET", "/api/projects"),
   createProject: (name: string, template: TemplateId) =>

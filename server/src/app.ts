@@ -11,6 +11,7 @@ import { activityMiddleware, createActivityLog } from "./activity.js";
 import { adminCheck, adminRouter } from "./admin.js";
 import { createPlans, planGate } from "./plans.js";
 import { createBilling, type BillingOptions } from "./billing.js";
+import { aiRouter, type AiOptions } from "./ai.js";
 import { projectsRouter, publicRouter, type ImportAccess } from "./projects.js";
 import { connectionsRouter, type ConnectionsOptions } from "./connections.js";
 import { imagesRouter, publicImagesRouter, type ImageOptions } from "./images.js";
@@ -36,6 +37,8 @@ export interface AppOptions {
   contact?: string | null;
   /** Stripe, for the Advanced plan (STRIPE_SECRET_KEY…); without it, only the admin can turn features on. */
   billing?: BillingOptions;
+  /** The AI assistant (ANTHROPIC_API_KEY…); off without a key. */
+  ai?: AiOptions;
 }
 
 export function createApp(opts: AppOptions) {
@@ -88,6 +91,7 @@ export function createApp(opts: AppOptions) {
   app.use("/api/admin", adminRouter(opts.db, { isAdmin, logDays, log: activityLog, plans, billing: billingOpts, priceLabel: billing.price }));
   app.use("/api/billing", billing.router);
   // Advanced features (sharing, public links, MySQL, Access files) for people whose plan has them.
+  app.use("/api/ai", aiRouter(opts.db, plans, opts.ai ?? { apiKey: null, model: "", dailyLimit: 0 }));
   app.use(planGate(opts.db, plans));
   app.use("/api/projects/:id/connections", connectionsRouter(opts.db, opts.connections));
   app.use("/api/projects/:id/images", imagesRouter(opts.db, opts.images ?? { maxBytesPerProject: 200 * 1024 * 1024 }));

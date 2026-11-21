@@ -65,6 +65,13 @@ const app = createApp({
     priceId: env.STRIPE_PRICE_ID || null,
     mode: env.STRIPE_SECRET_KEY ? (/^(sk|rk)_live_/.test(env.STRIPE_SECRET_KEY) ? "live" : "test") : null,
   },
+  // The AI assistant (describe a query or a database); off without a key.
+  ai: {
+    apiKey: env.ANTHROPIC_API_KEY?.trim() || null,
+    model: env.AI_MODEL?.trim() || "claude-sonnet-5-5",
+    baseUrl: env.AI_API_URL?.trim() || undefined,
+    dailyLimit: Number(env.AI_DAILY_LIMIT ?? 50) || 50,
+  },
 });
 
 // HOST=127.0.0.1 accepts connections from this computer only (the local launchers set it).

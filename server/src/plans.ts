@@ -94,6 +94,7 @@ const MESSAGES: Record<FeatureId, string> = {
   public: "Public links",
   mysql: "MySQL connections",
   accdb: "Importing and downloading Access files",
+  ai: "The AI assistant",
 };
 
 /** Refuses advanced features to people (or databases' owners) without them: 402, code "upgrade". */

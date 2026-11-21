@@ -6,7 +6,10 @@ import type { ProjectRecord, ProjectSummary, UserInfo } from "../../shared/model
 import { TEMPLATES, type TemplateId } from "../../shared/templates";
 import { api } from "./api";
 import { DialogProvider, showImportWarnings, useDialogs } from "./ui/dialogs";
-import { AccessIcon, TableIcon } from "./ui/icons";
+import { AccessIcon, DescribeTablesIcon, TableIcon } from "./ui/icons";
+import { DescribeDatabaseDialog } from "./ai/DescribeDatabaseDialog";
+import { buildDatabase } from "./ai/buildDatabase";
+import type { AiDatabaseSpec } from "../../shared/ai";
 import { Workspace } from "./workspace/Workspace";
 import { PublicReportPage, publicReportToken } from "./reports/PublicReportPage";
 import { AdminPage } from "./admin/AdminPage";
@@ -355,6 +358,28 @@ function Home({
 
   const fileInput = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
+  const [describing, setDescribing] = useState(false);
+  const [aiConfigured, setAiConfigured] = useState(false);
+  useEffect(() => {
+    api.aiStatus().then((s) => setAiConfigured(s.configured), () => undefined);
+  }, []);
+
+  /** Describe a Database: a new database built from the AI assistant's design. */
+  const createDescribed = async (design: AiDatabaseSpec, opts: { sampleData: boolean; name: string }) => {
+    let name = opts.name.trim().slice(0, 64) || "Database";
+    if (validateObjectName(emptyProject(), "table", name)) name = "Database";
+    const base = name;
+    for (let n = 2; projects?.some((p) => p.name.toLowerCase() === name.toLowerCase()); n++) name = `${base} ${n}`;
+    const r = await api.createProject(name, "blank");
+    const doc = structuredClone(r.project.doc);
+    // The blank database's empty Table1 isn't wanted next to the designed tables.
+    doc.tables = doc.tables.filter((t) => t.rows.length || t.fields.length > 1);
+    const made = buildDatabase(doc, design, { sampleData: opts.sampleData });
+    await api.saveProject(r.project.id, r.project.revision, { doc });
+    const opened = (await api.getProject(r.project.id)).project;
+    onOpen(opened);
+    if (made.notes.length) showImportWarnings(dialogs, made.notes, "Your database is ready, with these notes:");
+  };
 
   const importFile = async (file: File) => {
     let base = file.name.replace(/\.[^.]+$/, "").replace(/[.!`[\]]/g, "_").trim().slice(0, 60) || "Imported";
@@ -462,6 +487,16 @@ function Home({
               if (f) importFile(f);
             }}
           />
+          {aiConfigured && (
+            <button className="template-tile" onClick={() => setDescribing(true)}>
+              <div className="template-art describe">
+                <DescribeTablesIcon size={56} />
+              </div>
+              <div className="template-name">Describe a database</div>
+              <div className="small muted">Say what you want to keep track of; the AI assistant designs the tables, forms, queries and reports.</div>
+            </button>
+          )}
+          {describing && <DescribeDatabaseDialog mode="new" onClose={() => setDescribing(false)} onCreate={createDescribed} />}
           {(Object.keys(TEMPLATES) as TemplateId[]).map((t) => (
             <button key={t} className="template-tile" onClick={() => create(t)}>
               <div className={`template-art ${t}`}>

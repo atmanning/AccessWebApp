@@ -39,6 +39,10 @@ import {
 } from "./context";
 import { findObject, KIND_LABEL, newId, newTable, uniqueObjectName, validateObjectName } from "./docOps";
 import { ImportCsvDialog } from "./ImportCsvDialog";
+import { AskQueryDialog } from "../ai/AskQueryDialog";
+import { DescribeDatabaseDialog } from "../ai/DescribeDatabaseDialog";
+import { buildDatabase, type BuildResult } from "../ai/buildDatabase";
+import { schemaForAi } from "../ai/schemaForAi";
 import { ShareDialog } from "./ShareDialog";
 import { ConnectionDialog, ConnectionsManager, RemoteTablesDialog } from "./ConnectionDialogs";
 import { OtherDatabaseDialog, type OtherDbMode } from "./OtherDatabaseDialog";
@@ -99,6 +103,13 @@ export function Workspace(props: {
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [backstage, setBackstage] = useState(false);
   const [importing, setImporting] = useState(false);
+  // The AI assistant: its buttons show when the site has it set up.
+  const [aiDialog, setAiDialog] = useState<null | "query" | "tables">(null);
+  const [aiConfigured, setAiConfigured] = useState(false);
+  useEffect(() => {
+    if (guest) return;
+    api.aiStatus().then((s) => setAiConfigured(s.configured), () => undefined);
+  }, [guest]);
   const [sourcePicker, setSourcePicker] = useState<"form" | "report" | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   // Saved MySQL connections for this database (loaded once, refreshed after changes).
@@ -818,6 +829,8 @@ export function Workspace(props: {
             createFormDesign: readOnly ? undefined : createFormDesign,
             createReport: () => createFormOrReport("report"),
             scanTags: readOnly ? undefined : () => setScanning(true),
+            aiQuery: readOnly || !aiConfigured ? undefined : () => setAiDialog("query"),
+            aiTables: readOnly || !aiConfigured ? undefined : () => setAiDialog("tables"),
             createMacro: readOnly
               ? undefined
               : () => {
@@ -957,6 +970,24 @@ export function Workspace(props: {
           />
         )}
         {importing && <ImportCsvDialog onClose={() => setImporting(false)} />}
+        {aiDialog === "query" && <AskQueryDialog onClose={() => setAiDialog(null)} />}
+        {aiDialog === "tables" && (
+          <DescribeDatabaseDialog
+            mode="add"
+            schema={schemaForAi(doc)}
+            onClose={() => setAiDialog(null)}
+            onCreate={async (design, opts) => {
+              let made: BuildResult | undefined;
+              update((d) => {
+                made = buildDatabase(d, design, { sampleData: opts.sampleData, adding: true });
+              });
+              if (!made) return;
+              if (made.forms[0]) openObject("form", made.forms[0].id);
+              setStatus(`Added ${made.tables.length} table(s), ${made.forms.length} form(s), ${made.queries.length} query(ies) and ${made.reports.length} report(s). Ctrl+Z undoes it.`);
+              if (made.notes.length) dialogs.alert("Describe Tables", <ul>{made.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>);
+            }}
+          />
+        )}
         {pasting && <PasteDialog item={pasting} onClose={() => setPasting(null)} />}
         {mysqlDialog === "manage" && (
           <ConnectionsManager onClose={() => setMysqlDialog(null)} onOpenConsole={openConsole} onTables={(c, mode) => showRemoteTables(mode, c.id)} />

@@ -25,6 +25,8 @@ import {
   ReportIcon,
   LabelsIcon,
   MacroIcon,
+  AskQueryIcon,
+  DescribeTablesIcon,
   RowHeightIcon,
   RunIcon,
   ShowTableIcon,
@@ -88,6 +90,9 @@ export interface RibbonActions {
   createReport: () => void;
   createLabels?: () => void;
   createMacro?: () => void;
+  /** The AI assistant: describe a query, or tables to add. */
+  aiQuery?: () => void;
+  aiTables?: () => void;
   /** Home → Scan Tags: the scan station. */
   scanTags?: () => void;
   importText?: () => void;
@@ -359,9 +364,15 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
             <Group label="Tables">
               <Big icon={<TableIcon size={32} />} label="Table" onClick={actions.createTable} />
               <Big icon={<DesignIcon size={32} />} label="Table Design" onClick={actions.createTableDesign} />
+              {actions.aiTables && (
+                <Big icon={<DescribeTablesIcon size={32} />} label="Describe Tables" onClick={actions.aiTables} title="Describe what you want to keep track of; the AI assistant designs the tables, relationships, forms and a few queries" />
+              )}
             </Group>
             <Group label="Queries">
               <Big icon={<QueryIcon size={32} />} label="Query Design" onClick={actions.createQueryDesign} />
+              {actions.aiQuery && (
+                <Big icon={<AskQueryIcon size={32} />} label="Describe a Query" onClick={actions.aiQuery} title="Say what you want to see in plain words; the AI assistant writes the query and shows you the results" />
+              )}
             </Group>
             <Group label="Forms">
               <Big icon={<FormIcon size={32} />} label="Form" onClick={actions.createForm} title="Create a form from the selected table or query" />

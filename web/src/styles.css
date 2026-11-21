@@ -1019,3 +1019,39 @@ button.props-tab.active { background: #fff; font-weight: 600; }
 /* A cell that opens something when clicked (a form's "Open" column). */
 .datasheet td.link-cell { color: #1a5fb4; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .datasheet td.link-cell:hover { color: #0b3d82; }
+
+/* The AI assistant's dialogs (Describe a Query, Describe a Database / Tables). */
+.template-art.describe { background: linear-gradient(#fff 0 30%, #fdf0e6 30%); }
+.ai-dialog { display: flex; flex-direction: column; gap: 10px; }
+.ai-label { font-weight: 600; }
+.ai-ask { display: flex; gap: 8px; align-items: stretch; }
+.ai-ask textarea { flex: 1; min-width: 0; resize: vertical; font: inherit; line-height: 1.4; padding: 8px 10px; }
+.ai-ask > button { flex: none; align-self: flex-end; min-width: 110px; }
+.ai-examples { display: flex; flex-wrap: wrap; gap: 6px; }
+.ai-examples button { border: 1px solid var(--border); background: #fafafa; border-radius: 999px; padding: 4px 10px; font-size: 12px; cursor: pointer; color: inherit; text-align: left; }
+.ai-examples button:hover { border-color: var(--accent); }
+.ai-error { background: #fdecec; border: 1px solid #f2b8b8; color: #8a1c1c; padding: 8px 10px; border-radius: 4px; }
+.ai-result { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+.ai-explain { background: #f6f3fb; border-left: 3px solid #6d5aa6; padding: 8px 10px; border-radius: 2px; }
+.ai-preview-head { font-size: 12px; color: var(--muted); }
+.ai-preview { max-height: 260px; overflow: auto; border: 1px solid var(--border); }
+.ai-preview table { border-collapse: collapse; width: max-content; min-width: 100%; }
+.ai-preview th, .ai-preview td { padding: 3px 8px; border: 1px solid var(--border); text-align: left; white-space: nowrap; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+.ai-preview th { position: sticky; top: 0; background: #f3f3f3; font-weight: 600; }
+.ai-sql summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.ai-sql pre { background: #f7f7f7; border: 1px solid var(--border); padding: 8px; overflow: auto; font-size: 12px; white-space: pre-wrap; margin: 6px 0 0; }
+.ai-name { display: flex; align-items: center; gap: 8px; }
+.ai-name input { flex: 1; max-width: 360px; }
+.ai-check { display: flex; align-items: center; gap: 6px; }
+.ai-tables { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; max-height: 340px; overflow: auto; }
+.ai-table { border: 1px solid var(--border); border-radius: 4px; padding: 8px 10px; background: #fff; }
+.ai-table-name { font-weight: 600; color: #3b6ea5; margin-bottom: 2px; }
+.ai-table ul { list-style: none; margin: 6px 0 0; padding: 0; font-size: 12.5px; line-height: 1.55; }
+.ai-key { font-weight: 600; }
+.ai-key::before { content: "🔑 "; font-size: 10px; }
+.ai-extras { display: flex; flex-direction: column; gap: 3px; }
+.ai-privacy { margin: 4px 0 0 !important; }
+@media (max-width: 640px) {
+  .ai-ask { flex-direction: column; }
+  .ai-ask > button { align-self: stretch; }
+}

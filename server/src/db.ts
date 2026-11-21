@@ -143,6 +143,15 @@ const MIGRATIONS: string[] = [
     value TEXT NOT NULL
   );
   `,
+  // 10: the AI assistant: how many requests each person made each day (for the daily limit)
+  `
+  CREATE TABLE ai_usage (
+    user_id TEXT NOT NULL,
+    day     TEXT NOT NULL,
+    count   INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, day)
+  );
+  `,
 ];
 
 export function openDatabase(file: string): DB {

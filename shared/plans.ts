@@ -9,6 +9,7 @@ export const FEATURES = {
   public: { name: "Public links", description: "Public databases, public reports, and name-tag QR codes anyone can open without an account." },
   mysql: { name: "MySQL connections", description: "Connect to MySQL or MariaDB databases: link, query and import their tables." },
   accdb: { name: "Access files", description: "Import Access .accdb and .mdb files, and download databases as .accdb." },
+  ai: { name: "AI assistant", description: "Describe a query or a database in plain words and have it built." },
 } as const;
 
 export type FeatureId = keyof typeof FEATURES;

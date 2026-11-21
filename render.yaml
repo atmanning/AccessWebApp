@@ -36,5 +36,7 @@ services:
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
+      - key: ANTHROPIC_API_KEY  # turns on the AI assistant (describe a query or a database); set in the dashboard
+        sync: false
       - key: CONNECTION_SECRET  # encrypts saved MySQL passwords; generated once by Render
         generateValue: true

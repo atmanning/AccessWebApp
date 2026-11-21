@@ -336,4 +336,23 @@ export const OtherDbIcon = svg(
   </>,
 );
 
+/** The AI assistant: a query drawn with a spark. */
+export const AskQueryIcon = svg(
+  <>
+    <rect x="1.5" y="3.5" width="9" height="8" rx="1" fill="#fff" stroke="#6d5aa6" />
+    <path d="M1.5 6.5h9M5 6.5v5" stroke="#6d5aa6" />
+    <path d="M12.5 1l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z" fill="#c2410c" />
+    <path d="M12.5 9.5l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2-1.2-.5 1.2-.5z" fill="#c2410c" />
+  </>,
+);
+/** The AI assistant: tables drawn with a spark. */
+export const DescribeTablesIcon = svg(
+  <>
+    <rect x="1.5" y="4.5" width="10" height="9" rx="1" fill="#fff" stroke="#3b6ea5" />
+    <rect x="1.5" y="4.5" width="10" height="2.5" fill="#3b6ea5" />
+    <path d="M1.5 10h10M5 7v6.5M8.5 7v6.5" stroke="#3b6ea5" />
+    <path d="M13 .8l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z" fill="#c2410c" />
+  </>,
+);
+
 export const OBJECT_ICONS = { table: TableIcon, query: QueryIcon, form: FormIcon, report: ReportIcon, linked: LinkedTableIcon, macro: MacroIcon } as const;

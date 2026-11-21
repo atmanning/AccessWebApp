@@ -216,6 +216,23 @@ data lives in another file; they're skipped with that file's path), and OLE Obje
 password removed first (Access: File → Info → Decrypt Database). Uploads are limited to 100 MB and about
 200,000 records.
 
+## AI assistant
+
+Describe what you want in plain words and Claude (Anthropic's AI) builds it as ordinary objects you can open in
+Design View and change:
+
+- **Describe a database** (home screen) or **Create → Describe Tables** (adds to the open database): tables with
+  AutoNumber keys, relationships with drop-downs, value lists, a form for each table, a few starter queries and
+  reports, and, if you like, made-up sample records. You see the design first and can ask for changes.
+- **Create → Describe a Query**: "customers who haven't ordered since June" becomes a query, run on your data at once
+  (a query that doesn't run goes back to be fixed, once), shown with its results and SQL, and saved in Design View when
+  it fits there. Ask for changes ("only in Texas, newest first") before saving. It only writes select queries.
+
+What's sent: your request and the database's design (table, field and query names, relationships, and the values of
+short lists like Status that repeat). Other records stay on the server. Set `ANTHROPIC_API_KEY` to turn it on;
+`AI_MODEL` (default `claude-sonnet-5-5`) and `AI_DAILY_LIMIT` (requests per person per day, default 50) are optional.
+With "Require a plan" on, the assistant is an advanced feature like the others.
+
 ## Sharing
 
 The owner clicks **Share** (title bar, or File → Share) to add people by the email they registered with, as **Can view**
