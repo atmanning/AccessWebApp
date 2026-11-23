@@ -534,6 +534,29 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
     );
   }
 
+  /** The Criteria box's example, for the column's kind of field. */
+  const criteriaExample = (c: QueryColumn): string => {
+    if (!c.field || c.field === "*" || c.total === "Count") return c.total === "Count" ? "e.g. >10" : "";
+    if (c.expr) return "";
+    const type = (fieldsOf(c.table)?.find((f) => f.name.toLowerCase() === c.field.toLowerCase()) as { type?: string } | undefined)?.type;
+    if (c.total === "Sum" || c.total === "Avg") return "e.g. >10";
+    switch (type) {
+      case "Number":
+      case "AutoNumber":
+      case "Currency":
+        return "e.g. >10";
+      case "DateTime":
+        return "e.g. > #11/18/26#";
+      case "YesNo":
+        return "e.g. True";
+      case "ShortText":
+      case "LongText":
+        return 'e.g. Like "B*"';
+      default:
+        return "";
+    }
+  };
+
   const fieldOptions = design.tables.flatMap((t) => {
     const fields = fieldsOf(t);
     return fields ? [{ table: t, field: "*" }, ...fields.map((f) => ({ table: t, field: f.name }))] : [];
@@ -1138,7 +1161,7 @@ export function QueryDesignView({ query, tabKey }: { query: QueryDef; tabKey: st
                     defaultValue={c.criteria}
                     key={`${i}:${c.field}:${c.criteria}`}
                     disabled={!c.field || (c.field === "*" && !isStarTotal(c))}
-                    placeholder={c.field && c.field !== "*" ? "e.g. >10" : ""}
+                    placeholder={criteriaExample(c)}
                     onBlur={(e) => e.target.value !== c.criteria && setCol(i, { criteria: e.target.value })}
                     onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
                   />
