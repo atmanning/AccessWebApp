@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLayout } from "../ui/layout";
-import { NAME_PATTERN, QUERY_TYPE_LABELS, TOTAL_OPTIONS, type QueryColumn, type QueryDef, type QueryType, type TableDef } from "../../../shared/model";
+import { NAME_PATTERN, QUERY_TYPE_LABELS, TOTAL_OPTIONS, type CellValue, type QueryColumn, type QueryDef, type QueryType, type TableDef } from "../../../shared/model";
 import { runQuery, type ResultSet } from "../engine/engine";
 import { previewAction } from "../engine/actions";
 import { loadLinkedTables } from "../engine/linked";
@@ -15,6 +15,7 @@ import { useRunAction } from "../workspace/useRunAction";
 import { QUERY_TYPE_ICONS, typeOfQuery } from "../workspace/queryKinds";
 import { parseInput } from "../engine/values";
 import { exportCsv } from "../workspace/csv";
+import { numericColumn } from "./totals";
 import { Datasheet, type DatasheetHandle } from "./Datasheet";
 import { readSqlDesign, sourceFieldNames, type SqlReadState } from "./sqlDesignReader";
 import { useFieldLookups } from "./lookups";
@@ -86,7 +87,11 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
       (result?.columns ?? []).map((c, i) => {
         const editable = !!edit?.columns[i];
         const sf = sourceFields[i];
+        // A calculated column of numbers: right-aligned, and two decimals unless they're all whole.
+        const calc = !sf && !result?.fields[i] ? numericColumn(result!.rows.map((r) => r[i])) : null;
         return {
+          ...(calc ? { numeric: true } : {}),
+          ...(calc === "decimal" ? { format: twoDecimals } : {}),
           key: `${i}:${c}`,
           label: c,
           field: sf ?? result?.fields[i],
@@ -210,9 +215,25 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
   );
 
   const runAction = useRunAction();
+  // Home > Totals: the Total row, saved with the query (each column's total by its name).
+  const totalsRow = query.totalsRow;
+  const setTotals = (fn: (t: NonNullable<QueryDef["totalsRow"]>) => void) =>
+    ws.update((d) => {
+      const q = d.queries.find((x) => x.id === query.id);
+      if (!q) return;
+      q.totalsRow ??= { show: false, kinds: {} };
+      fn(q.totalsRow);
+    });
+  const totalsByKey = useMemo(
+    () => (totalsRow ? { show: totalsRow.show, kinds: Object.fromEntries(columns.flatMap((c) => (totalsRow.kinds[c.label] ? [[c.key, totalsRow.kinds[c.label]]] : []))) } : undefined),
+    [totalsRow, columns],
+  );
+
   useCommands(tabKey, {
     run: () => void runAction(query),
     rowHeight: () => void askRowHeight(),
+    toggleDatasheetTotals: ws.readOnly ? undefined : () => setTotals((t) => void (t.show = !t.show)),
+    datasheetTotals: !!totalsRow?.show,
     sortAsc: () => grid.current?.sort("ASC"),
     sortDesc: () => grid.current?.sort("DESC"),
     removeSort: () => grid.current?.sort(null),
@@ -247,6 +268,19 @@ export function QueryDatasheet({ query, tabKey }: { query: QueryDef; tabKey: str
       savedWidths={savedWidths}
       rowHeight={rowHeight}
       onRowHeightChange={saveRowHeight}
+      totals={totalsByKey}
+      onTotalKind={
+        ws.readOnly
+          ? undefined
+          : (key, kind) => {
+              const label = columns.find((c) => c.key === key)?.label;
+              if (!label) return;
+              setTotals((t) => {
+                if (kind) t.kinds[label] = kind;
+                else delete t.kinds[label];
+              });
+            }
+      }
       onWidthsChange={(w) => {
         if (ws.readOnly) return;
         // Stored by column name so they survive changes to the query's SQL.
@@ -1490,4 +1524,10 @@ function ShowTableDialog(props: { existing: string[]; queryId: string; onClose: 
       <p className="muted small">{touch ? "Tap to pick one or more." : "Ctrl+click to pick several."} Related tables are joined automatically using your relationships; drag a field onto a field in another table to join them yourself.</p>
     </Modal>
   );
+}
+
+const twoDecimalsFormat = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** A calculated column's numbers: two decimals (Access's Fixed format). */
+function twoDecimals(v: CellValue): string {
+  return typeof v === "number" ? twoDecimalsFormat.format(v) : String(v);
 }

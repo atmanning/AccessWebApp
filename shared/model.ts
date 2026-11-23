@@ -93,6 +93,15 @@ export const LOOKUP_TYPES: readonly FieldType[] = ["ShortText", "Number"];
 export const rowSchema = z.record(z.string(), cellValueSchema);
 export type Row = z.infer<typeof rowSchema>;
 
+/** A datasheet Total row's choices (Access: Sum, Average, Count, Maximum, Minimum, Standard Deviation, Variance). */
+export const TOTAL_KINDS = ["Sum", "Average", "Count", "Maximum", "Minimum", "StDev", "Var"] as const;
+export type TotalKind = (typeof TOTAL_KINDS)[number];
+export const totalsRowSchema = z.object({
+  show: z.boolean(),
+  kinds: z.record(z.string().max(200), z.enum(TOTAL_KINDS)),
+});
+export type TotalsRow = z.infer<typeof totalsRowSchema>;
+
 export const tableSchema = z.object({
   id,
   name: nameSchema,
@@ -104,6 +113,8 @@ export const tableSchema = z.object({
   columnWidths: z.record(z.string(), z.number().int().min(20).max(2000)).optional(),
   /** Saved datasheet row height in pixels (unset = standard height). */
   rowHeight: z.number().int().min(16).max(300).optional(),
+  /** Datasheet's Total row (Home > Totals): shown or not, and each column's total, by field id / result column name. */
+  totalsRow: totalsRowSchema.optional(),
   /** Indexes on more than one field (Access's Indexes window), e.g. PetType + Breed must be unique together. */
   indexes: z
     .array(
@@ -216,6 +227,8 @@ export const querySchema = z.object({
   columnWidths: z.record(z.string(), z.number().int().min(20).max(2000)).optional(),
   /** Saved datasheet row height in pixels (unset = standard height). */
   rowHeight: z.number().int().min(16).max(300).optional(),
+  /** Datasheet's Total row (Home > Totals): shown or not, and each column's total, by field id / result column name. */
+  totalsRow: totalsRowSchema.optional(),
 });
 export type QueryDef = z.infer<typeof querySchema>;
 

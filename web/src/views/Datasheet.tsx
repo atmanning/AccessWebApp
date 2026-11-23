@@ -2,6 +2,8 @@ import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, u
 import { createPortal } from "react-dom";
 import type { CellValue, Field } from "../../../shared/model";
 import { editText, formatValue, isNumericType } from "../engine/values";
+import { computeTotal, TOTAL_LABELS, totalsFor } from "./totals";
+import type { TotalKind } from "../../../shared/model";
 import { acceptsDateText, dateShortcut, insertAtCaret, nowText, type DateShortcut } from "../ui/dateKeys";
 import { FindIcon } from "../ui/icons";
 import { CalendarButton, DatePicker, type DatePickerHandle } from "../ui/DatePicker";
@@ -23,6 +25,10 @@ export interface DatasheetColumn {
   image?: { url: (imageId: string) => string; upload?: (file: Blob) => Promise<string> };
   /** Clicking the cell does something (opens the record): shown as a link. */
   link?: boolean;
+  /** A calculated column holding numbers: right-aligned, offering number totals. */
+  numeric?: boolean;
+  /** How the column's values are shown (a calculated column's two decimals). */
+  format?: (v: CellValue) => string;
 }
 
 export interface DatasheetProps {
@@ -58,6 +64,9 @@ export interface DatasheetProps {
   /** Take the keyboard when it opens (not in a subform, where the form's first field should). */
   autoFocus?: boolean;
   onStatus?: (message: string, kind?: "info" | "error") => void;
+  /** Home > Totals: a Total row under the records, with each column's total (by column key). */
+  totals?: { show: boolean; kinds: Record<string, TotalKind> };
+  onTotalKind?: (columnKey: string, kind: TotalKind | null) => void;
   /** A form's datasheet: runs the column's control's On Click / On Dbl Click; true when it had one (a double-click then doesn't edit). */
   onCellEvent?: (row: number, col: number, event: "click" | "dblClick") => boolean;
 }
@@ -137,6 +146,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
     const col = p.columns[c];
     const m = labelMaps[c];
     if (m && v !== null && v !== undefined && v !== "") return m.get(col.field ? editText(col.field, v) : String(v)) ?? formatValue(col.field, v);
+    if (col?.format && v !== null && v !== undefined && v !== "") return col.format(v);
     return formatValue(col?.field, v);
   };
 
@@ -692,7 +702,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
                     const type = col.field?.type;
                     const cls = [
                       active ? "cell-active" : "",
-                      isNumericType(type) && !col.lookup ? "num" : "",
+                      (isNumericType(type) || col.numeric) && !col.lookup ? "num" : "",
                       type === "YesNo" ? "center" : "",
                       !newRow && p.cellWarning?.(order[r], c) ? "cell-warning" : "",
                     ].join(" ");
@@ -886,6 +896,48 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
               </tr>
             )}
           </tbody>
+          {p.totals?.show && (
+            <tfoot>
+              <tr className="total-row">
+                <td className="row-selector total-label">Total</td>
+                {p.columns.map((col, c) => {
+                  const kind = p.totals!.kinds[col.key];
+                  const numeric = !col.lookup && (isNumericType(col.field?.type) || col.numeric === true);
+                  const offered = totalsFor(col.field?.type, numeric);
+                  const value = kind && offered.includes(kind) ? computeTotal(kind, order.map((i) => p.getValue(i, c))) : null;
+                  const text =
+                    value === null || !kind
+                      ? ""
+                      : kind === "Count"
+                        ? String(value)
+                        : (kind === "Average" || kind === "StDev" || kind === "Var") && col.field?.type !== "Currency"
+                          ? (value as number).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                          : col.format
+                            ? col.format(value)
+                            : formatValue(col.field, value);
+                  return (
+                    <td key={col.key} className={`total-cell ${numeric || kind === "Count" ? "num" : ""}`} title={kind ? TOTAL_LABELS[kind] : "Choose a total"}>
+                      <span>{text}</span>
+                      {p.onTotalKind && (
+                        <select
+                          aria-label={`Total for ${col.label}`}
+                          value={kind && offered.includes(kind) ? kind : ""}
+                          onChange={(e) => p.onTotalKind!(col.key, (e.target.value || null) as TotalKind | null)}
+                        >
+                          <option value="">None</option>
+                          {offered.map((k) => (
+                            <option key={k} value={k}>
+                              {TOTAL_LABELS[k]}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            </tfoot>
+          )}
         </table>
         {count === 0 && !allowNew && <div className="empty-note">{p.emptyMessage ?? "No records."}</div>}
       </div>

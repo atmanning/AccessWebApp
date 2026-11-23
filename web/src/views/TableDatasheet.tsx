@@ -49,7 +49,18 @@ export function TableDatasheet({ table, tabKey, goto }: { table: TableDef; tabKe
     setTimeout(() => grid.current?.goToRow(i), 0);
   }, [goto?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Home > Totals: the Total row, saved with the table (each column's total by field id).
+  const setTotals = (fn: (t: NonNullable<TableDef["totalsRow"]>) => void) =>
+    ws.update((d) => {
+      const t = d.tables.find((x) => x.id === table.id);
+      if (!t) return;
+      t.totalsRow ??= { show: false, kinds: {} };
+      fn(t.totalsRow);
+    });
+
   useCommands(tabKey, {
+    toggleDatasheetTotals: ws.readOnly ? undefined : () => setTotals((t) => void (t.show = !t.show)),
+    datasheetTotals: !!table.totalsRow?.show,
     newRecord: () => grid.current?.goToNewRecord(),
     deleteRecord: () => grid.current?.deleteSelected(),
     sortAsc: () => grid.current?.sort("ASC"),
@@ -85,6 +96,16 @@ export function TableDatasheet({ table, tabKey, goto }: { table: TableDef; tabKe
       onStatus={ws.setStatus}
       savedWidths={table.columnWidths}
       rowHeight={rowHeight}
+      totals={table.totalsRow}
+      onTotalKind={
+        ws.readOnly
+          ? undefined
+          : (key, kind) =>
+              setTotals((t) => {
+                if (kind) t.kinds[key] = kind;
+                else delete t.kinds[key];
+              })
+      }
       onRowHeightChange={saveRowHeight}
       onWidthsChange={(w) => {
         // Saved with the table, like Access's datasheet layout. Viewers just get it for this session.

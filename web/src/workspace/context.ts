@@ -69,6 +69,9 @@ export interface ViewCommands {
   filterOn?: boolean;
   /** Datasheet: set the height of every row (Home > Records > Row Height). */
   rowHeight?: () => void;
+  /** Datasheet: show or hide the Total row (Home > Records > Totals). */
+  toggleDatasheetTotals?: () => void;
+  datasheetTotals?: boolean;
   /** Query Design: switch query type, and the current type / Totals state for the ribbon. */
   setQueryType?: (type: QueryType) => void;
   queryType?: QueryType;

@@ -343,6 +343,11 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
                 <Small icon={<DeleteIcon />} label="Delete" onClick={c.deleteRecord} />
                 {c.rowHeight && <Small icon={<RowHeightIcon />} label="Row Height" onClick={c.rowHeight} />}
               </div>
+              {c.toggleDatasheetTotals && (
+                <div className="rb-stack">
+                  <Small icon={<TotalsIcon />} label="Totals" pressed={!!c.datasheetTotals} onClick={c.toggleDatasheetTotals} title="Show a Total row under the records: pick Sum, Average, Count… for each column" />
+                </div>
+              )}
             </Group>
             <Group label="Find">
               <Big icon={<FindIcon size={32} />} label="Find" onClick={c.find} />

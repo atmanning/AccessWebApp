@@ -1055,3 +1055,13 @@ button.props-tab.active { background: #fff; font-weight: 600; }
   .ai-ask { flex-direction: column; }
   .ai-ask > button { align-self: stretch; }
 }
+
+/* The datasheet's Total row (Home > Totals): stays at the bottom; click a cell to pick its total. */
+.datasheet tfoot td { position: sticky; bottom: 0; z-index: 2; background: #f1f1f1; border-top: 2px solid #c8c8c8; font-weight: 600; }
+.datasheet tfoot td.total-label { left: 0; z-index: 3; font-weight: 600; font-size: 12px; text-align: center; }
+.datasheet td.total-cell { position: relative; cursor: pointer; }
+.datasheet td.total-cell > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 12px; }
+.datasheet td.total-cell > select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.datasheet td.total-cell::after { content: "▾"; position: absolute; right: 3px; top: 50%; transform: translateY(-50%); font-size: 10px; color: #888; opacity: 0; pointer-events: none; }
+.datasheet td.total-cell:hover::after, .datasheet td.total-cell:focus-within::after { opacity: 1; }
+.datasheet td.total-cell:focus-within { outline: 2px solid var(--accent); outline-offset: -2px; }
