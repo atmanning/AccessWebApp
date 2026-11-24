@@ -133,5 +133,10 @@ button.feat.on:hover { border-color: #1f6b28; }
   border: 0; border-radius: 50%; background: #c62828; color: #fff; font: 700 12px/1 system-ui, sans-serif; cursor: pointer; vertical-align: middle;
 }
 .admin-error-flag:hover { background: #8e1b1b; }
+/* Not looked at yet: bright red. Looked at: pastel, until a new error comes. */
+.admin-error-flag.fresh { background: #e00000; box-shadow: 0 0 0 2px #ffd0d0; }
+.admin-error-flag.fresh:hover { background: #a80000; }
+.admin-error-flag.seen { background: #f4b6b6; color: #8a2a2a; }
+.admin-error-flag.seen:hover { background: #eb9a9a; }
 .admin-error-flag:focus-visible { outline: 2px solid #c62828; outline-offset: 2px; }
 h1 .admin-error-flag { width: 22px; height: 22px; font-size: 14px; }

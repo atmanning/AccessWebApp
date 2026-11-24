@@ -160,6 +160,13 @@ const MIGRATIONS: string[] = [
     used    INTEGER NOT NULL DEFAULT 0
   );
   `,
+  // 12: when an admin last looked at someone's server errors (newer ones show in bright red)
+  `
+  CREATE TABLE admin_error_views (
+    user_id TEXT PRIMARY KEY,
+    seen_at TEXT NOT NULL
+  );
+  `,
 ];
 
 export function openDatabase(file: string): DB {

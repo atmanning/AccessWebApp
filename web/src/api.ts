@@ -130,6 +130,7 @@ export const api = {
   adminActivity: (f: AdminActivityFilter, before?: number) =>
     call<{ entries: ActivityEntry[]; more: number | null }>("GET", `/api/admin/activity?${activityParams(f, before)}`),
   adminPlans: () => call<AdminPlans>("GET", "/api/admin/plans"),
+  adminErrorsSeen: (userId: string) => call<{ ok: true }>("POST", `/api/admin/users/${userId}/errors-seen`),
   adminPlanSettings: (gated: boolean, advanced: FeatureId[], ai?: AiPlanSettings) => call<{ ok: true }>("PUT", "/api/admin/plans/settings", { gated, advanced, ai }),
   adminGrant: (userIds: string[], features: FeatureId[], enable: boolean) => call<{ ok: true; changed: number }>("POST", "/api/admin/plans/grant", { userIds, features, enable }),
 

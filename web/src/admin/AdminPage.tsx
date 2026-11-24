@@ -242,10 +242,11 @@ function People({ onOpen, onErrors }: { onOpen: (id: string) => void; onErrors: 
 
 /** A "!" by someone who ran into server errors lately: click to see them. */
 function ErrorFlag({ u, onClick }: { u: AdminUserRow; onClick: () => void }) {
-  const label = `${u.errors30} server error${u.errors30 === 1 ? "" : "s"} in the last 30 days${u.lastErrorAt ? `, the latest ${ago(u.lastErrorAt)}` : ""}. Click to see them.`;
+  const fresh = !!u.lastErrorAt && (!u.errorsSeenAt || u.lastErrorAt > u.errorsSeenAt);
+  const label = `${u.errors30} server error${u.errors30 === 1 ? "" : "s"} in the last 30 days${u.lastErrorAt ? `, the latest ${ago(u.lastErrorAt)}` : ""}${fresh ? " (not looked at yet)" : " (already looked at)"}. Click to see them.`;
   return (
     <button
-      className="admin-error-flag"
+      className={`admin-error-flag ${fresh ? "fresh" : "seen"}`}
       title={label}
       aria-label={label}
       onClick={(e) => {
@@ -478,6 +479,8 @@ function Activity(props: { filter: AdminActivityFilter & { userLabel?: string };
         setEntries(r.entries);
         setMore(r.more);
         setError(null);
+        // Someone's errors are on screen now: their "!" turns pastel until a new one comes.
+        if (filter.user && (!filter.action || filter.action === "error") && r.entries.some((x) => x.action === "error")) void api.adminErrorsSeen(filter.user).catch(() => undefined);
       },
       (e) => setError(e.message),
     );

@@ -89,6 +89,8 @@ export interface AdminUserRow {
   /** Server errors while they used the site, in the last 30 days (shown with a "!" to check on). */
   errors30: number;
   lastErrorAt: string | null;
+  /** When an admin last looked at their errors (errors since then are new). */
+  errorsSeenAt: string | null;
   admin: boolean;
   suspendedAt: string | null;
   suspendedReason: string | null;

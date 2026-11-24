@@ -131,7 +131,8 @@ export function adminRouter(
         + COALESCE((SELECT SUM(i.size) FROM images i JOIN projects p ON p.id = i.project_id WHERE p.user_id = u.id), 0) AS storageBytes,
       COALESCE((SELECT SUM(a.count) FROM activity a WHERE a.user_id = u.id AND a.at >= @since), 0) AS actions30,
       COALESCE((SELECT SUM(a.count) FROM activity a WHERE a.user_id = u.id AND a.action = 'error' AND a.at >= @since), 0) AS errors30,
-      (SELECT MAX(a.at) FROM activity a WHERE a.user_id = u.id AND a.action = 'error' AND a.at >= @since) AS lastErrorAt
+      (SELECT MAX(a.at) FROM activity a WHERE a.user_id = u.id AND a.action = 'error' AND a.at >= @since) AS lastErrorAt,
+      (SELECT v.seen_at FROM admin_error_views v WHERE v.user_id = u.id) AS errorsSeenAt
     FROM users u`;
 
   const userRow = (r: Omit<AdminUserRow, "admin">): AdminUserRow => ({ ...r, admin: opts.isAdmin(r) });
@@ -142,6 +143,12 @@ export function adminRouter(
       .prepare(`${USER_SELECT} ${q ? "WHERE u.email LIKE @q ESCAPE '\\' OR u.name LIKE @q ESCAPE '\\'" : ""} ORDER BY COALESCE(u.last_seen_at, u.created_at) DESC LIMIT 2000`)
       .all({ since: ago(30), ...(q ? { q: `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%` } : {}) }) as Omit<AdminUserRow, "admin">[];
     res.json({ users: rows.map(userRow) });
+  });
+
+  // An admin looked at someone's server errors: they show in pastel red until a new one comes.
+  router.post("/users/:id/errors-seen", (req, res) => {
+    db.prepare("INSERT INTO admin_error_views (user_id, seen_at) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET seen_at = excluded.seen_at").run(req.params.id, new Date().toISOString());
+    res.json({ ok: true });
   });
 
   router.get("/users/:id", (req, res) => {
