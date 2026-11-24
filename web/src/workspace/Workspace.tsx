@@ -496,8 +496,17 @@ export function Workspace(props: {
     try {
       await save();
       if (docRef.current !== savedDoc.current) await save();
-      await api.downloadAccdb(props.project.id, name);
+      const { notes } = await api.downloadAccdb(props.project.id, name);
       setStatus(`Exported ${name}.accdb. Saved queries are listed in the _SavedQueries table.`);
+      if (notes.length) {
+        dialogs.alert(
+          "Export to Access",
+          <>
+            <p>{name}.accdb is downloaded. Some records didn't fit Access's rules, so the export adjusted these:</p>
+            <ul>{notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
+          </>,
+        );
+      }
     } catch (e) {
       setStatus((e as Error).message, "error");
       dialogs.alert("Export to Access", `The export didn't work: ${(e as Error).message}`);

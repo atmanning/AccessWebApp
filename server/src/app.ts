@@ -19,7 +19,7 @@ import type { ProjectDoc, VersionInfo } from "../../shared/model.js";
 
 export interface AppOptions {
   db: DB;
-  exportAccdb: (doc: ProjectDoc) => Promise<Buffer>;
+  exportAccdb: (doc: ProjectDoc) => Promise<Buffer & { notes?: string[] }>;
   importAccess: ImportAccess;
   connections: ConnectionsOptions;
   images?: ImageOptions;

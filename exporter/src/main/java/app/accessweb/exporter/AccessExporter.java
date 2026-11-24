@@ -177,17 +177,64 @@ public final class AccessExporter {
             tb.addColumn(cb);
         }
 
+        // The records first, so keys can be checked against them: a key Access would refuse (an empty
+        // or repeated value) must not stop the whole download.
+        JSONArray rows = t.optJSONArray("rows");
+        List<Object[]> batch = new ArrayList<>(rows == null ? 0 : rows.length());
+        if (rows != null) {
+            for (int r = 0; r < rows.length(); r++) {
+                JSONArray row = rows.getJSONArray(r);
+                Object[] values = new Object[colNames.size()];
+                for (int i = 0; i < values.length; i++) {
+                    Object raw = i < row.length() ? row.opt(i) : null;
+                    values[i] = convert(raw, colTypes.get(i), cols.getJSONObject(i));
+                }
+                batch.add(values);
+            }
+        }
+        // AutoNumber values that are missing or repeated get new numbers, as Access would give them.
+        for (int i = 0; i < colTypes.size(); i++) {
+            if (!"AutoNumber".equals(colTypes.get(i))) continue;
+            int next = 1;
+            for (Object[] v : batch) if (v[i] instanceof Integer n && n >= next) next = n + 1;
+            Set<Object> seen = new HashSet<>();
+            int renumbered = 0;
+            for (Object[] v : batch) {
+                if (v[i] == null || !seen.add(v[i])) {
+                    v[i] = next++;
+                    seen.add(v[i]);
+                    renumbered++;
+                }
+            }
+            if (renumbered > 0) note(name + ": " + renumbered + " record(s) had no " + colNames.get(i) + " (or a repeated one), so they were given new numbers.");
+        }
+
         if (!pkCols.isEmpty()) {
-            tb.addIndex(new IndexBuilder(IndexBuilder.PRIMARY_KEY_NAME)
-                    .addColumns(pkCols.toArray(new String[0]))
-                    .setPrimaryKey());
+            List<Integer> pkIdx = new ArrayList<>();
+            for (String pc : pkCols) pkIdx.add(colNames.indexOf(pc));
+            String problem = keyProblem(batch, pkIdx, true);
+            if (problem == null) {
+                tb.addIndex(new IndexBuilder(IndexBuilder.PRIMARY_KEY_NAME)
+                        .addColumns(pkCols.toArray(new String[0]))
+                        .setPrimaryKey());
+            } else {
+                // Still findable quickly, but not a key until the data is fixed.
+                tb.addIndex(new IndexBuilder("KeyFields").addColumns(pkCols.toArray(new String[0])));
+                keylessTables.add(name);
+                note(name + ": " + problem + " in " + String.join(" + ", pkCols)
+                        + ", so it was exported without a primary key. Fill in or fix those records, then set the key again in Access.");
+            }
         }
         for (int i = 0; i < cols.length(); i++) {
             JSONObject c = cols.getJSONObject(i);
             String idx = c.optString("indexed", "No");
             if (c.optBoolean("primaryKey") || "No".equals(idx)) continue;
             IndexBuilder ib = new IndexBuilder(truncate("idx_" + colNames.get(i), 64)).addColumns(colNames.get(i));
-            if ("YesNoDup".equals(idx)) ib.setUnique();
+            if ("YesNoDup".equals(idx)) {
+                String problem = keyProblem(batch, List.of(i), false);
+                if (problem == null) ib.setUnique();
+                else note(name + ": " + problem + " in " + colNames.get(i) + ", so its index allows duplicates.");
+            }
             tb.addIndex(ib);
         }
 
@@ -197,20 +244,40 @@ public final class AccessExporter {
         }
 
         Table table = tb.toTable(db);
+        if (!batch.isEmpty()) table.addRows(batch);
+    }
 
-        JSONArray rows = t.optJSONArray("rows");
-        if (rows == null) return;
-        List<Object[]> batch = new ArrayList<>(rows.length());
-        for (int r = 0; r < rows.length(); r++) {
-            JSONArray row = rows.getJSONArray(r);
-            Object[] values = new Object[colNames.size()];
-            for (int i = 0; i < values.length; i++) {
-                Object raw = i < row.length() ? row.opt(i) : null;
-                values[i] = convert(raw, colTypes.get(i), cols.getJSONObject(i));
+    /** Why these columns can't be a key (or unique index) for these records, or null when they can. */
+    static String keyProblem(List<Object[]> batch, List<Integer> idx, boolean primary) {
+        Set<List<Object>> seen = new HashSet<>();
+        int empty = 0, repeated = 0;
+        for (Object[] v : batch) {
+            List<Object> key = new ArrayList<>();
+            boolean blank = false;
+            for (int i : idx) {
+                Object x = v[i];
+                if (x == null || (x instanceof String str && str.isEmpty())) blank = true;
+                // Access compares text keys regardless of capitals.
+                key.add(x instanceof String str ? str.toLowerCase(java.util.Locale.ROOT) : x);
             }
-            batch.add(values);
+            if (blank) {
+                if (primary) empty++;
+                continue;
+            }
+            if (!seen.add(key)) repeated++;
         }
-        table.addRows(batch);
+        if (empty > 0 && repeated > 0) return empty + " record(s) have an empty value and " + repeated + " a repeated one";
+        if (empty > 0) return empty + " record(s) have an empty value";
+        if (repeated > 0) return repeated + " record(s) repeat a value";
+        return null;
+    }
+
+    /** Tables exported without their primary key (the records didn't fit it). */
+    static final Set<String> keylessTables = new HashSet<>();
+
+    /** Things the person should know about the download; the server passes them on. */
+    static void note(String message) {
+        System.err.println("NOTE: " + message);
     }
 
     private static void writeRelationship(Database db, JSONObject r, Map<String, String> tableNames) throws IOException {
@@ -219,10 +286,23 @@ public final class AccessExporter {
         if (from == null || to == null) return;
         RelationshipBuilder rb = new RelationshipBuilder(from, to)
                 .addColumns(sanitizeName(r.getString("fromColumn")), sanitizeName(r.getString("toColumn")));
-        if (r.optBoolean("enforce")) {
+        // Enforcing needs the key it points to; without it, the relationship is kept as a plain join line.
+        if (r.optBoolean("enforce") && keylessTables.contains(from)) {
+            note(from + " → " + to + ": exported without Enforce Referential Integrity, because " + from + " has no primary key in the download.");
+        } else if (r.optBoolean("enforce")) {
             rb.setReferentialIntegrity();
         }
-        rb.toRelationship(db);
+        try {
+            rb.toRelationship(db);
+        } catch (IOException | RuntimeException e) {
+            // Records that break the rule (an order for a customer who isn't there): keep the
+            // relationship without enforcing it rather than lose the download.
+            if (!r.optBoolean("enforce")) throw e;
+            new RelationshipBuilder(from, to)
+                    .addColumns(sanitizeName(r.getString("fromColumn")), sanitizeName(r.getString("toColumn")))
+                    .toRelationship(db);
+            note(from + " → " + to + ": some records don't match, so the relationship was exported without Enforce Referential Integrity.");
+        }
     }
 
     private static void writeSavedQueries(Database db, String tableName, JSONArray queries) throws IOException {

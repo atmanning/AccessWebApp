@@ -95,12 +95,16 @@ export type Limiter = ReturnType<typeof createLimiter>;
 
 /** Runs the Jackcess exporter and returns the .accdb bytes. */
 export function createExporter(cfg: ExporterConfig, limit: Limiter = createLimiter(cfg.maxConcurrent)) {
-  return (doc: ProjectDoc): Promise<Buffer> => limit(() => exportOnce(cfg, doc));
+  return (doc: ProjectDoc): Promise<ExportedFile> => limit(() => exportOnce(cfg, doc));
 }
 
-async function exportOnce(cfg: ExporterConfig, doc: ProjectDoc): Promise<Buffer> {
+/** The file, with notes about anything the exporter had to change (a key the data didn't fit). */
+export type ExportedFile = Buffer & { notes?: string[] };
+
+async function exportOnce(cfg: ExporterConfig, doc: ProjectDoc): Promise<ExportedFile> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "accessweb-"));
   const out = path.join(dir, `${crypto.randomUUID()}.accdb`);
+  let all = "";
   try {
     await new Promise<void>((resolve, reject) => {
       const child = spawn(cfg.javaBin, [`-Xmx${cfg.maxHeap}`, "-XX:+UseSerialGC", "-jar", cfg.jarPath, out], { stdio: ["pipe", "ignore", "pipe"] });
@@ -109,7 +113,10 @@ async function exportOnce(cfg: ExporterConfig, doc: ProjectDoc): Promise<Buffer>
         child.kill("SIGKILL");
         reject(new Error("Export timed out"));
       }, cfg.timeoutMs);
-      child.stderr.on("data", (d) => (stderr = (stderr + d).slice(-4000)));
+      child.stderr.on("data", (d) => {
+        stderr = (stderr + d).slice(-4000);
+        if (all.length < 20_000) all += d;
+      });
       child.on("error", (e) => {
         clearTimeout(timer);
         reject(new Error(`Could not start the exporter (${e.message}). Is Java installed?`));
@@ -118,15 +125,26 @@ async function exportOnce(cfg: ExporterConfig, doc: ProjectDoc): Promise<Buffer>
         clearTimeout(timer);
         if (code === 0) resolve();
         else {
-          const msg = stderr.split("\n").filter((l) => l && !l.startsWith("Picked up JAVA_TOOL_OPTIONS")).pop();
+          const msg = stderr.split("\n").filter((l) => l && !l.startsWith("Picked up JAVA_TOOL_OPTIONS") && !l.startsWith("NOTE: ")).pop();
           reject(new Error(msg || `Exporter exited with code ${code}`));
         }
       });
       child.stdin.on("error", () => { /* surfaced via close */ });
       child.stdin.end(JSON.stringify(toExportDocument(doc)));
     });
-    return await fs.readFile(out);
+    const notes = notesFrom(all);
+    return Object.assign(await fs.readFile(out), notes.length ? { notes } : {});
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+}
+
+/** The exporter's "NOTE: …" lines (things it changed so the download could go ahead). */
+function notesFrom(stderr: string): string[] {
+  return stderr
+    .split("\n")
+    .filter((l) => l.startsWith("NOTE: "))
+    .map((l) => l.slice(6).trim())
+    .filter(Boolean)
+    .slice(0, 20);
 }

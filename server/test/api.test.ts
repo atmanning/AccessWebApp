@@ -146,6 +146,41 @@ describe("projects", () => {
     expect(db.getTable("_SavedQueries").getData().map((r) => r.QueryName)).toContain("Sales by Customer");
   }, 60_000);
 
+  it.skipIf(!javaAvailable)("exports records Access's rules don't fit, and says what it changed", async () => {
+    const created = await alice.post("/api/projects").send({ name: "Pets", template: "blank" });
+    const id = created.body.project.id;
+    const doc = created.body.project.doc;
+    doc.tables = [
+      {
+        id: "t_owners",
+        name: "Owners",
+        nextAutoNumber: 1,
+        fields: [
+          { id: "f_code", name: "OwnerCode", type: "ShortText", size: 10, primaryKey: true },
+          { id: "f_name", name: "Name", type: "ShortText", size: 50 },
+        ],
+        rows: [
+          { _id: "r1", f_code: "O-1", f_name: "Ann" },
+          { _id: "r2", f_code: null, f_name: "Liz" },
+        ],
+      },
+    ];
+    expect((await alice.put(`/api/projects/${id}`).send({ doc, baseRevision: 1 })).status).toBe(200);
+    const res = await alice
+      .get(`/api/projects/${id}/export.accdb`)
+      .buffer(true)
+      .parse((r, cb) => {
+        const chunks: Buffer[] = [];
+        r.on("data", (c: Buffer) => chunks.push(c));
+        r.on("end", () => cb(null, Buffer.concat(chunks)));
+      });
+    expect(res.status).toBe(200);
+    const notes = JSON.parse(decodeURIComponent(res.headers["x-export-notes"])) as string[];
+    expect(notes[0]).toMatch(/Owners: 1 record\(s\) have an empty value in OwnerCode, so it was exported without a primary key/);
+    expect(new MDBReader(res.body as Buffer).getTable("Owners").rowCount).toBe(2);
+    expect((await alice.delete(`/api/projects/${id}`).set("X-Requested-With", "fetch")).status).toBe(200);
+  }, 60_000);
+
   it.skipIf(!javaAvailable)("imports an Access file as a new database, round-tripping the export", async () => {
     const exported = await alice
       .get(`/api/projects/${projectId}/export.accdb`)

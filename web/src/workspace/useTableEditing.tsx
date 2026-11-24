@@ -51,6 +51,15 @@ export function useRecordEditing() {
     if (!parsed.ok) return parsed.error;
     const uniq = uniquenessError(table, f, parsed.value, rowIdx);
     if (uniq) return uniq;
+    // A new record starts with its key (when it isn't an AutoNumber): saved without one, it couldn't
+    // be told apart from others, and Access wouldn't keep it.
+    if (rowIdx === "new") {
+      const keys = table.fields.filter((x) => x.primaryKey && x.type !== "AutoNumber");
+      const valueOf = (x: Field) => (x.id === f.id ? parsed.value : (preset?.[x.id] ?? defaultFor(x)));
+      if (keys.length && keys.every((k) => (valueOf(k) ?? "") === "")) {
+        return `Please fill in ${keys.map((k) => k.name).join(" and ")} first: it identifies each record, so a new record starts with it.`;
+      }
+    }
     // Fields that must be unique together (a multi-field primary key or unique index), e.g. PetType + Breed.
     if (uniqueCombinations(table).some((c) => c.fields.some((x) => x.id === f.id))) {
       const candidate: Row =

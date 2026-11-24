@@ -224,6 +224,12 @@ export const api = {
     const blob = await res.blob();
     const name = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? `${fallbackName}.accdb`;
     downloadBlob(blob, name);
+    // Things the export had to change (records whose key is empty or repeated…).
+    try {
+      return { notes: JSON.parse(decodeURIComponent(res.headers.get("X-Export-Notes") ?? "")) as string[] };
+    } catch {
+      return { notes: [] as string[] };
+    }
   },
 };
 

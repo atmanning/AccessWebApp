@@ -120,7 +120,7 @@ export function projectLoader(db: DB) {
   };
 }
 
-export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise<Buffer>, importAccess: ImportAccess) {
+export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise<Buffer & { notes?: string[] }>, importAccess: ImportAccess) {
   const router = Router();
   router.use(requireUser);
 
@@ -299,6 +299,8 @@ export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise
     res.setHeader("Content-Type", "application/msaccess");
     res.setHeader("Content-Disposition", `attachment; filename="${file}"; filename*=UTF-8''${encodeURIComponent(file)}`);
     res.setHeader("Cache-Control", "no-store");
+    // What the exporter had to change (a key the records didn't fit), for the person to know.
+    if (bytes.notes?.length) res.setHeader("X-Export-Notes", encodeURIComponent(JSON.stringify(bytes.notes)).slice(0, 7000));
     res.send(bytes);
   });
 
