@@ -140,3 +140,9 @@ button.feat.on:hover { border-color: #1f6b28; }
 .admin-error-flag.seen:hover { background: #eb9a9a; }
 .admin-error-flag:focus-visible { outline: 2px solid #c62828; outline-offset: 2px; }
 h1 .admin-error-flag { width: 22px; height: 22px; font-size: 14px; }
+.admin-support { margin-top: 18px; }
+.admin-support-new td:first-child { font-weight: 600; }
+.admin-badge.new { background: #fde2e2; color: #b00020; }
+.admin-support-error { max-width: 420px; font-size: 12.5px; word-break: break-word; }
+.admin-support-actions { white-space: nowrap; text-align: right; }
+.admin-support-actions button { margin-left: 6px; }

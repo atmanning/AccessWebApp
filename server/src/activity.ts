@@ -128,6 +128,7 @@ function classify(req: Request, status: number, path: string): Match | null {
     const [, id, what] = p;
     if (what === "copy" && m === "POST") return { action: "copy_db", project: id, detail: typeof body.name === "string" ? `as ${body.name.slice(0, 100)}` : null };
     if (what === "export.accdb" && m === "GET") return { action: "export", project: id };
+    if (what === "support" && m === "POST") return { action: "support_copy", project: id, detail: typeof body.error === "string" ? body.error.slice(0, 200) : null };
     if (what === "shares" && m === "PUT") return { action: "share", project: id, detail: `with ${String(body.email ?? "")} (${body.permission === "edit" ? "can edit" : "can view"})` };
     if (what.startsWith("shares/") && m === "DELETE") return { action: "unshare", project: id };
     if (what === "link-access" && m === "PUT") return { action: "link_access", project: id, detail: body.linkAccess === "none" ? "turned off" : `anyone with the link can ${body.linkAccess}` };

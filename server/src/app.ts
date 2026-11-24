@@ -88,7 +88,7 @@ export function createApp(opts: AppOptions) {
   const version: VersionInfo = opts.version ?? { commit: null, builtAt: null, startedAt: new Date().toISOString() };
   app.get("/api/version", (_req, res) => res.json(version));
   app.use("/api/auth", authRouter(opts.db, { secureCookies: opts.secureCookies, isAdmin, contact: opts.contact ?? null }));
-  app.use("/api/admin", adminRouter(opts.db, { isAdmin, logDays, log: activityLog, plans, billing: billingOpts, priceLabel: billing.price }));
+  app.use("/api/admin", adminRouter(opts.db, { isAdmin, logDays, log: activityLog, plans, billing: billingOpts, priceLabel: billing.price, exportAccdb: opts.exportAccdb }));
   app.use("/api/billing", billing.router);
   // Advanced features (sharing, public links, MySQL, Access files) for people whose plan has them.
   app.use("/api/ai", aiRouter(opts.db, plans, opts.ai ?? { apiKey: null, model: "", dailyLimit: 0 }));

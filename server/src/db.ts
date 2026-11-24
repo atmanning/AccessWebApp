@@ -167,6 +167,21 @@ const MIGRATIONS: string[] = [
     seen_at TEXT NOT NULL
   );
   `,
+  // 13: copies people sent to the site admins for support (with their agreement, after an error)
+  `
+  CREATE TABLE support_copies (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id TEXT,
+    name       TEXT NOT NULL,
+    doc        TEXT NOT NULL,
+    error      TEXT,
+    note       TEXT,
+    created_at TEXT NOT NULL,
+    opened_at  TEXT
+  );
+  CREATE INDEX support_copies_user ON support_copies (user_id, created_at);
+  `,
 ];
 
 export function openDatabase(file: string): DB {

@@ -292,6 +292,34 @@ export function projectsRouter(db: DB, exportAccdb: (doc: ProjectDoc) => Promise
     res.status(201).json({ project });
   });
 
+  /**
+   * Send a Copy for Support: after an error, the owner agrees to give the site admins a copy of the
+   * database as it is now, so they can find the problem. Admins see it on the person's page.
+   */
+  router.post("/:id/support", (req, res) => {
+    const body = z.object({ error: z.string().max(2000).optional(), note: z.string().max(2000).optional() }).parse(req.body ?? {});
+    const { row } = load(req.params.id, req.user!.id, "owner");
+    const today = (db.prepare("SELECT COUNT(*) AS n FROM support_copies WHERE user_id = ? AND created_at >= ?").get(req.user!.id, new Date(Date.now() - 864e5).toISOString()) as { n: number }).n;
+    if (today >= 10) throw httpError(429, "You've sent 10 copies today, which is plenty for us to look into it. Thank you!");
+    db.prepare("INSERT INTO support_copies (id, user_id, project_id, name, doc, error, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+      crypto.randomUUID(),
+      req.user!.id,
+      row.id,
+      row.name,
+      row.doc,
+      // The server's own record of the error (the person only saw a friendly message).
+      [
+        (db.prepare("SELECT detail FROM activity WHERE user_id = ? AND project_id = ? AND action = 'error' AND at >= ? ORDER BY at DESC LIMIT 1").get(req.user!.id, row.id, new Date(Date.now() - 3600_000).toISOString()) as { detail: string } | undefined)?.detail,
+        body.error?.trim(),
+      ]
+        .filter((x, i, all) => x && all.indexOf(x) === i)
+        .join(" — ") || null,
+      body.note?.trim() || null,
+      new Date().toISOString(),
+    );
+    res.status(201).json({ ok: true });
+  });
+
   router.get("/:id/export.accdb", async (req, res) => {
     const { row } = load(req.params.id, req.user!.id);
     const bytes = await exportAccdb(JSON.parse(row.doc) as ProjectDoc);

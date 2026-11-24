@@ -3,7 +3,7 @@
  * It shows database names and sizes, never what's in anyone's tables.
  */
 import { useEffect, useMemo, useState } from "react";
-import { ACTIVITY_ACTIONS, type ActivityAction, type ActivityEntry, type AdminOverview, type AdminUserDetail, type AdminUserRow } from "../../../shared/activity";
+import { ACTIVITY_ACTIONS, type ActivityAction, type ActivityEntry, type AdminOverview, type AdminUserDetail, type AdminUserRow, type SupportCopy } from "../../../shared/activity";
 import type { UserInfo } from "../../../shared/model";
 import { api, type AdminActivityFilter } from "../api";
 import { POLICY_VERSION } from "../../../shared/policy";
@@ -87,7 +87,11 @@ function Overview({ onPeople, onActivity }: { onPeople: () => void; onActivity: 
         <Tile label="Sharing" value={data.shares} note={`people shared with · ${data.publicReports} public report${data.publicReports === 1 ? "" : "s"}`} />
         <Tile label="Server errors" value={data.errors24} note="in the last 24 hours" warn={data.errors24 > 0} onClick={() => onActivity("error")} />
         <Tile label="Failed sign-ins" value={data.failedLogins24} note="in the last 24 hours" warn={data.failedLogins24 >= 20} onClick={() => onActivity("login_failed")} />
+        {data.supportNew > 0 && (
+          <Tile label="Sent for support" value={data.supportNew} note="not opened yet (below)" warn onClick={() => document.querySelector(".admin-support")?.scrollIntoView({ behavior: "smooth" })} />
+        )}
       </div>
+      <SupportCopies />
       <div className="admin-charts">
         <DayBars title="Sign-ups per day" days={data.days.map((d) => ({ day: d.day, n: d.signups }))} />
         <DayBars title="People active per day" days={data.days.map((d) => ({ day: d.day, n: d.active }))} />
@@ -96,6 +100,116 @@ function Overview({ onPeople, onActivity }: { onPeople: () => void; onActivity: 
         The last 30 days, by UTC date. The activity log keeps {data.logDays} days. It records what people did and sizes, never what's in their tables.
       </p>
     </>
+  );
+}
+
+/**
+ * Copies people sent for support after an error (with their agreement). Open one as a database of
+ * your own to look around, or download it as .accdb to see an export problem happen.
+ */
+function SupportCopies({ userId }: { userId?: string }) {
+  const [copies, setCopies] = useState<SupportCopy[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    api.adminSupport(userId).then((r) => setCopies(r.copies), (e) => setMessage(e.message));
+  }, [userId, n]);
+  if (!copies?.length) return message ? <div className="field-error">{message}</div> : null;
+  const run = async (id: string, f: () => Promise<void>) => {
+    setBusy(id);
+    setMessage(null);
+    try {
+      await f();
+    } catch (e) {
+      setMessage((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <section className="admin-support">
+      <h2>
+        Sent for support <span className="muted admin-count">{copies.length}</span>
+      </h2>
+      <p className="small muted">Copies people chose to send after an error. They agreed to let the administrators look at the records in them.</p>
+      {message && <div className="field-error">{message}</div>}
+      <div className="admin-table-wrap">
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>Database</th>
+              {!userId && <th>From</th>}
+              <th>Sent</th>
+              <th>Error and note</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {copies.map((c) => (
+              <tr key={c.id} className={c.openedAt ? "" : "admin-support-new"}>
+                <td>
+                  {c.name}
+                  {!c.openedAt && <span className="admin-badge new">New</span>}
+                  <div className="small muted">{bytes(c.bytes)}</div>
+                </td>
+                {!userId && (
+                  <td>
+                    {c.userName || c.email}
+                    <div className="small muted">{c.email}</div>
+                  </td>
+                )}
+                <td title={fullTime(c.createdAt)}>{ago(c.createdAt)}</td>
+                <td className="admin-support-error">
+                  {c.error && <div>{c.error}</div>}
+                  {c.note && <div className="muted">“{c.note}”</div>}
+                </td>
+                <td className="admin-support-actions">
+                  <button
+                    disabled={busy === c.id}
+                    onClick={() =>
+                      run(c.id, async () => {
+                        const r = await api.adminSupportOpen(c.id);
+                        window.open(`/?db=${r.projectId}`, "_blank", "noopener");
+                        setN((x) => x + 1);
+                      })
+                    }
+                    title="Make a database of your own from this copy and open it in a new tab"
+                  >
+                    Open a Copy
+                  </button>
+                  <button
+                    disabled={busy === c.id}
+                    onClick={() =>
+                      run(c.id, async () => {
+                        const notes = await api.adminSupportDownload(c.id, c.name);
+                        setMessage(notes.length ? `Downloaded, with notes: ${notes.join(" ")}` : null);
+                      })
+                    }
+                    title="Download it as an Access file (the way the person would)"
+                  >
+                    Download .accdb
+                  </button>
+                  <button
+                    className="link"
+                    disabled={busy === c.id}
+                    onClick={() =>
+                      run(c.id, async () => {
+                        if (!window.confirm(`Delete the copy of ${c.name} sent for support? (Copies you opened stay in your databases.)`)) return;
+                        await api.adminSupportDelete(c.id);
+                        setN((x) => x + 1);
+                      })
+                    }
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -358,6 +472,8 @@ function Person({ id, onBack, onActivity }: { id: string; onBack: () => void; on
               </table>
             </div>
           )}
+
+          <SupportCopies userId={u.id} />
 
           <h2>
             Recent activity

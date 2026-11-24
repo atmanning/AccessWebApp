@@ -16,7 +16,7 @@ import type {
 } from "../../shared/model";
 import type { AiDatabaseRequest, AiDatabaseSpec, AiQueryRequest, AiQuerySpec, AiStatus } from "../../shared/ai";
 import type { TemplateId } from "../../shared/templates";
-import type { ActivityEntry, AdminOverview, AdminUserDetail, AdminUserRow } from "../../shared/activity";
+import type { ActivityEntry, AdminOverview, AdminUserDetail, AdminUserRow, SupportCopy } from "../../shared/activity";
 import type { AdminPlans, AiPlanSettings, BillingStatus, FeatureId } from "../../shared/plans";
 
 export class ApiError extends Error {
@@ -39,7 +39,18 @@ function statusMessage(status: number, what: string) {
 /** fetch, with "you're offline" in plain words instead of "Failed to fetch". */
 async function send(url: string, init: RequestInit): Promise<Response> {
   try {
-    return await fetch(url, init);
+    const res = await fetch(url, init);
+    // Something went wrong on the server while working on a database: the workspace offers to send
+    // the admins a copy (see Workspace.tsx).
+    const pid = /^\/api\/projects\/([\w-]{8,64})(?:\/|$)/.exec(url)?.[1];
+    if (res.status >= 500 && res.status !== 503 && pid) {
+      void res
+        .clone()
+        .json()
+        .catch(() => ({}))
+        .then((d: { error?: string }) => window.dispatchEvent(new CustomEvent("accessweb:server-error", { detail: { projectId: pid, message: d.error ?? `status ${res.status}`, what: `${init.method ?? "GET"} ${url.replace(/[\w-]{20,}/g, "…")}` } })));
+    }
+    return res;
   } catch {
     throw new ApiError(
       navigator.onLine === false
@@ -131,6 +142,23 @@ export const api = {
     call<{ entries: ActivityEntry[]; more: number | null }>("GET", `/api/admin/activity?${activityParams(f, before)}`),
   adminPlans: () => call<AdminPlans>("GET", "/api/admin/plans"),
   adminErrorsSeen: (userId: string) => call<{ ok: true }>("POST", `/api/admin/users/${userId}/errors-seen`),
+  sendSupportCopy: (projectId: string, error: string, note: string) => call<{ ok: true }>("POST", `/api/projects/${projectId}/support`, { error, note }),
+  adminSupport: (userId?: string) => call<{ copies: SupportCopy[] }>("GET", `/api/admin/support${userId ? `?user=${encodeURIComponent(userId)}` : ""}`),
+  adminSupportOpen: (id: string) => call<{ projectId: string; name: string }>("POST", `/api/admin/support/${id}/open`),
+  adminSupportDelete: (id: string) => call<{ ok: true }>("DELETE", `/api/admin/support/${id}`),
+  async adminSupportDownload(id: string, name: string) {
+    const res = await send(`/api/admin/support/${id}/export.accdb`, { credentials: "same-origin" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new ApiError(data.error ?? statusMessage(res.status, "export"), res.status);
+    }
+    downloadBlob(await res.blob(), `${name}.accdb`);
+    try {
+      return JSON.parse(decodeURIComponent(res.headers.get("X-Export-Notes") ?? "")) as string[];
+    } catch {
+      return [];
+    }
+  },
   adminPlanSettings: (gated: boolean, advanced: FeatureId[], ai?: AiPlanSettings) => call<{ ok: true }>("PUT", "/api/admin/plans/settings", { gated, advanced, ai }),
   adminGrant: (userIds: string[], features: FeatureId[], enable: boolean) => call<{ ok: true; changed: number }>("POST", "/api/admin/plans/grant", { userIds, features, enable }),
 

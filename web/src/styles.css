@@ -1065,3 +1065,7 @@ button.props-tab.active { background: #fff; font-weight: 600; }
 .datasheet td.total-cell::after { content: "▾"; position: absolute; right: 3px; top: 50%; transform: translateY(-50%); font-size: 10px; color: #888; opacity: 0; pointer-events: none; }
 .datasheet td.total-cell:hover::after, .datasheet td.total-cell:focus-within::after { opacity: 1; }
 .datasheet td.total-cell:focus-within { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* A server error while working on a database: offer to send the admins a copy. */
+.support-offer { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; background: #fdecec; border-top: 1px solid #f2b8b8; color: #8a1c1c; font-size: 13px; }
+.support-offer > span { flex: 1; min-width: 200px; }

@@ -7,7 +7,10 @@
  */
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
-import { ACTIVITY_ACTIONS, type ActivityEntry, type AdminOverview, type AdminUserDetail, type AdminUserRow } from "../../shared/activity.js";
+import { ACTIVITY_ACTIONS, type ActivityEntry, type AdminOverview, type AdminUserDetail, type AdminUserRow, type SupportCopy } from "../../shared/activity.js";
+import type { ProjectDoc } from "../../shared/model.js";
+import { copyImages } from "./images.js";
+import crypto from "node:crypto";
 import type { DB } from "./db.js";
 import type { ActivityLog } from "./activity.js";
 import { FEATURE_IDS, type AdminPlans, type FeatureId } from "../../shared/plans.js";
@@ -71,7 +74,16 @@ const csvCell = (v: unknown) => {
 
 export function adminRouter(
   db: DB,
-  opts: { isAdmin: (u: Request["user"]) => boolean; logDays: number; log?: ActivityLog; plans?: Plans; billing?: BillingOptions; priceLabel?: () => Promise<string | null> },
+  opts: {
+    isAdmin: (u: Request["user"]) => boolean;
+    logDays: number;
+    log?: ActivityLog;
+    plans?: Plans;
+    billing?: BillingOptions;
+    priceLabel?: () => Promise<string | null>;
+    /** For downloading a support copy as .accdb (to see an export error happen). */
+    exportAccdb?: (doc: ProjectDoc) => Promise<Buffer & { notes?: string[] }>;
+  },
 ) {
   const router = Router();
   router.use((req: Request, res: Response, next: NextFunction) => {
@@ -114,6 +126,7 @@ export function adminRouter(
       publicReports: count("SELECT COUNT(*) AS n FROM public_reports"),
       shares: count("SELECT COUNT(*) AS n FROM project_shares"),
       errors24: count("SELECT SUM(count) AS n FROM activity WHERE action = 'error' AND at >= ?", ago(1)),
+      supportNew: count("SELECT COUNT(*) AS n FROM support_copies WHERE opened_at IS NULL"),
       failedLogins24: count("SELECT SUM(count) AS n FROM activity WHERE action = 'login_failed' AND at >= ?", ago(1)),
       days,
       logDays: opts.logDays,
@@ -143,6 +156,57 @@ export function adminRouter(
       .prepare(`${USER_SELECT} ${q ? "WHERE u.email LIKE @q ESCAPE '\\' OR u.name LIKE @q ESCAPE '\\'" : ""} ORDER BY COALESCE(u.last_seen_at, u.created_at) DESC LIMIT 2000`)
       .all({ since: ago(30), ...(q ? { q: `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%` } : {}) }) as Omit<AdminUserRow, "admin">[];
     res.json({ users: rows.map(userRow) });
+  });
+
+  // ---- Copies people sent for support (Send a Copy for Support, after an error) ----------------
+
+  const supportRow = (id: string) => {
+    const r = db.prepare("SELECT * FROM support_copies WHERE id = ?").get(id) as
+      | { id: string; user_id: string; project_id: string | null; name: string; doc: string; error: string | null; note: string | null; created_at: string; opened_at: string | null }
+      | undefined;
+    if (!r) throw httpError(404, "That support copy was deleted.");
+    return r;
+  };
+
+  router.get("/support", (req, res) => {
+    const user = z.string().max(64).optional().parse(req.query.user);
+    const copies = db
+      .prepare(
+        `SELECT c.id, c.user_id AS userId, u.name AS userName, u.email, c.name, c.error, c.note, c.created_at AS createdAt, c.opened_at AS openedAt, length(c.doc) AS bytes
+         FROM support_copies c JOIN users u ON u.id = c.user_id ${user ? "WHERE c.user_id = ?" : ""} ORDER BY c.created_at DESC LIMIT 200`,
+      )
+      .all(...(user ? [user] : [])) as SupportCopy[];
+    res.json({ copies });
+  });
+
+  /** Opens a support copy: a new database in the admin's own account, with the pictures it had. */
+  router.post("/support/:id/open", (req, res) => {
+    const c = supportRow(req.params.id);
+    const owner = (db.prepare("SELECT name, email FROM users WHERE id = ?").get(c.user_id) as { name: string; email: string } | undefined) ?? { name: "someone", email: "" };
+    const now = new Date().toISOString();
+    const id = crypto.randomUUID();
+    const name = `Support ${c.name} (${owner.name || owner.email})`.replace(/[.!`[\]]/g, "").slice(0, 64).trim();
+    db.prepare("INSERT INTO projects (id, user_id, name, doc, revision, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)").run(id, req.user!.id, name, c.doc, now, now);
+    if (c.project_id) copyImages(db, c.project_id, id);
+    db.prepare("UPDATE support_copies SET opened_at = COALESCE(opened_at, ?) WHERE id = ?").run(now, c.id);
+    opts.log?.write({ action: "support_open", userId: req.user!.id, email: req.user!.email, projectId: id, projectName: name, detail: `sent by ${owner.email}` });
+    res.status(201).json({ projectId: id, name });
+  });
+
+  router.get("/support/:id/export.accdb", async (req, res) => {
+    const c = supportRow(req.params.id);
+    if (!opts.exportAccdb) throw httpError(503, "Exporting isn't available on this server.");
+    const bytes = await opts.exportAccdb(JSON.parse(c.doc) as ProjectDoc);
+    const file = `${c.name.replace(/[^\w .-]+/g, "_").slice(0, 60) || "database"}.accdb`;
+    res.setHeader("Content-Type", "application/msaccess");
+    res.setHeader("Content-Disposition", `attachment; filename="${file}"`);
+    if (bytes.notes?.length) res.setHeader("X-Export-Notes", encodeURIComponent(JSON.stringify(bytes.notes)).slice(0, 7000));
+    res.send(bytes);
+  });
+
+  router.delete("/support/:id", (req, res) => {
+    db.prepare("DELETE FROM support_copies WHERE id = ?").run(supportRow(req.params.id).id);
+    res.json({ ok: true });
   });
 
   // An admin looked at someone's server errors: they show in pastel red until a new one comes.

@@ -38,6 +38,8 @@ export const ACTIVITY_ACTIONS = {
   features_change: "Features changed by admin",
   plans_settings: "Changed plan settings",
   error: "Server error",
+  support_copy: "Sent a copy for support",
+  support_open: "Opened a support copy",
 } as const;
 
 export type ActivityAction = keyof typeof ACTIVITY_ACTIONS;
@@ -70,6 +72,8 @@ export interface AdminOverview {
   publicReports: number;
   shares: number;
   errors24: number;
+  /** Copies sent for support that no admin has opened yet. */
+  supportNew: number;
   failedLogins24: number;
   /** The last 30 days, oldest first: sign-ups and people active each day (UTC days). */
   days: { day: string; signups: number; active: number }[];
@@ -96,6 +100,20 @@ export interface AdminUserRow {
   suspendedReason: string | null;
   policyVersion: string | null;
   policyAcceptedAt: string | null;
+}
+
+/** A copy of a database someone sent to the admins after an error (Send a Copy for Support). */
+export interface SupportCopy {
+  id: string;
+  userId: string;
+  userName: string;
+  email: string;
+  name: string;
+  error: string | null;
+  note: string | null;
+  createdAt: string;
+  openedAt: string | null;
+  bytes: number;
 }
 
 export interface AdminUserDetail extends AdminUserRow {

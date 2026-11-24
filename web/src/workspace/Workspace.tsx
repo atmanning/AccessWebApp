@@ -103,6 +103,39 @@ export function Workspace(props: {
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [backstage, setBackstage] = useState(false);
   const [importing, setImporting] = useState(false);
+  // A server error while working on this database: the owner can send the admins a copy.
+  const [serverError, setServerError] = useState<{ message: string; what: string } | null>(null);
+  useEffect(() => {
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<{ projectId: string; message: string; what: string }>).detail;
+      if (d.projectId === props.project.id) setServerError({ message: d.message, what: d.what });
+    };
+    window.addEventListener("accessweb:server-error", on);
+    return () => window.removeEventListener("accessweb:server-error", on);
+  }, [props.project.id]);
+  /** Send a Copy for Support: asks first (what's sent, and an optional note), then sends it. */
+  const sendSupportCopy = async (err: { message: string; what?: string }) => {
+    const note = await dialogs.prompt(
+      "Send a Copy for Support",
+      <>
+        <p>
+          This sends the site's administrators a copy of <strong>{name}</strong> as it is now, records included, so they can find what went wrong. Only the
+          administrators see it, and your database isn't changed.
+        </p>
+        <p className="small muted">The error: {err.message}</p>
+        <p>Anything you'd like to tell them? (optional)</p>
+      </>,
+      "",
+    );
+    if (note === null) return;
+    try {
+      await api.sendSupportCopy(props.project.id, `${err.what ? `${err.what}: ` : ""}${err.message}`, note);
+      setServerError(null);
+      setStatus("Thank you. A copy was sent to the administrators, who'll look into it.");
+    } catch (e) {
+      setStatus((e as Error).message, "error");
+    }
+  };
   // The AI assistant: its buttons show when the site has it set up.
   const [aiDialog, setAiDialog] = useState<null | "query" | "tables">(null);
   const [aiConfigured, setAiConfigured] = useState(false);
@@ -509,7 +542,11 @@ export function Workspace(props: {
       }
     } catch (e) {
       setStatus((e as Error).message, "error");
-      dialogs.alert("Export to Access", `The export didn't work: ${(e as Error).message}`);
+      const serverSide = (e as { status?: number }).status !== undefined && (e as { status: number }).status >= 500 && role === "owner";
+      if (!serverSide) return void dialogs.alert("Export to Access", `The export didn't work: ${(e as Error).message}`);
+      const send = await dialogs.confirm("Export to Access", <>The export didn't work: {(e as Error).message}<p>You can send the administrators a copy of this database so they can find the problem.</p></>, { okLabel: "Send a Copy for Support", cancelLabel: "Close" });
+      if (send) await sendSupportCopy({ message: (e as Error).message, what: "Export to Access" });
+      else setServerError(null);
     }
   };
 
@@ -936,6 +973,19 @@ export function Workspace(props: {
           </section>
         </div>
 
+        {serverError && role === "owner" && !guest && (
+          <div className="support-offer" role="alert">
+            <span>
+              {/^Something went wrong/.test(serverError.message) ? serverError.message.slice(0, 200) : `Something went wrong on the server: ${serverError.message.slice(0, 200)}`}
+            </span>
+            <button className="primary" onClick={() => void sendSupportCopy(serverError)}>
+              Send a Copy for Support
+            </button>
+            <button className="link" onClick={() => setServerError(null)} aria-label="Dismiss">
+              Dismiss
+            </button>
+          </div>
+        )}
         <footer className={`status-bar ${status.kind === "error" ? "error" : ""}`}>
           <span className="status-msg" role="status">{status.message}</span>
           <span className={`save-state ${saveState}`}>{saveLabel}</span>
