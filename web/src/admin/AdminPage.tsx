@@ -25,8 +25,8 @@ export function AdminPage({ user, onExit }: { user: UserInfo; onExit: () => void
     document.title = "Site admin - Access Web";
   }, []);
 
-  const showActivityFor = (u: { id: string; name: string; email: string }) => {
-    setFilter({ user: u.id, userLabel: u.name || u.email });
+  const showActivityFor = (u: { id: string; name: string; email: string }, action?: ActivityAction) => {
+    setFilter({ user: u.id, userLabel: u.name || u.email, ...(action ? { action } : {}) });
     setPerson(null);
     setTab("activity");
   };
@@ -59,7 +59,7 @@ export function AdminPage({ user, onExit }: { user: UserInfo; onExit: () => void
       </header>
       <main className="admin-main">
         {tab === "overview" && <Overview onPeople={() => setTab("people")} onActivity={(action) => (setFilter({ action }), setTab("activity"))} />}
-        {tab === "people" && (person ? <Person id={person} onBack={() => setPerson(null)} onActivity={showActivityFor} /> : <People onOpen={setPerson} />)}
+        {tab === "people" && (person ? <Person id={person} onBack={() => setPerson(null)} onActivity={showActivityFor} /> : <People onOpen={setPerson} onErrors={(u) => showActivityFor(u, "error")} />)}
         {tab === "plans" && <AdminPlans />}
         {tab === "activity" && <Activity filter={filter} setFilter={setFilter} onPerson={(id) => (setPerson(id), setTab("people"))} />}
       </main>
@@ -156,7 +156,7 @@ function DayBars({ title, days }: { title: string; days: { day: string; n: numbe
 
 type SortKey = "name" | "createdAt" | "lastSeenAt" | "databases" | "storageBytes" | "actions30";
 
-function People({ onOpen }: { onOpen: (id: string) => void }) {
+function People({ onOpen, onErrors }: { onOpen: (id: string) => void; onErrors: (u: AdminUserRow) => void }) {
   const [users, setUsers] = useState<AdminUserRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -215,6 +215,7 @@ function People({ onOpen }: { onOpen: (id: string) => void }) {
                     <button className="link admin-person" onClick={(e) => (e.stopPropagation(), onOpen(u.id))}>
                       {u.name || u.email}
                     </button>
+                    {u.errors30 > 0 && <ErrorFlag u={u} onClick={() => onErrors(u)} />}
                     {u.admin && <span className="admin-badge">Admin</span>}
                     {u.suspendedAt && <span className="admin-badge suspended">Suspended</span>}
                     <div className="small muted">{u.email}</div>
@@ -239,7 +240,25 @@ function People({ onOpen }: { onOpen: (id: string) => void }) {
   );
 }
 
-function Person({ id, onBack, onActivity }: { id: string; onBack: () => void; onActivity: (u: AdminUserDetail) => void }) {
+/** A "!" by someone who ran into server errors lately: click to see them. */
+function ErrorFlag({ u, onClick }: { u: AdminUserRow; onClick: () => void }) {
+  const label = `${u.errors30} server error${u.errors30 === 1 ? "" : "s"} in the last 30 days${u.lastErrorAt ? `, the latest ${ago(u.lastErrorAt)}` : ""}. Click to see them.`;
+  return (
+    <button
+      className="admin-error-flag"
+      title={label}
+      aria-label={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+    >
+      !
+    </button>
+  );
+}
+
+function Person({ id, onBack, onActivity }: { id: string; onBack: () => void; onActivity: (u: AdminUserDetail, action?: ActivityAction) => void }) {
   const [u, setU] = useState<AdminUserDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(0);
@@ -256,7 +275,8 @@ function Person({ id, onBack, onActivity }: { id: string; onBack: () => void; on
       {u && (
         <>
           <h1>
-            {u.name || u.email} {u.admin && <span className="admin-badge">Admin</span>}
+            {u.name || u.email} {u.errors30 > 0 && <ErrorFlag u={u} onClick={() => onActivity(u, "error")} />}
+            {u.admin && <span className="admin-badge">Admin</span>}
             {u.suspendedAt && <span className="admin-badge suspended">Suspended</span>}
           </h1>
           <Suspension u={u} onChanged={() => setLoaded((n) => n + 1)} />

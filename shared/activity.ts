@@ -86,6 +86,9 @@ export interface AdminUserRow {
   sharedWithThem: number;
   storageBytes: number;
   actions30: number;
+  /** Server errors while they used the site, in the last 30 days (shown with a "!" to check on). */
+  errors30: number;
+  lastErrorAt: string | null;
   admin: boolean;
   suspendedAt: string | null;
   suspendedReason: string | null;

@@ -129,7 +129,9 @@ export function adminRouter(
       (SELECT COUNT(*) FROM project_shares s WHERE s.user_id = u.id) AS sharedWithThem,
       COALESCE((SELECT SUM(length(p.doc)) FROM projects p WHERE p.user_id = u.id), 0)
         + COALESCE((SELECT SUM(i.size) FROM images i JOIN projects p ON p.id = i.project_id WHERE p.user_id = u.id), 0) AS storageBytes,
-      COALESCE((SELECT SUM(a.count) FROM activity a WHERE a.user_id = u.id AND a.at >= @since), 0) AS actions30
+      COALESCE((SELECT SUM(a.count) FROM activity a WHERE a.user_id = u.id AND a.at >= @since), 0) AS actions30,
+      COALESCE((SELECT SUM(a.count) FROM activity a WHERE a.user_id = u.id AND a.action = 'error' AND a.at >= @since), 0) AS errors30,
+      (SELECT MAX(a.at) FROM activity a WHERE a.user_id = u.id AND a.action = 'error' AND a.at >= @since) AS lastErrorAt
     FROM users u`;
 
   const userRow = (r: Omit<AdminUserRow, "admin">): AdminUserRow => ({ ...r, admin: opts.isAdmin(r) });
