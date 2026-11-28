@@ -8,7 +8,10 @@ import { TabOrderDialog } from "./TabOrderDialog";
 import { relatedTables, type SubformLink } from "./subform";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type PointerEvent as RPointerEvent } from "react";
 import { FORM_CONTROL_TYPES, FORM_SECTIONS, type FormControl, type FormControlType, type FormDef, type FormLayout, type FormSection } from "../../../shared/model";
-import { useLayout } from "../ui/layout";
+import { useLayout, useLongPress } from "../ui/layout";
+import { ControlMenu } from "../ui/ControlMenu";
+import { useDialogs } from "../ui/dialogs";
+import { NAME_PATTERN } from "../../../shared/model";
 import { useSource } from "../views/FormReportViews";
 import { useCommands, useWorkspace } from "../workspace/context";
 import { newId } from "../workspace/docOps";
@@ -570,6 +573,26 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
     if (text !== (c.caption ?? "")) patchSelected({ caption: text.slice(0, 500) }, [c.id]);
   };
 
+  // A control's menu: a long press on a touch screen, or a right-click.
+  const press = useLongPress();
+  const dialogs = useDialogs();
+  const [ctlMenu, setCtlMenu] = useState<{ x: number; y: number; id: string } | null>(null);
+  const menuControl = ctlMenu ? layout.controls.find((c) => c.id === ctlMenu.id) : undefined;
+  const openControlMenu = (c: FormControl, x: number, y: number) => {
+    if (readOnly) return;
+    setSel([c.id]);
+    setCtlMenu({ x, y, id: c.id });
+  };
+  const renameControl = async (c: FormControl) => {
+    const n = await dialogs.prompt("Rename", `A new name for ${c.name} (macros and expressions refer to controls by name):`, c.name, (v) => {
+      const t = v.trim();
+      if (!NAME_PATTERN.test(t)) return "Names can't be empty or contain . ! ` [ or ].";
+      if (layout.controls.some((x) => x.id !== c.id && x.name.toLowerCase() === t.toLowerCase())) return `There is already a control named '${t}'.`;
+      return null;
+    });
+    if (n && n.trim() !== c.name) patchSelected({ name: n.trim() }, [c.id]);
+  };
+
   const toolbox = (
     <div className="fd-toolbox" role="toolbar" aria-label="Controls">
       {FORM_CONTROL_TYPES.map((t) => {
@@ -707,7 +730,17 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
                         key={c.id}
                         className={`fd-ctl fv-ctl t-${c.type} ${isSel ? "selected" : ""} ${moving ? "moving" : ""} ${c.hidden ? "is-hidden" : ""}`}
                         style={style}
-                        onPointerDown={(e) => onControlDown(e, c)}
+                        onPointerDown={(e) => {
+                          press.bind((x, y) => openControlMenu(c, x, y)).onPointerDown(e);
+                          onControlDown(e, c);
+                        }}
+                        onPointerMove={press.bind(() => undefined).onPointerMove}
+                        onPointerUp={press.bind(() => undefined).onPointerUp}
+                        onPointerCancel={press.bind(() => undefined).onPointerCancel}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          if (!press.wasLongPress()) openControlMenu(c, e.clientX, e.clientY);
+                        }}
                         onDoubleClick={() => !readOnly && ["label", "button", "checkbox"].includes(c.type) && setEditing(c.id)}
                         data-name={c.name}
                       >
@@ -801,6 +834,19 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
               });
               ws.setStatus("Tab order saved. Tab and Enter follow it in Form View.");
             }}
+          />
+        )}
+        {ctlMenu && menuControl && (
+          <ControlMenu
+            x={ctlMenu.x}
+            y={ctlMenu.y}
+            title={menuControl.caption && ["label", "button", "checkbox"].includes(menuControl.type) ? `${menuControl.caption} (${menuControl.name})` : menuControl.name}
+            onClose={() => setCtlMenu(null)}
+            items={[
+              ...(["label", "button", "checkbox"].includes(menuControl.type) ? [{ label: "Edit Text", run: () => setEditing(menuControl.id) }] : []),
+              { label: "Rename…", run: () => void renameControl(menuControl) },
+              { label: "Delete", danger: true, run: () => (setSel([menuControl.id]), mutate((l) => (l.controls = l.controls.filter((x) => x.id !== menuControl.id && x.onPage?.tab !== menuControl.id))), setSel([])) },
+            ]}
           />
         )}
       </div>

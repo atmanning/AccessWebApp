@@ -1069,3 +1069,7 @@ button.props-tab.active { background: #fff; font-weight: 600; }
 /* A server error while working on a database: offer to send the admins a copy. */
 .support-offer { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; background: #fdecec; border-top: 1px solid #f2b8b8; color: #8a1c1c; font-size: 13px; }
 .support-offer > span { flex: 1; min-width: 200px; }
+/* A designer control's menu (long press / right-click). */
+.context-menu .menu-title { padding: 4px 12px 2px; font-size: 12px; color: var(--muted); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.context-menu .menu-danger { color: #b00020; }
+.fd-ctl { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }

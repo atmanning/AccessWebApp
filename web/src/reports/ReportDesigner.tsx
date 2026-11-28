@@ -10,7 +10,10 @@ import { REPORT_CONTROL_TYPES, type FormControl, type FormControlType, type Form
 import { CONTROL_ICONS, FieldListIcon, PropertySheetIcon } from "../forms/formIcons";
 import { CONTROL_LABELS, GRID, snap } from "../forms/formLayout";
 import { FormPropertySheet } from "../forms/FormPropertySheet";
-import { useLayout } from "../ui/layout";
+import { useLayout, useLongPress } from "../ui/layout";
+import { ControlMenu } from "../ui/ControlMenu";
+import { useDialogs } from "../ui/dialogs";
+import { NAME_PATTERN } from "../../../shared/model";
 import { useSource } from "../views/FormReportViews";
 import { useCommands, useWorkspace } from "../workspace/context";
 import { newId } from "../workspace/docOps";
@@ -535,6 +538,26 @@ export function ReportDesigner({ report, tabKey }: { report: ReportDef; tabKey: 
     setEditing(null);
     if (text !== (c.caption ?? "")) patchSelected({ caption: text.slice(0, 500) }, [c.id]);
   };
+
+  // A control's menu: a long press on a touch screen, or a right-click.
+  const press = useLongPress();
+  const dialogs = useDialogs();
+  const [ctlMenu, setCtlMenu] = useState<{ x: number; y: number; id: string } | null>(null);
+  const menuControl = ctlMenu ? layout.controls.find((c) => c.id === ctlMenu.id) : undefined;
+  const openControlMenu = (c: ReportControl, x: number, y: number) => {
+    if (readOnly) return;
+    setSel([c.id]);
+    setCtlMenu({ x, y, id: c.id });
+  };
+  const renameControl = async (c: ReportControl) => {
+    const n = await dialogs.prompt("Rename", `A new name for ${c.name}:`, c.name, (v) => {
+      const t = v.trim();
+      if (!NAME_PATTERN.test(t)) return "Names can't be empty or contain . ! ` [ or ].";
+      if (layout.controls.some((x) => x.id !== c.id && x.name.toLowerCase() === t.toLowerCase())) return `There is already a control named '${t}'.`;
+      return null;
+    });
+    if (n && n.trim() !== c.name) patchSelected({ name: n.trim() }, [c.id]);
+  };
   const sourceName = ws.doc.tables.find((t) => t.id === report.source.id)?.name ?? ws.doc.queries.find((q) => q.id === report.source.id)?.name ?? "(missing)";
 
   const fieldPane = (
@@ -663,7 +686,17 @@ export function ReportDesigner({ report, tabKey }: { report: ReportDef; tabKey: 
                             key={c.id}
                             className={`fd-ctl rdz-ctl t-${c.type} ${isSel ? "selected" : ""} ${moving ? "moving" : ""} ${c.hidden ? "is-hidden" : ""}`}
                             style={style}
-                            onPointerDown={(e) => onControlDown(e, c)}
+                            onPointerDown={(e) => {
+                              press.bind((x, y) => openControlMenu(c, x, y)).onPointerDown(e);
+                              onControlDown(e, c);
+                            }}
+                            onPointerMove={press.bind(() => undefined).onPointerMove}
+                            onPointerUp={press.bind(() => undefined).onPointerUp}
+                            onPointerCancel={press.bind(() => undefined).onPointerCancel}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              if (!press.wasLongPress()) openControlMenu(c, e.clientX, e.clientY);
+                            }}
                             onDoubleClick={() => !readOnly && c.type === "label" && setEditing(c.id)}
                             data-name={c.name}
                           >
@@ -750,6 +783,19 @@ export function ReportDesigner({ report, tabKey }: { report: ReportDef; tabKey: 
               />
             )}
           </aside>
+        )}
+        {ctlMenu && menuControl && (
+          <ControlMenu
+            x={ctlMenu.x}
+            y={ctlMenu.y}
+            title={menuControl.caption && menuControl.type === "label" ? `${menuControl.caption} (${menuControl.name})` : menuControl.name}
+            onClose={() => setCtlMenu(null)}
+            items={[
+              ...(menuControl.type === "label" ? [{ label: "Edit Text", run: () => setEditing(menuControl.id) }] : []),
+              { label: "Rename…", run: () => void renameControl(menuControl) },
+              { label: "Delete", danger: true, run: () => (mutate((l) => (l.controls = l.controls.filter((x) => x.id !== menuControl.id))), setSel([])) },
+            ]}
+          />
         )}
       </div>
     </div>
