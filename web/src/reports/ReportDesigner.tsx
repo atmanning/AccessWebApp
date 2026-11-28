@@ -13,7 +13,7 @@ import { FormPropertySheet } from "../forms/FormPropertySheet";
 import { useLayout, useLongPress } from "../ui/layout";
 import { ControlMenu } from "../ui/ControlMenu";
 import { useDialogs } from "../ui/dialogs";
-import { NAME_PATTERN } from "../../../shared/model";
+import { FontStyleDialog, textOf } from "../ui/FontStyleDialog";
 import { useSource } from "../views/FormReportViews";
 import { useCommands, useWorkspace } from "../workspace/context";
 import { newId } from "../workspace/docOps";
@@ -549,14 +549,15 @@ export function ReportDesigner({ report, tabKey }: { report: ReportDef; tabKey: 
     setSel([c.id]);
     setCtlMenu({ x, y, id: c.id });
   };
-  const renameControl = async (c: ReportControl) => {
-    const n = await dialogs.prompt("Rename", `A new name for ${c.name}:`, c.name, (v) => {
-      const t = v.trim();
-      if (!NAME_PATTERN.test(t)) return "Names can't be empty or contain . ! ` [ or ].";
-      if (layout.controls.some((x) => x.id !== c.id && x.name.toLowerCase() === t.toLowerCase())) return `There is already a control named '${t}'.`;
-      return null;
-    });
-    if (n && n.trim() !== c.name) patchSelected({ name: n.trim() }, [c.id]);
+  const [styling, setStyling] = useState<string | null>(null);
+  const styleControl = styling ? layout.controls.find((c) => c.id === styling) : undefined;
+  /** Edit Text: a caption in place on the control; a text box's own label in a box. */
+  const editText = async (c: ReportControl) => {
+    const t = textOf(c);
+    if (!t) return;
+    if (t.key === "caption") return setEditing(c.id);
+    const v = await dialogs.prompt("Edit Text", `The label for ${c.name}:`, t.value);
+    if (v !== null && v !== t.value) patchSelected({ label: v.slice(0, 200) }, [c.id]);
   };
   const sourceName = ws.doc.tables.find((t) => t.id === report.source.id)?.name ?? ws.doc.queries.find((q) => q.id === report.source.id)?.name ?? "(missing)";
 
@@ -784,15 +785,18 @@ export function ReportDesigner({ report, tabKey }: { report: ReportDef; tabKey: 
             )}
           </aside>
         )}
+        {styleControl && (
+          <FontStyleDialog control={styleControl} baseSize={baseFont} onPatch={(patch) => patchSelected(patch, [styleControl.id])} onClose={() => setStyling(null)} />
+        )}
         {ctlMenu && menuControl && (
           <ControlMenu
             x={ctlMenu.x}
             y={ctlMenu.y}
-            title={menuControl.caption && menuControl.type === "label" ? `${menuControl.caption} (${menuControl.name})` : menuControl.name}
+            title={textOf(menuControl)?.value ? `${textOf(menuControl)!.value} (${menuControl.name})` : menuControl.name}
             onClose={() => setCtlMenu(null)}
             items={[
-              ...(menuControl.type === "label" ? [{ label: "Edit Text", run: () => setEditing(menuControl.id) }] : []),
-              { label: "Rename…", run: () => void renameControl(menuControl) },
+              ...(textOf(menuControl) ? [{ label: "Edit Text", run: () => void editText(menuControl) }] : []),
+              { label: "Font & Style…", run: () => setStyling(menuControl.id) },
               { label: "Delete", danger: true, run: () => (mutate((l) => (l.controls = l.controls.filter((x) => x.id !== menuControl.id))), setSel([])) },
             ]}
           />

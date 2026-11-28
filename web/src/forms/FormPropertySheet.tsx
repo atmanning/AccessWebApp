@@ -6,6 +6,7 @@ import {
   BUTTON_ACTIONS,
   FORM_THEMES,
   NAME_PATTERN,
+  FONT_CHOICES,
   type Field,
   type FormControl,
   type FormControlType,
@@ -647,9 +648,18 @@ export function FormPropertySheet(props: {
         {num("h", "Height")}
         {!all((t) => t === "rectangle" || t === "line") && (
           <>
+            <Row label="Font Name">
+              <Select
+                label="Font Name"
+                value={common("font") ?? ""}
+                options={[{ value: "", label: "Default" }, ...Object.keys(FONT_CHOICES).map((f) => ({ value: f, label: f }))]}
+                onChange={(v) => onPatch({ font: v || undefined })}
+              />
+            </Row>
             {num("fontSize", "Font Size", true)}
             {bool("bold", "Bold")}
             {bool("italic", "Italic")}
+            {bool("underline", "Underline")}
             <Row label="Text Align">
               <Select
                 label="Text Align"

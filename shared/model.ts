@@ -236,6 +236,19 @@ export const sourceSchema = z.object({ kind: z.enum(["table", "query"]), id });
 export type SourceRef = z.infer<typeof sourceSchema>;
 
 /** Controls a form can hold, as the designer's toolbox offers them. */
+/** Fonts a control can use, with what to fall back on where a font isn't installed (phones). */
+export const FONT_CHOICES: Record<string, string> = {
+  Arial: "Arial, Helvetica, sans-serif",
+  Calibri: "Calibri, Carlito, 'Segoe UI', sans-serif",
+  "Segoe UI": "'Segoe UI', system-ui, sans-serif",
+  Verdana: "Verdana, Geneva, sans-serif",
+  "Trebuchet MS": "'Trebuchet MS', Tahoma, sans-serif",
+  Georgia: "Georgia, 'Times New Roman', serif",
+  "Times New Roman": "'Times New Roman', Times, serif",
+  "Courier New": "'Courier New', Courier, monospace",
+};
+export const fontStack = (font: string | undefined) => (font ? (FONT_CHOICES[font] ?? `'${font.replace(/'/g, "")}', sans-serif`) : undefined);
+
 export const FORM_CONTROL_TYPES = ["label", "textbox", "combobox", "listbox", "checkbox", "button", "image", "subform", "rectangle", "line", "tab"] as const;
 export type FormControlType = (typeof FORM_CONTROL_TYPES)[number];
 export const FORM_SECTIONS = ["header", "detail", "footer"] as const;
@@ -299,6 +312,8 @@ export const formControlSchema = z.object({
   locked: z.boolean().optional(),
   hidden: z.boolean().optional(),
   fontSize: px(8, 72).optional(),
+  /** A font from FONT_CHOICES (unset: the form's or report's own). */
+  font: z.string().max(64).optional(),
   bold: z.boolean().optional(),
   italic: z.boolean().optional(),
   underline: z.boolean().optional(),

@@ -3,7 +3,7 @@
  * source ("Name", "=Sum([Cost])"), as Access shows them.
  */
 import type { CSSProperties } from "react";
-import type { ReportControl } from "../../../shared/model";
+import { fontStack, type ReportControl } from "../../../shared/model";
 
 export interface ReportCellContent {
   text?: string;
@@ -18,6 +18,8 @@ export function reportControlStyle(c: ReportControl, baseFont: number): CSSPrope
     fontSize: c.fontSize ?? baseFont,
     fontWeight: c.bold ? 700 : undefined,
     fontStyle: c.italic ? "italic" : undefined,
+    textDecoration: c.underline ? "underline" : undefined,
+    fontFamily: fontStack(c.font),
     textAlign: c.align,
     color: c.color,
     background: c.backColor,

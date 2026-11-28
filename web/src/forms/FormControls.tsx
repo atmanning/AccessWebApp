@@ -9,7 +9,7 @@ import { SubformDesign } from "./subform";
 import { CalendarButton, DatePicker, type DatePickerHandle } from "../ui/DatePicker";
 import { ImageDialog } from "../views/ImageDialog";
 import { pictureIn } from "../ui/images";
-import type { CellValue, Field, FormControl } from "../../../shared/model";
+import { fontStack, type CellValue, type Field, type FormControl } from "../../../shared/model";
 import { editText, formatValue, isNumericType } from "../engine/values";
 import { acceptsDateText } from "../ui/dateKeys";
 import { useWorkspace } from "../workspace/context";
@@ -44,6 +44,7 @@ export interface RunProps {
 export function textStyle(c: FormControl): CSSProperties {
   const s: CSSProperties = {};
   if (c.fontSize) s.fontSize = c.fontSize;
+  if (c.font) s.fontFamily = fontStack(c.font);
   if (c.bold) s.fontWeight = 600;
   if (c.italic) s.fontStyle = "italic";
   if (c.underline) s.textDecoration = "underline";
