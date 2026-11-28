@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CellValue, Field } from "../../../shared/model";
-import { editText, formatValue, isNumericType } from "../engine/values";
+import { editText, formatValue, isNumericType, isRequiredField } from "../engine/values";
 import { computeTotal, TOTAL_LABELS, totalsFor } from "./totals";
 import type { TotalKind } from "../../../shared/model";
 import { acceptsDateText, dateShortcut, insertAtCaret, nowText, type DateShortcut } from "../ui/dateKeys";
@@ -826,7 +826,7 @@ export const Datasheet = forwardRef<DatasheetHandle, DatasheetProps>(function Da
                     return (
                       <td
                         key={col.key}
-                        className={`${cls} ${col.image ? "image-cell" : ""} ${col.link && !newRow ? "link-cell" : ""} ${dropCell?.r === r && dropCell.c === c ? "drop-over" : ""}`}
+                        className={`${cls} ${col.image ? "image-cell" : ""} ${col.link && !newRow ? "link-cell" : ""} ${isRequiredField(col.field) && !col.readOnlyReason && p.editable ? "req-cell" : ""} ${dropCell?.r === r && dropCell.c === c ? "drop-over" : ""}`}
                         title={col.image && canEdit(c) ? "Double-click to view or change the picture, or drop an image file here" : undefined}
                         onDragOver={(e) => {
                           if (!imageDrop || !e.dataTransfer.types.includes("Files")) return;

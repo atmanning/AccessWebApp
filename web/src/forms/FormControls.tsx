@@ -36,9 +36,14 @@ export interface RunProps {
   uploadImage?: (file: Blob) => Promise<string>;
   /** What a subform shows (its related records). */
   content?: ReactNode;
+  /** A label for a field that must be filled in (shown in red). */
+  required?: boolean;
   /** A calculated control's result (Control Source "=…"), shown read-only. */
   display?: { text: string; error?: string; numeric?: boolean };
 }
+
+export { isRequiredField } from "../engine/values";
+import { isRequiredField } from "../engine/values";
 
 /** Font, colour and border properties as CSS. */
 export function textStyle(c: FormControl): CSSProperties {
@@ -112,7 +117,8 @@ export function FormControlView({ c, run, inputId, page, onPage }: { c: FormCont
     case "label":
       return (
         <div
-          className="fc-label"
+          className={`fc-label ${run?.required ? "required" : ""}`}
+          title={run?.required ? "Required: this must be filled in" : undefined}
           style={{
             ...ts,
             ...bs,
@@ -176,7 +182,12 @@ function BoundControl({ c, run, ts, bs, inputId }: { c: FormControl; run?: RunPr
   const labelText = c.label ?? c.field ?? "";
   const label =
     pos === "none" ? null : (
-      <label className="fc-caption" htmlFor={inputId} style={pos === "left" ? { width: c.labelWidth ?? 110, flex: "none" } : undefined}>
+      <label
+        className={`fc-caption ${run && !run.readOnly && isRequiredField(run.field) ? "required" : ""}`}
+        htmlFor={inputId}
+        style={pos === "left" ? { width: c.labelWidth ?? 110, flex: "none" } : undefined}
+        title={run && !run.readOnly && isRequiredField(run.field) ? "Required: this must be filled in" : undefined}
+      >
         {labelText}
       </label>
     );

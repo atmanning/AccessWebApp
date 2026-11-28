@@ -37,6 +37,37 @@ const MAX_FONT = 26;
  * The controls of one section (already without hidden ones), arranged for a phone. Controls
  * marked "not on phones" are left out; so are lines and rectangles (they only decorate).
  */
+/**
+ * Which label belongs to which box (Access keeps them as separate controls): one named after it
+ * ("City_Label"), or the one just left of it or just above it; a check box's is right of it.
+ * Returns control id → label id.
+ */
+export function attachedLabels(controls: FormControl[]): Map<string, string> {
+  const result = new Map<string, string>();
+  const labels = controls.filter((c) => c.type === "label" && c.caption);
+  const used = new Set<string>();
+  const targets = controls.filter((c) => BOUND.has(c.type) || (c.type === "image" && !!c.field)).sort((a, b) => a.y - b.y || a.x - b.x);
+  for (const c of targets) {
+    if (c.label && c.labelPos !== "none") continue;
+    let best = labels.find((l) => !used.has(l.id) && l.section === c.section && l.name.toLowerCase() === `${c.name}_label`.toLowerCase());
+    let bestGap = Infinity;
+    if (!best) {
+      for (const l of labels) {
+        if (used.has(l.id) || l.section !== c.section) continue;
+        let gap = Infinity;
+        if (c.type === "checkbox" && sameRow(l, c) && l.x >= c.x && l.x - (c.x + c.w) < 60) gap = Math.max(0, l.x - (c.x + c.w));
+        else if (sameRow(l, c) && l.x + l.w <= c.x + 8 && c.x - (l.x + l.w) < 80) gap = c.x - (l.x + l.w);
+        else if (l.y + l.h <= c.y + 4 && c.y - (l.y + l.h) < 24 && Math.abs(l.x - c.x) < 24) gap = c.y - (l.y + l.h) + 10;
+        if (gap < bestGap) [best, bestGap] = [l, gap];
+      }
+    }
+    if (!best) continue;
+    used.add(best.id);
+    result.set(c.id, best.id);
+  }
+  return result;
+}
+
 export function phoneRows(controls: FormControl[]): PhoneRow[] {
   const all = controls.filter((c) => !c.phoneHidden && c.type !== "line" && c.type !== "rectangle");
   const out = new Map<string, FormControl>(all.map((c) => [c.id, { ...c }]));
@@ -71,23 +102,10 @@ export function phoneRows(controls: FormControl[]): PhoneRow[] {
   }
 
   // Labels: the one just left of a box (or just above it) becomes its caption; a check box's is right of it.
-  const labels = all.filter((c) => c.type === "label" && c.caption);
-  const used = new Set<string>();
-  const targets = [...all].filter((c) => BOUND.has(c.type) || (c.type === "image" && !!c.field)).sort((a, b) => a.y - b.y || a.x - b.x);
-  for (const c of targets) {
-    if (c.label && c.labelPos !== "none") continue;
-    let best: FormControl | undefined;
-    let bestGap = Infinity;
-    for (const l of labels) {
-      if (used.has(l.id) || l.section !== c.section) continue;
-      let gap = Infinity;
-      if (c.type === "checkbox" && sameRow(l, c) && l.x >= c.x && l.x - (c.x + c.w) < 60) gap = Math.max(0, l.x - (c.x + c.w));
-      else if (sameRow(l, c) && l.x + l.w <= c.x + 8 && c.x - (l.x + l.w) < 80) gap = c.x - (l.x + l.w);
-      else if (l.y + l.h <= c.y + 4 && c.y - (l.y + l.h) < 24 && Math.abs(l.x - c.x) < 24) gap = c.y - (l.y + l.h) + 10;
-      if (gap < bestGap) [best, bestGap] = [l, gap];
-    }
-    if (!best) continue;
-    used.add(best.id);
+  const labelOf = new Map(all.map((c) => [c.id, c]));
+  for (const [cid, lid] of attachedLabels(all)) {
+    const c = labelOf.get(cid)!;
+    const best = labelOf.get(lid)!;
     drop.add(best.id);
     const o = out.get(c.id)!;
     if (c.type === "checkbox") o.caption = best.caption;

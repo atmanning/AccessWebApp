@@ -1087,3 +1087,9 @@ button.props-tab.active { background: #fff; font-weight: 600; }
 .fs-color { display: flex; align-items: center; gap: 10px; }
 .fs-color input[type="color"] { width: 44px; height: 36px; padding: 2px; border: 1px solid var(--border-strong); border-radius: 6px; background: #fff; }
 .fs-preview { border: 1px dashed var(--border-strong); border-radius: 6px; padding: 10px 12px; min-height: 44px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background: #fff; }
+
+/* Required fields: red labels on forms, a light red fill in datasheets. */
+.fc-caption.required, .fc-label.required { color: #c62828 !important; }
+.datasheet td.req-cell { background: #fdeeee; }
+/* Design View: a read-only (Locked) field shows a small lock. */
+.fd-ctl.is-locked::after { content: "🔒"; position: absolute; right: 2px; top: 1px; font-size: 10px; line-height: 1; opacity: 0.8; pointer-events: none; }

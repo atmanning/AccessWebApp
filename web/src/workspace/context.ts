@@ -98,6 +98,9 @@ export interface FormDesignCommands {
   remove: () => void;
   /** Opens the Tab Order dialog. */
   tabOrder: () => void;
+  /** The selected boxes: read-only (Locked) or not; undefined when none that can be is selected. */
+  readOnly?: boolean;
+  toggleReadOnly?: () => void;
   /** Report Design: the same tools, plus report ones. */
   report?: boolean;
   groupSort?: () => void;

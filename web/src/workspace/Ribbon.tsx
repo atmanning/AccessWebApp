@@ -26,6 +26,7 @@ import {
   LabelsIcon,
   MacroIcon,
   AskQueryIcon,
+  LockIcon,
   DescribeTablesIcon,
   RowHeightIcon,
   RunIcon,
@@ -473,6 +474,13 @@ export function Ribbon({ tab, commands, actions }: { tab: Tab | null; commands: 
                 <Big icon={<FieldListIcon size={32} />} label="Add Existing Fields" pressed={f.fieldList} onClick={f.toggleFieldList} title="Show or hide the toolbox and field list" />
                 <Big icon={<PropertySheetIcon size={32} />} label="Property Sheet" pressed={f.propertySheet} onClick={f.togglePropertySheet} />
                 <Big icon={<TabOrderIcon size={32} />} label="Tab Order" onClick={f.tabOrder} title="Change the order Tab and Enter move through the controls" />
+                <Big
+                  icon={<LockIcon size={32} />}
+                  label="Read-Only"
+                  pressed={!!f.readOnly}
+                  onClick={f.toggleReadOnly}
+                  title={f.toggleReadOnly ? "Make the selected field read-only in Form View (or editable again)" : "Select a field on the form to make it read-only"}
+                />
               </Group>
               <Group label="Layout">
                 <Big icon={<StackedIcon size={32} />} label="Stacked" onClick={() => f.relayout("stacked")} title="Arrange the fields in one column" />

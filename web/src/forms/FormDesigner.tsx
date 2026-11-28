@@ -475,6 +475,9 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
     ws.setStatus(style === "columns" ? "Fields arranged in two columns." : "Fields arranged in one column.");
   };
 
+  // Bound boxes in the selection, for Read-Only (Locked).
+  const lockable = readOnly ? [] : layout.controls.filter((c) => sel.includes(c.id) && !!c.field && ["textbox", "combobox", "listbox", "checkbox"].includes(c.type));
+
   useCommands(tabKey, {
     formDesign: {
       tool,
@@ -492,6 +495,16 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
       relayout,
       remove: removeSelected,
       tabOrder: () => setTabOrderOpen(true),
+      ...(lockable.length
+        ? {
+            readOnly: lockable.every((c) => c.locked),
+            toggleReadOnly: () => {
+              const on = !lockable.every((c) => c.locked);
+              patchSelected({ locked: on || undefined }, lockable.map((c) => c.id));
+              ws.setStatus(on ? "Read-only: people can see but not change it in Form View." : "Editable again.");
+            },
+          }
+        : {}),
     },
   });
 
@@ -729,7 +742,7 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
                     return (
                       <div
                         key={c.id}
-                        className={`fd-ctl fv-ctl t-${c.type} ${isSel ? "selected" : ""} ${moving ? "moving" : ""} ${c.hidden ? "is-hidden" : ""}`}
+                        className={`fd-ctl fv-ctl t-${c.type} ${isSel ? "selected" : ""} ${moving ? "moving" : ""} ${c.hidden ? "is-hidden" : ""} ${c.locked ? "is-locked" : ""}`}
                         style={style}
                         onPointerDown={(e) => {
                           press.bind((x, y) => openControlMenu(c, x, y)).onPointerDown(e);
@@ -849,6 +862,9 @@ export function FormDesigner({ form, tabKey }: { form: FormDef; tabKey: string }
             items={[
               ...(textOf(menuControl) ? [{ label: "Edit Text", run: () => void editText(menuControl) }] : []),
               { label: "Font & Style…", run: () => setStyling(menuControl.id) },
+              ...(["textbox", "combobox", "listbox", "checkbox"].includes(menuControl.type) && menuControl.field
+                ? [{ label: menuControl.locked ? "Make Editable" : "Make Read-Only", run: () => patchSelected({ locked: !menuControl.locked || undefined }, [menuControl.id]) }]
+                : []),
               { label: "Delete", danger: true, run: () => (setSel([menuControl.id]), mutate((l) => (l.controls = l.controls.filter((x) => x.id !== menuControl.id && x.onPage?.tab !== menuControl.id))), setSel([])) },
             ]}
           />

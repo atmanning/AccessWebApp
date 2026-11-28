@@ -16,8 +16,8 @@ import { useSource } from "../views/FormReportViews";
 import { useCommands, useWorkspace, type OpenArgs, type RecordTarget } from "../workspace/context";
 import { useFormEditor } from "./formEditor";
 import { Datasheet, type DatasheetColumn } from "../views/Datasheet";
-import { FormControlView, type ChoiceOption } from "./FormControls";
-import { phoneRows } from "./phoneLayout";
+import { FormControlView, isRequiredField, type ChoiceOption } from "./FormControls";
+import { attachedLabels, phoneRows } from "./phoneLayout";
 import { FormChartView } from "./FormChart";
 import { isBound, layoutOf, onShownPage, paintOrder, parseValueList, readingOrder, tabSequence, themeStyle } from "./formLayout";
 
@@ -199,6 +199,19 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
 
   const fieldList = useMemo(() => (data ? data.columns.map((name, i) => ({ name, field: data.fields[i] })) : []), [data]);
   const designed = useMemo(() => layoutOf(form, fieldList), [form, fieldList]);
+  // Labels of fields that must be filled in (shown in red), for the labels Access keeps apart from their boxes.
+  const requiredLabels = useMemo(() => {
+    const out = new Set<string>();
+    if (!data) return out;
+    const byId = new Map(designed.controls.map((c) => [c.id, c]));
+    for (const [cid, lid] of attachedLabels(designed.controls)) {
+      const c = byId.get(cid)!;
+      if (!c.field || c.locked) continue;
+      const i = data.columns.findIndex((n) => n.toLowerCase() === c.field!.toLowerCase());
+      if (i >= 0 && isRequiredField(data.fields[i])) out.add(lid);
+    }
+    return out;
+  }, [designed, data]);
   // The layout with what macros changed (SetProperty Visible, Enabled, Caption…).
   const layout = useMemo(
     () =>
@@ -878,7 +891,7 @@ export function FormRunView({ form, tabKey, goto, open, embedded }: { form: Form
       return <FormControlView c={c} inputId={inputId} run={{ value: null, readOnly: true, isNew, display: { text: r.text, error: "error" in r ? r.error : undefined, numeric: typeof r.value === "number" }, onCommit: () => {}, onAction: () => {} }} />;
     }
     if (finding && isBound(c.type)) return <FindField c={c} inputId={inputId} field={c.field ? data.fields[colIdx(c.field)] : undefined} finding={finding} setFinding={setFinding} options={options[c.id]} onEnter={runFind} />;
-    if (!isBound(c.type)) return <FormControlView c={c} inputId={inputId} run={{ value: null, readOnly: true, isNew, onCommit: () => {}, onAction: () => act(c), buttonDisabled: !!finding || buttonDisabled(c), imageUrl: (imageId: string) => ws.imageUrl(imageId) }} />;
+    if (!isBound(c.type)) return <FormControlView c={c} inputId={inputId} run={{ value: null, readOnly: true, isNew, required: requiredLabels.has(c.id) && !ws.readOnly && !readOnlyMode, onCommit: () => {}, onAction: () => act(c), buttonDisabled: !!finding || buttonDisabled(c), imageUrl: (imageId: string) => ws.imageUrl(imageId) }} />;
     if (!c.field && (c.type === "textbox" || c.type === "combobox" || c.type === "listbox" || c.type === "checkbox")) {
       // An unbound box holding a date (Date() as its Default Value) shows and edits it as a date.
       const v0 = unbound[c.id];

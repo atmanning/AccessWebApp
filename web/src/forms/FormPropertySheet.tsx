@@ -231,10 +231,10 @@ export function FormPropertySheet(props: {
       <NumberProp label={label} value={common(k) as number | undefined} min={LIMITS[k]![0]} max={LIMITS[k]![1]} allowBlank={allowBlank} onCommit={(v) => onPatch({ [k]: v } as Patch)} />
     </Row>
   );
-  const bool = (k: keyof FormControl, label: string, invert = false) => {
+  const bool = (k: keyof FormControl, label: string, invert = false, hint?: string) => {
     const v = !!common(k);
     return (
-      <Row label={label}>
+      <Row label={label} hint={hint}>
         <BoolProp label={label} value={invert ? !v : v} onChange={(b) => onPatch({ [k]: (invert ? !b : b) || undefined } as Patch)} />
       </Row>
     );
@@ -537,7 +537,7 @@ export function FormPropertySheet(props: {
             </Row>
           )}
           {(one.type === "combobox" || one.type === "listbox") && <RowSourceProps c={one} onPatch={onPatch} />}
-          {!props.report && bool("locked", "Locked")}
+          {!props.report && bool("locked", "Locked (Read-Only)", false, "Yes: people can see the value but not change it")}
           {props.report && one.type === "textbox" && !isExpression(one.field) && bool("hideDuplicates" as keyof FormControl, "Hide Duplicates")}
           {!props.report && (one.type === "textbox" || one.type === "combobox") && (
             <Row label="Placeholder">

@@ -336,6 +336,16 @@ export const OtherDbIcon = svg(
   </>,
 );
 
+/** Read-only (Locked) fields. */
+export const LockIcon = svg(
+  <>
+    <rect x="3" y="7" width="10" height="7.5" rx="1.2" fill="#f3d27a" stroke="#9a7417" />
+    <path d="M5 7V5a3 3 0 0 1 6 0v2" fill="none" stroke="#6b6b6b" strokeWidth="1.4" />
+    <circle cx="8" cy="10.4" r="1" fill="#7a5a10" />
+    <path d="M8 11v1.6" stroke="#7a5a10" />
+  </>,
+);
+
 /** The AI assistant: a query drawn with a spark. */
 export const AskQueryIcon = svg(
   <>
